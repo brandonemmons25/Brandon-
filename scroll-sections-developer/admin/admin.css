@@ -1,0 +1,68 @@
+/* Admin styles for Scroll Sections Developer */
+
+.ssd-meta-box {
+    display: grid;
+    gap: 20px;
+}
+
+.ssd-field-group {
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 16px;
+}
+
+.ssd-field-group h4 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+}
+
+.ssd-field-group label {
+    display: block;
+    margin: 10px 0 4px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.ssd-field-group label small {
+    font-weight: 400;
+    color: #666;
+}
+
+.ssd-field-group input[type="checkbox"] + label,
+.ssd-field-group label:has(input[type="checkbox"]) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 400;
+}
+
+.ssd-field-group select,
+.ssd-field-group input[type="text"],
+.ssd-field-group input[type="url"],
+.ssd-field-group input[type="number"] {
+    width: 100%;
+    max-width: 400px;
+}
+
+.ssd-image-preview {
+    margin-top: 8px;
+}
+
+.ssd-image-preview img {
+    max-width: 300px;
+    max-height: 180px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+.ssd-color-input {
+    max-width: 140px !important;
+}
+
+/* Conditional visibility of background sub-fields */
+.ssd-bg-field {
+    display: none;
+}
