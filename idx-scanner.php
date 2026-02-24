@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.4
+ * Version: 2.5
  * Author: You
  */
 
@@ -54,6 +54,7 @@ add_action('wp_ajax_idx_scan_url', function () {
         'class_idx'      => '/class=["\'][^"\']*\bidx[-_][^"\']*["\']/i',
         'src_idxbroker'  => '/src=["\'][^"\']*idxbroker[^"\']*["\']/i',
         'href_idxbroker' => '/href=["\'][^"\']*idxbroker[^"\']*["\']/i',
+        'href_idx_path'  => '/href=["\'][^"\']*\/idx\/[^"\']*["\']/i',
         'data_idx'       => '/data-idx(?:-\w+)?=["\'][^"\']*["\']/i',
     ];
 
@@ -163,7 +164,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx'];
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx', '/idx/'];
 
     // Build sidebar assignment map: "text-2" => "sidebar-1"
     $sidebars_widgets = get_option('sidebars_widgets', []);
@@ -239,6 +240,7 @@ add_action('wp_ajax_idx_scan_theme_files', function () {
         'idxbroker', 'idxre\.com', 'mlsfinder\.com',
         '\[IDX', '\[idx', 'IDX-', 'idx-',
         'do_shortcode.*\[idx', 'do_shortcode.*\[IDX',
+        '\/idx\/',
     ];
 
     $theme_dir  = get_stylesheet_directory();  // child theme first
@@ -277,7 +279,7 @@ add_action('wp_ajax_idx_scan_theme_files', function () {
 add_action('wp_ajax_idx_scan_navmenus', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
 
-    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', 'IDX-', 'idx-', '[IDX', '[idx', 'data-idx'];
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', 'IDX-', 'idx-', '[IDX', '[idx', 'data-idx', '/idx/'];
     $menus     = wp_get_nav_menus();
     $found     = [];
 
@@ -316,7 +318,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.4</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.5</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
