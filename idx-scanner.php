@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.3
+ * Version: 2.4
  * Author: You
  */
 
@@ -199,10 +199,17 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             $content = implode(' ', $text_parts);
 
             $matched_terms = [];
+
+            // Match by widget content (text/HTML widgets with IDX URLs or shortcodes)
             foreach ($idx_terms as $term) {
                 if (stripos($content, $term) !== false) {
                     $matched_terms[] = $term;
                 }
+            }
+
+            // Match by widget TYPE NAME (IDX Broker's own widgets store config, not URLs)
+            if (stripos($option_name, 'idx') !== false) {
+                $matched_terms[] = 'widget-type:' . $option_name;
             }
 
             if (!empty($matched_terms)) {
@@ -217,6 +224,48 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     'content'     => substr(wp_strip_all_tags($content), 0, 300),
                     'matched'     => $matched_terms,
                 ];
+            }
+        }
+    }
+
+    wp_send_json_success($found);
+});
+
+// ── AJAX: Scan active theme PHP files for IDX content ─────────────────────────
+add_action('wp_ajax_idx_scan_theme_files', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+
+    $patterns = [
+        'idxbroker', 'idxre\.com', 'mlsfinder\.com',
+        '\[IDX', '\[idx', 'IDX-', 'idx-',
+        'do_shortcode.*\[idx', 'do_shortcode.*\[IDX',
+    ];
+
+    $theme_dir  = get_stylesheet_directory();  // child theme first
+    $found      = [];
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($theme_dir, RecursiveDirectoryIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+        if ($file->getExtension() !== 'php') continue;
+
+        $relative = str_replace($theme_dir . DIRECTORY_SEPARATOR, '', $file->getPathname());
+        $lines    = file($file->getPathname(), FILE_IGNORE_NEW_LINES);
+        if ($lines === false) continue;
+
+        foreach ($lines as $line_num => $line) {
+            foreach ($patterns as $term) {
+                if (preg_match('/' . $term . '/i', $line)) {
+                    $found[] = [
+                        'file'    => $relative,
+                        'line'    => $line_num + 1,
+                        'matched' => $term,
+                        'snippet' => substr(trim($line), 0, 300),
+                    ];
+                    break; // one match per line per file is enough
+                }
             }
         }
     }
@@ -267,7 +316,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.3</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.4</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -276,6 +325,7 @@ function idx_scanner_page() {
             <a class="nav-tab" onclick="switchTab('scripts',this);return false;" href="#">External Scripts</a>
             <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">Widgets / Sidebar</a>
             <a class="nav-tab" onclick="switchTab('navmenus',this);return false;" href="#">Nav Menus</a>
+            <a class="nav-tab" onclick="switchTab('themefiles',this);return false;" href="#">Theme Files</a>
         </nav>
 
         <!-- ── Tab: Current Page ── -->
@@ -348,6 +398,14 @@ function idx_scanner_page() {
             <button id="navmenus-scan-btn" class="button button-primary">Scan Nav Menus</button>
             <button id="navmenus-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="navmenus-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ── Tab: Theme Files ── -->
+        <div id="tab-themefiles" class="idx-tab" style="display:none;">
+            <p>Scans every <code>.php</code> file in the active theme for IDX Broker references — catches hardcoded <code>do_shortcode()</code> calls and inline IDX content that no database scan can find.</p>
+            <button id="themefiles-scan-btn" class="button button-primary">Scan Theme Files</button>
+            <button id="themefiles-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
+            <div id="themefiles-results" style="margin-top:16px;"></div>
         </div>
     </div>
 
@@ -708,6 +766,56 @@ function idx_scanner_page() {
             navmenusResults.map(r => [r.menu, r.item, r.url, r.matched]),
             ['Menu Name', 'Item Label', 'URL', 'Matched Terms'],
             'idx-nav-menus.csv'
+        );
+    });
+
+    // ── Theme Files Scanner ────────────────────────────────────────────────────
+    let themeFilesResults = [];
+
+    document.getElementById('themefiles-scan-btn').addEventListener('click', async function () {
+        this.disabled = true;
+        themeFilesResults = [];
+        const div = document.getElementById('themefiles-results');
+        div.innerHTML = '<em>Scanning theme PHP files…</em>';
+
+        const res = await ajax('idx_scan_theme_files');
+        this.disabled = false;
+
+        if (!res.success) {
+            div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>';
+            return;
+        }
+
+        if (!res.data.length) {
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX Broker references found in any theme PHP files.</p>';
+            return;
+        }
+
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>File</th><th style="text-align:center;">Line</th><th>Matched Pattern</th><th>Code Snippet</th>' +
+            '</tr></thead><tbody>';
+
+        res.data.forEach(r => {
+            themeFilesResults.push({ file: r.file, line: r.line, matched: r.matched, snippet: r.snippet });
+            html +=
+                '<tr>' +
+                '<td><code>' + h(r.file) + '</code></td>' +
+                '<td style="text-align:center;">' + h(r.line) + '</td>' +
+                '<td><code>' + h(r.matched) + '</code></td>' +
+                '<td style="max-width:400px;word-break:break-all;font-size:11px;font-family:monospace;">' + h(r.snippet) + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('themefiles-export-btn').disabled = false;
+    });
+
+    document.getElementById('themefiles-export-btn').addEventListener('click', function () {
+        exportCSV(
+            themeFilesResults.map(r => [r.file, r.line, r.matched, r.snippet]),
+            ['File', 'Line Number', 'Matched Pattern', 'Code Snippet'],
+            'idx-theme-files.csv'
         );
     });
 
