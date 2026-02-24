@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.5
+ * Version: 2.6
  * Author: You
  */
 
@@ -74,28 +74,128 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
+    // Match shortcodes AND /idx/ path links — covers accordion panel CPTs too
     $posts = $wpdb->get_results(
-        "SELECT ID, post_title, post_type
+        "SELECT ID, post_title, post_type, post_parent
          FROM {$wpdb->posts}
-         WHERE post_status = 'publish'
-           AND (post_content LIKE '%[IDX%' OR post_content LIKE '%[idx%')",
+         WHERE post_status IN ('publish','inherit','private')
+           AND (  post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%/idx/%'
+               OR post_content LIKE '%idxbroker%'
+               OR post_content LIKE '%idxre.com%')",
         ARRAY_A
     );
 
     $found = [];
     foreach ($posts as $post) {
         $content = get_post_field('post_content', $post['ID']);
-        preg_match_all('/\[(IDX|idx)[^\]]*\]/i', $content, $matches);
-        if (!empty($matches[0])) {
-            $found[] = [
-                'id'         => $post['ID'],
-                'title'      => $post['post_title'],
-                'type'       => $post['post_type'],
-                'url'        => get_permalink($post['ID']),
-                'shortcodes' => array_values(array_unique($matches[0])),
-            ];
+
+        // Shortcodes
+        preg_match_all('/\[(IDX|idx)[^\]]*\]/i', $content, $sc_matches);
+        // /idx/ links
+        preg_match_all('/href=["\'][^"\']*\/idx\/[^"\']*["\']/i', $content, $link_matches);
+        // IDX domain references
+        preg_match_all('/https?:\/\/[^\s"\'<>]*(?:idxbroker|idxre\.com|mlsfinder)[^\s"\'<>]*/i', $content, $domain_matches);
+
+        $all_matches = array_values(array_unique(array_merge(
+            $sc_matches[0],
+            $link_matches[0],
+            $domain_matches[0]
+        )));
+
+        if (empty($all_matches)) continue;
+
+        // If this is a child CPT (accordion item etc.), surface the parent page too
+        $parent_info = null;
+        if (!empty($post['post_parent'])) {
+            $parent = get_post($post['post_parent']);
+            if ($parent) {
+                $parent_info = [
+                    'id'    => $parent->ID,
+                    'title' => $parent->post_title,
+                    'url'   => get_permalink($parent->ID),
+                ];
+            }
         }
+
+        $found[] = [
+            'id'         => $post['ID'],
+            'title'      => $post['post_title'],
+            'type'       => $post['post_type'],
+            'url'        => get_permalink($post['ID']),
+            'parent'     => $parent_info,
+            'shortcodes' => $all_matches,
+        ];
     }
+    wp_send_json_success($found);
+});
+
+// ── AJAX: Scan wp_postmeta for IDX content (accordion/custom fields) ──────────
+add_action('wp_ajax_idx_scan_postmeta', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+    global $wpdb;
+
+    $like_clauses = [
+        "meta_value LIKE '%[IDX%'",
+        "meta_value LIKE '%[idx%'",
+        "meta_value LIKE '%/idx/%'",
+        "meta_value LIKE '%idxbroker%'",
+        "meta_value LIKE '%idxre.com%'",
+    ];
+    $where = implode(' OR ', $like_clauses);
+
+    $rows = $wpdb->get_results(
+        "SELECT pm.meta_id, pm.post_id, pm.meta_key, pm.meta_value,
+                p.post_title, p.post_type, p.post_parent, p.post_status
+         FROM {$wpdb->postmeta} pm
+         JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+         WHERE ({$where})
+           AND p.post_status IN ('publish','inherit','private')",
+        ARRAY_A
+    );
+
+    $found = [];
+    foreach ($rows as $row) {
+        // Unserialize if needed; stringify for snippet
+        $raw   = maybe_unserialize($row['meta_value']);
+        $text  = is_array($raw) || is_object($raw)
+            ? wp_json_encode($raw)
+            : (string) $raw;
+
+        // Confirm the IDX pattern is actually in the stringified text
+        $idx_terms = ['[IDX', '[idx', '/idx/', 'idxbroker', 'idxre.com'];
+        $matched   = [];
+        foreach ($idx_terms as $term) {
+            if (stripos($text, $term) !== false) $matched[] = $term;
+        }
+        if (empty($matched)) continue;
+
+        $parent_info = null;
+        if (!empty($row['post_parent'])) {
+            $parent = get_post($row['post_parent']);
+            if ($parent) {
+                $parent_info = [
+                    'id'    => $parent->ID,
+                    'title' => $parent->post_title,
+                    'url'   => get_permalink($parent->ID),
+                ];
+            }
+        }
+
+        $found[] = [
+            'meta_id'    => $row['meta_id'],
+            'post_id'    => $row['post_id'],
+            'post_title' => $row['post_title'],
+            'post_type'  => $row['post_type'],
+            'post_url'   => get_permalink($row['post_id']),
+            'parent'     => $parent_info,
+            'meta_key'   => $row['meta_key'],
+            'matched'    => $matched,
+            'snippet'    => substr(wp_strip_all_tags($text), 0, 400),
+        ];
+    }
+
     wp_send_json_success($found);
 });
 
@@ -318,12 +418,13 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.5</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.6</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
             <a class="nav-tab" onclick="switchTab('crawler',this);return false;" href="#">Site Crawler</a>
-            <a class="nav-tab" onclick="switchTab('shortcode',this);return false;" href="#">Shortcodes</a>
+            <a class="nav-tab" onclick="switchTab('shortcode',this);return false;" href="#">Content / Shortcodes</a>
+            <a class="nav-tab" onclick="switchTab('postmeta',this);return false;" href="#">Post Meta</a>
             <a class="nav-tab" onclick="switchTab('scripts',this);return false;" href="#">External Scripts</a>
             <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">Widgets / Sidebar</a>
             <a class="nav-tab" onclick="switchTab('navmenus',this);return false;" href="#">Nav Menus</a>
@@ -370,12 +471,20 @@ function idx_scanner_page() {
             </table>
         </div>
 
-        <!-- ── Tab: Shortcodes ── -->
+        <!-- ── Tab: Content / Shortcodes ── -->
         <div id="tab-shortcode" class="idx-tab" style="display:none;">
-            <p>Searches the database for posts/pages that contain IDX shortcodes like <code>[IDX-listings]</code> or <code>[idx-wrapper]</code>.</p>
-            <button id="shortcode-scan-btn" class="button button-primary">Scan for Shortcodes</button>
+            <p>Searches <code>post_content</code> across <strong>all post types</strong> (pages, posts, accordion items, CPTs) for IDX shortcodes like <code>[IDX-listings]</code>, <code>/idx/</code> path links, and IDX domain references. Accordion panel CPTs show their parent page.</p>
+            <button id="shortcode-scan-btn" class="button button-primary">Scan Content</button>
             <button id="shortcode-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="shortcode-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ── Tab: Post Meta ── -->
+        <div id="tab-postmeta" class="idx-tab" style="display:none;">
+            <p>Scans <code>wp_postmeta</code> for IDX content stored in custom fields — catches accordion plugins that serialize panel content into meta values instead of <code>post_content</code>.</p>
+            <button id="postmeta-scan-btn" class="button button-primary">Scan Post Meta</button>
+            <button id="postmeta-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
+            <div id="postmeta-results" style="margin-top:16px;"></div>
         </div>
 
         <!-- ── Tab: External Scripts ── -->
@@ -559,22 +668,27 @@ function idx_scanner_page() {
         }
 
         if (!res.data.length) {
-            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX shortcodes found in any published content.</p>';
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any published content.</p>';
             return;
         }
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Post Title</th><th>Type</th><th>Shortcodes Found</th>' +
+            '<th>Post / Item</th><th>Type</th><th>Parent Page</th><th>Matches Found</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(p => {
-            const codes = p.shortcodes.join(', ');
-            shortcodeResults.push({ title: p.title, type: p.type, url: p.url, shortcodes: codes });
+            const codes = p.shortcodes.join('<br>');
+            const parentCell = p.parent
+                ? '<a href="' + h(p.parent.url) + '" target="_blank">' + h(p.parent.title) + '</a>'
+                : '—';
+            const csvParent = p.parent ? p.parent.title + ' (' + p.parent.url + ')' : '';
+            shortcodeResults.push({ title: p.title, type: p.type, url: p.url, parent: csvParent, shortcodes: p.shortcodes.join(', ') });
             html +=
                 '<tr>' +
                 '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
-                '<td>' + h(p.type) + '</td>' +
-                '<td><code>' + h(codes) + '</code></td>' +
+                '<td><code>' + h(p.type) + '</code></td>' +
+                '<td>' + parentCell + '</td>' +
+                '<td style="font-size:11px;font-family:monospace;">' + codes + '</td>' +
                 '</tr>';
         });
 
@@ -585,9 +699,69 @@ function idx_scanner_page() {
 
     document.getElementById('shortcode-export-btn').addEventListener('click', function () {
         exportCSV(
-            shortcodeResults.map(r => [r.title, r.type, r.url, r.shortcodes]),
-            ['Post Title', 'Type', 'URL', 'Shortcodes'],
-            'idx-shortcodes.csv'
+            shortcodeResults.map(r => [r.title, r.type, r.url, r.parent, r.shortcodes]),
+            ['Post / Item', 'Type', 'URL', 'Parent Page', 'Matches Found'],
+            'idx-content.csv'
+        );
+    });
+
+    // ── Post Meta Scanner ─────────────────────────────────────────────────────
+    let postMetaResults = [];
+
+    document.getElementById('postmeta-scan-btn').addEventListener('click', async function () {
+        this.disabled = true;
+        postMetaResults = [];
+        const div = document.getElementById('postmeta-results');
+        div.innerHTML = '<em>Scanning post meta…</em>';
+
+        const res = await ajax('idx_scan_postmeta');
+        this.disabled = false;
+
+        if (!res.success) {
+            div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>';
+            return;
+        }
+
+        if (!res.data.length) {
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any post meta fields.</p>';
+            return;
+        }
+
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Post</th><th>Type</th><th>Parent Page</th><th>Meta Key</th><th>Matched</th><th>Snippet</th>' +
+            '</tr></thead><tbody>';
+
+        res.data.forEach(r => {
+            const parentCell = r.parent
+                ? '<a href="' + h(r.parent.url) + '" target="_blank">' + h(r.parent.title) + '</a>'
+                : '—';
+            const csvParent = r.parent ? r.parent.title + ' (' + r.parent.url + ')' : '';
+            postMetaResults.push({
+                title: r.post_title, type: r.post_type, url: r.post_url,
+                parent: csvParent, key: r.meta_key,
+                matched: r.matched.join(', '), snippet: r.snippet
+            });
+            html +=
+                '<tr>' +
+                '<td><a href="' + h(r.post_url) + '" target="_blank">' + h(r.post_title) + '</a></td>' +
+                '<td><code>' + h(r.post_type) + '</code></td>' +
+                '<td>' + parentCell + '</td>' +
+                '<td><code>' + h(r.meta_key) + '</code></td>' +
+                '<td><code>' + h(r.matched.join(', ')) + '</code></td>' +
+                '<td style="max-width:300px;word-break:break-all;font-size:11px;">' + h(r.snippet) + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('postmeta-export-btn').disabled = false;
+    });
+
+    document.getElementById('postmeta-export-btn').addEventListener('click', function () {
+        exportCSV(
+            postMetaResults.map(r => [r.title, r.type, r.url, r.parent, r.key, r.matched, r.snippet]),
+            ['Post', 'Type', 'URL', 'Parent Page', 'Meta Key', 'Matched', 'Snippet'],
+            'idx-postmeta.csv'
         );
     });
 
