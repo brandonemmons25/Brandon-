@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: IDX Element Scanner
- * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.1
+ * Description: Scans for IDX Broker & iHomeFinder elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
+ * Version: 2.2
  * Author: You
  */
 
@@ -50,11 +50,20 @@ add_action('wp_ajax_idx_scan_url', function () {
 
     $html = wp_remote_retrieve_body($response);
     $patterns = [
-        'id_prefix'      => '/id=["\']IDX-[^"\']+["\']/i',
-        'class_idx'      => '/class=["\'][^"\']*\bidx[-_][^"\']*["\']/i',
-        'src_idxbroker'  => '/src=["\'][^"\']*idxbroker[^"\']*["\']/i',
-        'href_idxbroker' => '/href=["\'][^"\']*idxbroker[^"\']*["\']/i',
-        'data_idx'       => '/data-idx(?:-\w+)?=["\'][^"\']*["\']/i',
+        // IDX Broker
+        'id_prefix'         => '/id=["\']IDX-[^"\']+["\']/i',
+        'class_idx'         => '/class=["\'][^"\']*\bidx[-_][^"\']*["\']/i',
+        'src_idxbroker'     => '/src=["\'][^"\']*idxbroker[^"\']*["\']/i',
+        'href_idxbroker'    => '/href=["\'][^"\']*idxbroker[^"\']*["\']/i',
+        'data_idx'          => '/data-idx(?:-\w+)?=["\'][^"\']*["\']/i',
+        // iHomeFinder / Showcase IDX
+        'id_ihf'            => '/id=["\']ihf-[^"\']+["\']/i',
+        'class_ihf'         => '/class=["\'][^"\']*\bihf[-_][^"\']*["\']/i',
+        'src_ihomefinder'   => '/src=["\'][^"\']*ihomefinder[^"\']*["\']/i',
+        'href_ihomefinder'  => '/href=["\'][^"\']*ihomefinder[^"\']*["\']/i',
+        'src_showcaseidx'   => '/src=["\'][^"\']*showcaseidx[^"\']*["\']/i',
+        'shortcode_ihf'     => '/\[ihf_[^\]]*\]/i',
+        'shortcode_showcase'=> '/\[showcase_idx[^\]]*\]/i',
     ];
 
     $found = [];
@@ -77,14 +86,19 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
         "SELECT ID, post_title, post_type
          FROM {$wpdb->posts}
          WHERE post_status = 'publish'
-           AND (post_content LIKE '%[IDX%' OR post_content LIKE '%[idx%')",
+           AND (
+               post_content LIKE '%[IDX%'
+            OR post_content LIKE '%[idx%'
+            OR post_content LIKE '%[ihf_%'
+            OR post_content LIKE '%[showcase_idx%'
+           )",
         ARRAY_A
     );
 
     $found = [];
     foreach ($posts as $post) {
         $content = get_post_field('post_content', $post['ID']);
-        preg_match_all('/\[(IDX|idx)[^\]]*\]/i', $content, $matches);
+        preg_match_all('/\[(IDX|idx|ihf_\w+|showcase_idx\w*)[^\]]*\]/i', $content, $matches);
         if (!empty($matches[0])) {
             $found[] = [
                 'id'         => $post['ID'],
@@ -103,7 +117,7 @@ add_action('wp_ajax_idx_scan_scripts', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    $domains        = ['idxbroker.com', 'idxre.com', 'mlsfinder.com'];
+    $domains        = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', 'ihomefinder.com', 'showcaseidx.com'];
     $found_scripts  = [];
     $found_styles   = [];
     $inline_results = [];
@@ -163,7 +177,8 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx'];
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx',
+                  'ihomefinder', 'ihomefinder.com', 'showcaseidx', '[ihf_', 'ihf-'];
 
     // Build sidebar assignment map: "text-2" => "sidebar-1"
     $sidebars_widgets = get_option('sidebars_widgets', []);
@@ -228,7 +243,8 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 add_action('wp_ajax_idx_scan_navmenus', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
 
-    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', 'IDX-', 'idx-', '[IDX', '[idx', 'data-idx'];
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', 'IDX-', 'idx-', '[IDX', '[idx', 'data-idx',
+                  'ihomefinder', 'ihomefinder.com', 'showcaseidx', '[ihf_', 'ihf-'];
     $menus     = wp_get_nav_menus();
     $found     = [];
 
@@ -267,7 +283,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.1</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.2</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -280,7 +296,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Current Page ── -->
         <div id="tab-page" class="idx-tab">
-            <p>Scans the DOM of the current page for IDX Broker elements. Use the bookmarklet below to scan any front-end page.</p>
+            <p>Scans the DOM of the current page for IDX Broker &amp; iHomeFinder elements. Use the bookmarklet below to scan any front-end page.</p>
             <button id="idx-scan-btn" class="button button-primary">Scan This Page</button>
             <button id="idx-highlight-btn" class="button" style="margin-left:8px;">Highlight Elements</button>
             <button id="idx-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
@@ -289,7 +305,7 @@ function idx_scanner_page() {
             <h3>Front-end Bookmarklet</h3>
             <p>Drag this link to your bookmarks bar, then click it on any page of your site to scan and highlight IDX elements:</p>
             <a id="idx-bookmarklet"
-               href="javascript:(function(){var s=['[id^=&quot;IDX-&quot;]','[class*=&quot;idx-&quot;]','[class*=&quot;IDX-&quot;]','[id*=&quot;idx&quot;]','[src*=&quot;idxbroker&quot;]','[href*=&quot;idxbroker&quot;]','[data-idx]','[data-idx-id]','[data-idx-widget]','[data-idx-page]'];var f=new Set();s.forEach(function(q){document.querySelectorAll(q).forEach(function(e){f.add(e);e.style.outline='3px solid #d63638';e.style.background='rgba(214,54,56,0.12)';});});alert('IDX elements found: '+f.size);})();"
+               href="javascript:(function(){var s=['[id^=&quot;IDX-&quot;]','[class*=&quot;idx-&quot;]','[class*=&quot;IDX-&quot;]','[id*=&quot;idx&quot;]','[src*=&quot;idxbroker&quot;]','[href*=&quot;idxbroker&quot;]','[data-idx]','[data-idx-id]','[data-idx-widget]','[data-idx-page]','[id^=&quot;ihf-&quot;]','[id*=&quot;ihf&quot;]','[class*=&quot;ihf-&quot;]','[class*=&quot;ihf_&quot;]','[src*=&quot;ihomefinder&quot;]','[href*=&quot;ihomefinder&quot;]','[src*=&quot;showcaseidx&quot;]','[href*=&quot;showcaseidx&quot;]','#ihf-main-container','.ihf-container'];var f=new Set();s.forEach(function(q){try{document.querySelectorAll(q).forEach(function(e){f.add(e);e.style.outline='3px solid #d63638';e.style.background='rgba(214,54,56,0.12)';});}catch(e){}});alert('IDX/IHF elements found: '+f.size);})();"
                style="display:inline-block;padding:7px 14px;background:#0073aa;color:#fff;border-radius:3px;text-decoration:none;font-size:13px;cursor:move;">
                 &#128269; IDX Scan
             </a>
@@ -328,7 +344,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: External Scripts ── -->
         <div id="tab-scripts" class="idx-tab" style="display:none;">
-            <p>Detects WordPress-registered scripts/styles and post content referencing IDX domains: <code>idxbroker.com</code>, <code>idxre.com</code>, <code>mlsfinder.com</code>.</p>
+            <p>Detects WordPress-registered scripts/styles and post content referencing IDX domains: <code>idxbroker.com</code>, <code>idxre.com</code>, <code>mlsfinder.com</code>, <code>ihomefinder.com</code>, <code>showcaseidx.com</code>.</p>
             <button id="scripts-scan-btn" class="button button-primary">Detect External IDX Scripts</button>
             <button id="scripts-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="scripts-results" style="margin-top:16px;"></div>
@@ -336,7 +352,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Widgets / Sidebar ── -->
         <div id="tab-widgets" class="idx-tab" style="display:none;">
-            <p>Scans all WordPress widget instances stored in <code>wp_options</code> for IDX Broker URLs, saved links, and shortcodes — covering sidebars, footers, and any other registered widget areas.</p>
+            <p>Scans all WordPress widget instances stored in <code>wp_options</code> for IDX Broker &amp; iHomeFinder URLs, saved links, and shortcodes — covering sidebars, footers, and any other registered widget areas.</p>
             <button id="widgets-scan-btn" class="button button-primary">Scan Widgets &amp; Sidebars</button>
             <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="widgets-results" style="margin-top:16px;"></div>
@@ -372,9 +388,15 @@ function idx_scanner_page() {
 
     // ── Current Page Scanner ───────────────────────────────────────────────────
     const IDX_SELECTORS = [
+        // IDX Broker
         '[id^="IDX-"]','[class*="idx-"]','[class*="IDX-"]','[id*="idx"]',
         '[src*="idxbroker"]','[href*="idxbroker"]',
-        '[data-idx]','[data-idx-id]','[data-idx-widget]','[data-idx-page]'
+        '[data-idx]','[data-idx-id]','[data-idx-widget]','[data-idx-page]',
+        // iHomeFinder / Showcase IDX
+        '[id^="ihf-"]','[id*="ihf"]','[class*="ihf-"]','[class*="ihf_"]',
+        '[src*="ihomefinder"]','[href*="ihomefinder"]',
+        '[src*="showcaseidx"]','[href*="showcaseidx"]',
+        '#ihf-main-container','.ihf-container'
     ];
 
     let pageResults  = [];
