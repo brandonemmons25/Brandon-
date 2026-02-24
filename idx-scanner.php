@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.6
+ * Version: 2.7
  * Author: You
  */
 
@@ -196,10 +196,143 @@ add_action('wp_ajax_idx_scan_postmeta', function () {
         ];
     }
 
-    wp_send_json_success($found);
+    // ── Map sidebar IDs → theme templates → pages ──────────────────────────────
+    $idx_sidebar_ids = array_unique( array_column( $found, 'sidebar' ) );
+    $idx_sidebar_ids = array_values( array_filter( $idx_sidebar_ids, fn($s) => $s !== 'unassigned' ) );
+
+    $sidebar_templates = [];   // sidebar_id => [template_file, ...]
+    $get_sidebar_files = [];   // files that call get_sidebar() (inherit any dynamic_sidebar from sidebar.php)
+
+    $theme_dir  = get_stylesheet_directory();
+    $parent_dir = get_template_directory();
+
+    foreach ( array_unique([ $theme_dir, $parent_dir ]) as $dir ) {
+        if ( ! is_dir($dir) ) continue;
+        $iter = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator( $dir, RecursiveDirectoryIterator::SKIP_DOTS )
+        );
+        foreach ( $iter as $file ) {
+            if ( $file->getExtension() !== 'php' ) continue;
+            $src = @file_get_contents( $file->getPathname() );
+            if ( ! $src ) continue;
+            $rel = ltrim( str_replace( [ $theme_dir, $parent_dir ], '', $file->getPathname() ), '/\\' );
+
+            // dynamic_sidebar('sidebar-id')
+            preg_match_all( "/dynamic_sidebar\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $dm );
+            foreach ( $dm[1] as $sid ) {
+                if ( in_array( $sid, $idx_sidebar_ids, true ) ) {
+                    $sidebar_templates[ $sid ][] = $rel;
+                }
+            }
+
+            // get_sidebar() callers — they transitively render any sidebar in sidebar.php
+            if ( preg_match( '/\bget_sidebar\s*\(/', $src ) ) {
+                $get_sidebar_files[] = $rel;
+            }
+        }
+    }
+
+    // If sidebar.php is in the chain, all get_sidebar() callers also render those sidebars
+    foreach ( $sidebar_templates as $sid => $templates ) {
+        if ( in_array( 'sidebar.php', $templates, true ) ) {
+            $sidebar_templates[ $sid ] = array_values( array_unique(
+                array_merge( $templates, $get_sidebar_files )
+            ));
+        }
+    }
+
+    // For each sidebar, collect all pages that use its templates
+    $sidebar_pages = [];
+    foreach ( $sidebar_templates as $sid => $templates ) {
+        $all_pages = [];
+        foreach ( $templates as $tpl ) {
+            $pages = idx_pages_for_template( $tpl, $theme_dir, $parent_dir );
+            foreach ( $pages as $pg ) {
+                $all_pages[ $pg['url'] ?: $pg['title'] ] = $pg;
+            }
+        }
+        if ( ! empty($all_pages) ) {
+            $sidebar_pages[ $sid ] = array_values( $all_pages );
+        }
+    }
+
+    wp_send_json_success([
+        'widgets'       => $found,
+        'sidebar_pages' => $sidebar_pages,
+    ]);
 });
 
-// ── AJAX: Detect external IDX scripts/styles ──────────────────────────────────
+// Helper: given a template filename, return which published pages use it
+function idx_pages_for_template( $template_file, $theme_dir, $parent_dir ) {
+    global $wpdb;
+    $base  = basename( $template_file );
+    $pages = [];
+
+    if ( $base === 'front-page.php' ) {
+        $id = (int) get_option('page_on_front');
+        if ( $id ) $pages[] = [ 'title' => get_the_title($id), 'url' => get_permalink($id) ];
+
+    } elseif ( $base === 'home.php' ) {
+        $id = (int) get_option('page_for_posts');
+        if ( $id ) $pages[] = [ 'title' => get_the_title($id), 'url' => get_permalink($id) ];
+        else       $pages[] = [ 'title' => 'Blog index', 'url' => home_url('/') ];
+
+    } elseif ( preg_match( '/^page-(.+)\.php$/', $base, $pm ) ) {
+        $slug_or_id = $pm[1];
+        $p = is_numeric( $slug_or_id ) ? get_post( (int) $slug_or_id ) : get_page_by_path( $slug_or_id );
+        if ( $p ) $pages[] = [ 'title' => $p->post_title, 'url' => get_permalink($p->ID) ];
+
+    } elseif ( $base === 'single.php' || preg_match( '/^single-/', $base ) ) {
+        $pages[] = [ 'title' => 'All single posts / CPTs', 'url' => '' ];
+
+    } elseif ( in_array( $base, [ 'page.php', 'index.php', 'sidebar.php' ], true ) ) {
+        // Generic template — list all pages using default template (cap at 30)
+        $rows = $wpdb->get_results(
+            "SELECT p.ID, p.post_title FROM {$wpdb->posts} p
+             LEFT JOIN {$wpdb->postmeta} pm
+               ON pm.post_id = p.ID AND pm.meta_key = '_wp_page_template'
+             WHERE p.post_status = 'publish'
+               AND p.post_type = 'page'
+               AND (pm.meta_value IS NULL OR pm.meta_value = 'default')
+             LIMIT 30",
+            ARRAY_A
+        );
+        foreach ( $rows as $r ) {
+            $pages[] = [ 'title' => $r['post_title'], 'url' => get_permalink($r['ID']) ];
+        }
+        if ( count($rows) === 30 ) {
+            $pages[] = [ 'title' => '… and possibly more pages', 'url' => '' ];
+        }
+
+    } else {
+        // Custom page template — check for "Template Name:" header and find pages that use it
+        $full = file_exists("$theme_dir/$template_file")
+            ? "$theme_dir/$template_file"
+            : ( file_exists("$parent_dir/$template_file") ? "$parent_dir/$template_file" : '' );
+
+        if ( $full ) {
+            $headers = get_file_data( $full, [ 'Template Name' => 'Template Name' ] );
+            if ( ! empty($headers['Template Name']) ) {
+                $rows = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT p.ID, p.post_title FROM {$wpdb->posts} p
+                         JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+                         WHERE pm.meta_key = '_wp_page_template'
+                           AND pm.meta_value = %s
+                           AND p.post_status = 'publish'",
+                        $template_file
+                    ),
+                    ARRAY_A
+                );
+                foreach ( $rows as $r ) {
+                    $pages[] = [ 'title' => $r['post_title'], 'url' => get_permalink($r['ID']) ];
+                }
+            }
+        }
+    }
+
+    return $pages;
+}
 add_action('wp_ajax_idx_scan_scripts', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
@@ -418,7 +551,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.6</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.7</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -853,17 +986,22 @@ function idx_scanner_page() {
             return;
         }
 
-        if (!res.data.length) {
+        const widgets = res.data.widgets || res.data;  // backwards-compat
+        const sidebarPages = res.data.sidebar_pages || {};
+
+        if (!widgets.length) {
             div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any widget areas.</p>';
             return;
         }
 
-        let html = '<table class="widefat striped"><thead><tr>' +
+        // ── Widget instances table ──────────────────────────────────────────────
+        let html = '<h3 style="margin-top:0;">IDX Widgets Found</h3>' +
+            '<table class="widefat striped"><thead><tr>' +
             '<th>Widget Type</th><th>Sidebar / Area</th><th>Widget Title</th>' +
             '<th>Matched Terms</th><th>Content Preview</th>' +
             '</tr></thead><tbody>';
 
-        res.data.forEach(w => {
+        widgets.forEach(w => {
             widgetsResults.push({
                 type:     w.widget_type,
                 instance: w.instance_id,
@@ -881,8 +1019,29 @@ function idx_scanner_page() {
                 '<td style="max-width:300px;word-break:break-word;font-size:11px;">' + h(w.content) + '</td>' +
                 '</tr>';
         });
-
         html += '</tbody></table>';
+
+        // ── Pages that render each IDX sidebar ─────────────────────────────────
+        const sidebarIds = Object.keys(sidebarPages);
+        if (sidebarIds.length) {
+            html += '<h3 style="margin-top:24px;">Pages That Display These Widgets</h3>';
+            sidebarIds.forEach(sid => {
+                const pages = sidebarPages[sid];
+                html += '<p style="margin:12px 0 4px;"><strong>Sidebar area: <code>' + h(sid) + '</code></strong></p>' +
+                    '<table class="widefat striped"><thead><tr><th>Page Title</th><th>URL</th></tr></thead><tbody>';
+                pages.forEach(pg => {
+                    const link = pg.url
+                        ? '<a href="' + h(pg.url) + '" target="_blank">' + h(pg.title) + '</a>'
+                        : h(pg.title);
+                    html += '<tr><td>' + link + '</td><td style="font-size:11px;">' + h(pg.url) + '</td></tr>';
+                    widgetsResults.push({ type: '(page)', instance: '', sidebar: sid, title: pg.title, matched: '', content: pg.url });
+                });
+                html += '</tbody></table>';
+            });
+        } else {
+            html += '<p style="margin-top:16px;color:#888;"><em>Could not map sidebar areas to pages — check the Theme Files tab for <code>dynamic_sidebar()</code> calls.</em></p>';
+        }
+
         div.innerHTML = html;
         document.getElementById('widgets-export-btn').disabled = false;
     });
@@ -890,7 +1049,7 @@ function idx_scanner_page() {
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
             widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.content]),
-            ['Widget Type', 'Instance ID', 'Sidebar Area', 'Widget Title', 'Matched Terms', 'Content Preview'],
+            ['Widget Type / Page', 'Instance ID', 'Sidebar Area', 'Title / Page Title', 'Matched Terms', 'Content / URL'],
             'idx-widgets.csv'
         );
     });
