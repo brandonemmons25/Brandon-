@@ -163,7 +163,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx'];
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx'];
 
     // Build sidebar assignment map: "text-2" => "sidebar-1"
     $sidebars_widgets = get_option('sidebars_widgets', []);
@@ -224,13 +224,50 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     wp_send_json_success($found);
 });
 
+// ── AJAX: Scan nav menus for IDX links ────────────────────────────────────────
+add_action('wp_ajax_idx_scan_navmenus', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', 'IDX-', 'idx-', '[IDX', '[idx', 'data-idx'];
+    $menus     = wp_get_nav_menus();
+    $found     = [];
+
+    foreach ($menus as $menu) {
+        $items = wp_get_nav_menu_items($menu->term_id);
+        if (!$items) continue;
+        foreach ($items as $item) {
+            $parts = [
+                $item->url ?? '',
+                $item->title ?? '',
+                $item->attr_title ?? '',
+                $item->classes ? implode(' ', (array) $item->classes) : '',
+                $item->description ?? '',
+            ];
+            $content = implode(' ', $parts);
+            $matched = [];
+            foreach ($idx_terms as $term) {
+                if (stripos($content, $term) !== false) $matched[] = $term;
+            }
+            if (!empty($matched)) {
+                $found[] = [
+                    'menu'    => $menu->name,
+                    'item'    => $item->title,
+                    'url'     => $item->url,
+                    'matched' => $matched,
+                ];
+            }
+        }
+    }
+    wp_send_json_success($found);
+});
+
 // ── Admin Page ─────────────────────────────────────────────────────────────────
 function idx_scanner_page() {
     $nonce    = wp_create_nonce('idx_scanner_nonce');
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.0</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.1</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -238,6 +275,7 @@ function idx_scanner_page() {
             <a class="nav-tab" onclick="switchTab('shortcode',this);return false;" href="#">Shortcodes</a>
             <a class="nav-tab" onclick="switchTab('scripts',this);return false;" href="#">External Scripts</a>
             <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">Widgets / Sidebar</a>
+            <a class="nav-tab" onclick="switchTab('navmenus',this);return false;" href="#">Nav Menus</a>
         </nav>
 
         <!-- ── Tab: Current Page ── -->
@@ -302,6 +340,14 @@ function idx_scanner_page() {
             <button id="widgets-scan-btn" class="button button-primary">Scan Widgets &amp; Sidebars</button>
             <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="widgets-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ── Tab: Nav Menus ── -->
+        <div id="tab-navmenus" class="idx-tab" style="display:none;">
+            <p>Scans all WordPress navigation menus for IDX Broker URLs, shortcodes, or class names — a common source of IDX appearing on every page.</p>
+            <button id="navmenus-scan-btn" class="button button-primary">Scan Nav Menus</button>
+            <button id="navmenus-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
+            <div id="navmenus-results" style="margin-top:16px;"></div>
         </div>
     </div>
 
@@ -612,6 +658,56 @@ function idx_scanner_page() {
             widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.content]),
             ['Widget Type', 'Instance ID', 'Sidebar Area', 'Widget Title', 'Matched Terms', 'Content Preview'],
             'idx-widgets.csv'
+        );
+    });
+
+    // ── Nav Menus Scanner ──────────────────────────────────────────────────────
+    let navmenusResults = [];
+
+    document.getElementById('navmenus-scan-btn').addEventListener('click', async function () {
+        this.disabled = true;
+        navmenusResults = [];
+        const div = document.getElementById('navmenus-results');
+        div.innerHTML = '<em>Scanning navigation menus…</em>';
+
+        const res = await ajax('idx_scan_navmenus');
+        this.disabled = false;
+
+        if (!res.success) {
+            div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>';
+            return;
+        }
+
+        if (!res.data.length) {
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any navigation menus.</p>';
+            return;
+        }
+
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Menu Name</th><th>Item Label</th><th>URL</th><th>Matched Terms</th>' +
+            '</tr></thead><tbody>';
+
+        res.data.forEach(m => {
+            navmenusResults.push({ menu: m.menu, item: m.item, url: m.url, matched: m.matched.join(', ') });
+            html +=
+                '<tr>' +
+                '<td>' + h(m.menu) + '</td>' +
+                '<td>' + h(m.item) + '</td>' +
+                '<td><code>' + h(m.url) + '</code></td>' +
+                '<td>' + m.matched.map(t => '<code>' + h(t) + '</code>').join(', ') + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('navmenus-export-btn').disabled = false;
+    });
+
+    document.getElementById('navmenus-export-btn').addEventListener('click', function () {
+        exportCSV(
+            navmenusResults.map(r => [r.menu, r.item, r.url, r.matched]),
+            ['Menu Name', 'Item Label', 'URL', 'Matched Terms'],
+            'idx-nav-menus.csv'
         );
     });
 
