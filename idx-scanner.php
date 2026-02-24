@@ -158,6 +158,72 @@ add_action('wp_ajax_idx_scan_scripts', function () {
     ]);
 });
 
+// ── AJAX: Scan wp_options widget data for IDX content ─────────────────────────
+add_action('wp_ajax_idx_scan_widgets', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+    global $wpdb;
+
+    $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx'];
+
+    // Build sidebar assignment map: "text-2" => "sidebar-1"
+    $sidebars_widgets = get_option('sidebars_widgets', []);
+    $widget_sidebar_map = [];
+    foreach ((array) $sidebars_widgets as $sidebar_id => $widget_ids) {
+        if (!is_array($widget_ids)) continue;
+        foreach ($widget_ids as $widget_id) {
+            $widget_sidebar_map[$widget_id] = $sidebar_id;
+        }
+    }
+
+    $rows = $wpdb->get_results(
+        "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\_%'",
+        ARRAY_A
+    );
+
+    $found = [];
+
+    foreach ($rows as $row) {
+        $option_name = $row['option_name'];
+        $data = maybe_unserialize($row['option_value']);
+        if (!is_array($data)) continue;
+
+        $type_slug = preg_replace('/^widget_/', '', $option_name);
+
+        foreach ($data as $instance_id => $instance) {
+            if ($instance_id === '_multiwidget' || !is_array($instance)) continue;
+
+            $text_parts = [];
+            array_walk_recursive($instance, function ($val) use (&$text_parts) {
+                if (is_string($val)) $text_parts[] = $val;
+            });
+            $content = implode(' ', $text_parts);
+
+            $matched_terms = [];
+            foreach ($idx_terms as $term) {
+                if (stripos($content, $term) !== false) {
+                    $matched_terms[] = $term;
+                }
+            }
+
+            if (!empty($matched_terms)) {
+                $sidebar_widget_id = $type_slug . '-' . $instance_id;
+                $sidebar = $widget_sidebar_map[$sidebar_widget_id] ?? 'unassigned';
+
+                $found[] = [
+                    'widget_type' => $option_name,
+                    'instance_id' => $instance_id,
+                    'sidebar'     => $sidebar,
+                    'title'       => $instance['title'] ?? '(no title)',
+                    'content'     => substr(wp_strip_all_tags($content), 0, 300),
+                    'matched'     => $matched_terms,
+                ];
+            }
+        }
+    }
+
+    wp_send_json_success($found);
+});
+
 // ── Admin Page ─────────────────────────────────────────────────────────────────
 function idx_scanner_page() {
     $nonce    = wp_create_nonce('idx_scanner_nonce');
@@ -171,6 +237,7 @@ function idx_scanner_page() {
             <a class="nav-tab" onclick="switchTab('crawler',this);return false;" href="#">Site Crawler</a>
             <a class="nav-tab" onclick="switchTab('shortcode',this);return false;" href="#">Shortcodes</a>
             <a class="nav-tab" onclick="switchTab('scripts',this);return false;" href="#">External Scripts</a>
+            <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">Widgets / Sidebar</a>
         </nav>
 
         <!-- ── Tab: Current Page ── -->
@@ -227,6 +294,14 @@ function idx_scanner_page() {
             <button id="scripts-scan-btn" class="button button-primary">Detect External IDX Scripts</button>
             <button id="scripts-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="scripts-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ── Tab: Widgets / Sidebar ── -->
+        <div id="tab-widgets" class="idx-tab" style="display:none;">
+            <p>Scans all WordPress widget instances stored in <code>wp_options</code> for IDX Broker URLs, saved links, and shortcodes — covering sidebars, footers, and any other registered widget areas.</p>
+            <button id="widgets-scan-btn" class="button button-primary">Scan Widgets &amp; Sidebars</button>
+            <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
+            <div id="widgets-results" style="margin-top:16px;"></div>
         </div>
     </div>
 
@@ -478,6 +553,65 @@ function idx_scanner_page() {
             scriptsResults.map(r => [r.type, r.handle, r.src, r.post, r.url]),
             ['Type', 'Handle', 'Source / Domain', 'Post Title', 'Post URL'],
             'idx-external-scripts.csv'
+        );
+    });
+
+    // ── Widgets / Sidebar Scanner ──────────────────────────────────────────────
+    let widgetsResults = [];
+
+    document.getElementById('widgets-scan-btn').addEventListener('click', async function () {
+        this.disabled = true;
+        widgetsResults = [];
+        const div = document.getElementById('widgets-results');
+        div.innerHTML = '<em>Scanning widget data in wp_options…</em>';
+
+        const res = await ajax('idx_scan_widgets');
+        this.disabled = false;
+
+        if (!res.success) {
+            div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>';
+            return;
+        }
+
+        if (!res.data.length) {
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any widget areas.</p>';
+            return;
+        }
+
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Widget Type</th><th>Sidebar / Area</th><th>Widget Title</th>' +
+            '<th>Matched Terms</th><th>Content Preview</th>' +
+            '</tr></thead><tbody>';
+
+        res.data.forEach(w => {
+            widgetsResults.push({
+                type:     w.widget_type,
+                instance: w.instance_id,
+                sidebar:  w.sidebar,
+                title:    w.title,
+                matched:  w.matched.join(', '),
+                content:  w.content,
+            });
+            html +=
+                '<tr>' +
+                '<td><code>' + h(w.widget_type) + '</code></td>' +
+                '<td><code>' + h(w.sidebar) + '</code></td>' +
+                '<td>' + h(w.title) + '</td>' +
+                '<td>' + w.matched.map(t => '<code>' + h(t) + '</code>').join(', ') + '</td>' +
+                '<td style="max-width:300px;word-break:break-word;font-size:11px;">' + h(w.content) + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('widgets-export-btn').disabled = false;
+    });
+
+    document.getElementById('widgets-export-btn').addEventListener('click', function () {
+        exportCSV(
+            widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.content]),
+            ['Widget Type', 'Instance ID', 'Sidebar Area', 'Widget Title', 'Matched Terms', 'Content Preview'],
+            'idx-widgets.csv'
         );
     });
 
