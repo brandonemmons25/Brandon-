@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.8
+ * Version: 2.9
  * Author: You
  */
 
@@ -49,24 +49,64 @@ add_action('wp_ajax_idx_scan_url', function () {
     if (is_wp_error($response)) wp_send_json_error($response->get_error_message());
 
     $html = wp_remote_retrieve_body($response);
-    $patterns = [
-        'id_prefix'      => '/id=["\']IDX-[^"\']+["\']/i',
-        'class_idx'      => '/class=["\'][^"\']*\bidx[-_][^"\']*["\']/i',
-        'src_idxbroker'  => '/src=["\'][^"\']*idxbroker[^"\']*["\']/i',
-        'href_idxbroker' => '/href=["\'][^"\']*idxbroker[^"\']*["\']/i',
-        'href_idx_path'  => '/href=["\'][^"\']*\/idx\/[^"\']*["\']/i',
-        'data_idx'       => '/data-idx(?:-\w+)?=["\'][^"\']*["\']/i',
-    ];
 
-    $found = [];
-    foreach ($patterns as $type => $pattern) {
-        if (preg_match_all($pattern, $html, $matches)) {
-            foreach ($matches[0] as $match) {
-                $found[] = ['type' => $type, 'snippet' => substr($match, 0, 200)];
-            }
+    // Strip <header> and <footer> blocks — those are site-wide and would
+    // pollute every page result with the same repeated IDX elements.
+    $content = preg_replace('/<header\b[^>]*>.*?<\/header>/is', '', $html);
+    $content = preg_replace('/<footer\b[^>]*>.*?<\/footer>/is', '', $content);
+
+    $tally = []; // label => occurrence count
+
+    // id="IDX-something"
+    if (preg_match_all('/\bid=["\']IDX-([^"\']+)["\']/i', $content, $m)) {
+        foreach ($m[1] as $val) {
+            $label = 'Element: #IDX-' . substr($val, 0, 60);
+            $tally[$label] = ($tally[$label] ?? 0) + 1;
         }
     }
-    wp_send_json_success(['url' => $url, 'count' => count($found), 'elements' => $found]);
+
+    // class="... idx-something ..."
+    if (preg_match_all('/\bclass=["\'][^"\']*\b(idx[-_][a-z0-9_-]+)/i', $content, $m)) {
+        foreach ($m[1] as $val) {
+            $label = 'Class: .' . strtolower($val);
+            $tally[$label] = ($tally[$label] ?? 0) + 1;
+        }
+    }
+
+    // src="...idxbroker..."
+    $n = preg_match_all('/\bsrc=["\'][^"\']*idxbroker[^"\']*["\']/i', $content);
+    if ($n) $tally['External script (idxbroker.com)'] = $n;
+
+    // href="...idxbroker..."
+    $n = preg_match_all('/\bhref=["\'][^"\']*idxbroker[^"\']*["\']/i', $content);
+    if ($n) $tally['External link (idxbroker.com)'] = $n;
+
+    // href=".../ idx/..."
+    if (preg_match_all('/\bhref=["\']([^"\']*\/idx\/[^"\'?#]*)/i', $content, $m)) {
+        foreach ($m[1] as $val) {
+            $label = 'IDX path: ' . substr($val, 0, 80);
+            $tally[$label] = ($tally[$label] ?? 0) + 1;
+        }
+    }
+
+    // data-idx-* attributes
+    if (preg_match_all('/\b(data-idx(?:-[\w-]+)?)=["\']([^"\']{0,60})["\']/', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) {
+            $label = 'Widget attr: ' . $match[1] . ($match[2] !== '' ? '="' . $match[2] . '"' : '');
+            $tally[$label] = ($tally[$label] ?? 0) + 1;
+        }
+    }
+
+    $elements = [];
+    foreach ($tally as $label => $count) {
+        $elements[] = ['label' => $label, 'count' => $count];
+    }
+
+    wp_send_json_success([
+        'url'      => $url,
+        'count'    => array_sum(array_column($elements, 'count')),
+        'elements' => $elements,
+    ]);
 });
 
 // ── AJAX: Scan DB for IDX shortcodes ──────────────────────────────────────────
@@ -551,7 +591,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.8</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.9</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -583,7 +623,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Site Crawler ── -->
         <div id="tab-crawler" class="idx-tab" style="display:none;">
-            <p>Crawls every published page and post on your site and counts IDX elements in each.</p>
+            <p>Crawls every published page and post. Lists the specific IDX elements found in each page's content — <strong>header and footer are excluded</strong> to avoid counting site-wide repeated elements.</p>
             <button id="crawler-start-btn" class="button button-primary">Start Site Crawl</button>
             <button id="crawler-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
 
@@ -595,9 +635,9 @@ function idx_scanner_page() {
             <table id="crawler-table" class="widefat striped" style="margin-top:16px;display:none;">
                 <thead>
                     <tr>
-                        <th>Page Title</th>
-                        <th>URL</th>
-                        <th style="text-align:center;">IDX Elements</th>
+                        <th style="width:20%">Page Title</th>
+                        <th style="width:28%">URL</th>
+                        <th>IDX Elements Found (page content only)</th>
                     </tr>
                 </thead>
                 <tbody id="crawler-tbody"></tbody>
@@ -755,15 +795,30 @@ function idx_scanner_page() {
             document.getElementById('crawler-status').textContent =
                 'Scanning ' + (i + 1) + ' / ' + urls.length + ' — ' + item.title;
 
-            const res   = await ajax('idx_scan_url', { url: item.url });
-            const count = res.success ? res.data.count : 0;
-            crawlerResults.push({ title: item.title, url: item.url, count });
+            const res      = await ajax('idx_scan_url', { url: item.url });
+            const elements = res.success ? (res.data.elements || []) : [];
+            const count    = elements.reduce((s, e) => s + e.count, 0);
+            crawlerResults.push({ title: item.title, url: item.url, count, elements });
+
+            let elemHtml;
+            if (elements.length) {
+                elemHtml = '<span class="idx-badge found">' + count + '</span>' +
+                    '<ul style="margin:5px 0 0;padding:0 0 0 16px;font-size:11px;line-height:1.8;">';
+                elements.forEach(e => {
+                    elemHtml += '<li>' + h(e.label) +
+                        (e.count > 1 ? ' <span style="color:#888;">×' + e.count + '</span>' : '') +
+                        '</li>';
+                });
+                elemHtml += '</ul>';
+            } else {
+                elemHtml = '<span class="idx-badge none">0</span>';
+            }
 
             const tr = document.createElement('tr');
             tr.innerHTML =
                 '<td><a href="' + h(item.url) + '" target="_blank">' + h(item.title) + '</a></td>' +
-                '<td><code>' + h(item.url) + '</code></td>' +
-                '<td style="text-align:center"><span class="idx-badge ' + (count > 0 ? 'found' : 'none') + '">' + count + '</span></td>';
+                '<td style="font-size:11px;word-break:break-all;"><code>' + h(item.url) + '</code></td>' +
+                '<td>' + elemHtml + '</td>';
             document.getElementById('crawler-tbody').appendChild(tr);
             bar.value = i + 1;
         }
@@ -777,8 +832,13 @@ function idx_scanner_page() {
 
     document.getElementById('crawler-export-btn').addEventListener('click', function () {
         exportCSV(
-            crawlerResults.map(r => [r.title, r.url, r.count]),
-            ['Page Title', 'URL', 'IDX Element Count'],
+            crawlerResults.map(r => [
+                r.title,
+                r.url,
+                r.count,
+                r.elements.map(e => e.label + (e.count > 1 ? ' ×' + e.count : '')).join('; '),
+            ]),
+            ['Page Title', 'URL', 'IDX Count', 'IDX Elements'],
             'idx-site-crawl.csv'
         );
     });
