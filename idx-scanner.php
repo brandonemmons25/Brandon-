@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.9
+ * Version: 2.10
  * Author: You
  */
 
@@ -591,7 +591,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.9</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.10</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -623,7 +623,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Site Crawler ── -->
         <div id="tab-crawler" class="idx-tab" style="display:none;">
-            <p>Crawls every published page and post. Lists the specific IDX elements found in each page's content — <strong>header and footer are excluded</strong> to avoid counting site-wide repeated elements.</p>
+            <p>Crawls every published page and post. Each IDX element found is listed as its own row showing exactly which page it appears on. Header and footer are excluded to avoid site-wide repeated elements.</p>
             <button id="crawler-start-btn" class="button button-primary">Start Site Crawl</button>
             <button id="crawler-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
 
@@ -632,12 +632,15 @@ function idx_scanner_page() {
                 <p id="crawler-status" style="margin:6px 0;color:#555;font-style:italic;"></p>
             </div>
 
-            <table id="crawler-table" class="widefat striped" style="margin-top:16px;display:none;">
+            <div id="crawler-summary" style="margin-top:12px;display:none;"></div>
+
+            <table id="crawler-table" class="widefat striped" style="margin-top:12px;display:none;">
                 <thead>
                     <tr>
-                        <th style="width:20%">Page Title</th>
-                        <th style="width:28%">URL</th>
-                        <th>IDX Elements Found (page content only)</th>
+                        <th style="width:18%">Page</th>
+                        <th style="width:30%">Page URL</th>
+                        <th>IDX Element</th>
+                        <th style="width:6%;text-align:center;">Count</th>
                     </tr>
                 </thead>
                 <tbody id="crawler-tbody"></tbody>
@@ -790,6 +793,9 @@ function idx_scanner_page() {
         bar.max    = urls.length;
         bar.value  = 0;
 
+        let pagesWithIDX = 0;
+        let pagesNoIDX   = 0;
+
         for (let i = 0; i < urls.length; i++) {
             const item = urls[i];
             document.getElementById('crawler-status').textContent =
@@ -797,50 +803,67 @@ function idx_scanner_page() {
 
             const res      = await ajax('idx_scan_url', { url: item.url });
             const elements = res.success ? (res.data.elements || []) : [];
-            const count    = elements.reduce((s, e) => s + e.count, 0);
-            crawlerResults.push({ title: item.title, url: item.url, count, elements });
 
-            let elemHtml;
-            if (elements.length) {
-                elemHtml = '<span class="idx-badge found">' + count + '</span>' +
-                    '<ul style="margin:5px 0 0;padding:0 0 0 16px;font-size:11px;line-height:1.8;">';
-                elements.forEach(e => {
-                    elemHtml += '<li>' + h(e.label) +
-                        (e.count > 1 ? ' <span style="color:#888;">×' + e.count + '</span>' : '') +
-                        '</li>';
-                });
-                elemHtml += '</ul>';
+            crawlerResults.push({ title: item.title, url: item.url, elements });
+
+            if (elements.length === 0) {
+                pagesNoIDX++;
             } else {
-                elemHtml = '<span class="idx-badge none">0</span>';
+                pagesWithIDX++;
+                // One table row per element type, page name on every row
+                const tbody = document.getElementById('crawler-tbody');
+                elements.forEach((e, idx) => {
+                    const tr = document.createElement('tr');
+                    // Only show page title & URL on the first element row for this page;
+                    // subsequent rows for the same page use a lighter repeated label.
+                    const pageCell = idx === 0
+                        ? '<td rowspan="' + elements.length + '" style="vertical-align:top;font-weight:600;">' +
+                          '<a href="' + h(item.url) + '" target="_blank">' + h(item.title) + '</a></td>' +
+                          '<td rowspan="' + elements.length + '" style="vertical-align:top;font-size:11px;word-break:break-all;">' +
+                          '<code>' + h(item.url) + '</code></td>'
+                        : ''; // cells already covered by rowspan
+                    tr.innerHTML = pageCell +
+                        '<td style="font-size:12px;">' + h(e.label) + '</td>' +
+                        '<td style="text-align:center;">' +
+                        (e.count > 1
+                            ? '<span class="idx-badge found">×' + e.count + '</span>'
+                            : '<span class="idx-badge found">1</span>') +
+                        '</td>';
+                    tbody.appendChild(tr);
+                });
             }
 
-            const tr = document.createElement('tr');
-            tr.innerHTML =
-                '<td><a href="' + h(item.url) + '" target="_blank">' + h(item.title) + '</a></td>' +
-                '<td style="font-size:11px;word-break:break-all;"><code>' + h(item.url) + '</code></td>' +
-                '<td>' + elemHtml + '</td>';
-            document.getElementById('crawler-tbody').appendChild(tr);
             bar.value = i + 1;
         }
 
-        document.getElementById('crawler-table').style.display = '';
-        document.getElementById('crawler-status').textContent  =
-            'Done — ' + urls.length + ' pages scanned.';
+        // Summary line above table
+        const summary = document.getElementById('crawler-summary');
+        summary.style.display = '';
+        summary.innerHTML =
+            '<strong>' + urls.length + '</strong> pages scanned — ' +
+            '<span style="color:#d63638;font-weight:600;">' + pagesWithIDX + ' with IDX elements</span>, ' +
+            '<span style="color:#00a32a;">' + pagesNoIDX + ' clean</span>.';
+
+        if (pagesWithIDX > 0) {
+            document.getElementById('crawler-table').style.display = '';
+        }
+        document.getElementById('crawler-status').textContent  = 'Done.';
         document.getElementById('crawler-export-btn').disabled = false;
         this.disabled = false;
     });
 
     document.getElementById('crawler-export-btn').addEventListener('click', function () {
-        exportCSV(
-            crawlerResults.map(r => [
-                r.title,
-                r.url,
-                r.count,
-                r.elements.map(e => e.label + (e.count > 1 ? ' ×' + e.count : '')).join('; '),
-            ]),
-            ['Page Title', 'URL', 'IDX Count', 'IDX Elements'],
-            'idx-site-crawl.csv'
-        );
+        const rows = [];
+        crawlerResults.forEach(r => {
+            if (r.elements.length === 0) {
+                rows.push([r.title, r.url, '(none)', '']);
+            } else {
+                r.elements.forEach(e => {
+                    rows.push([r.title, r.url, e.label, e.count]);
+                });
+            }
+        });
+        exportCSV(rows, ['Page Title', 'Page URL', 'IDX Element', 'Count'], 'idx-site-crawl.csv');
     });
 
     // ── Shortcode Scanner ──────────────────────────────────────────────────────
