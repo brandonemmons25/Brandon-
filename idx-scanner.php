@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.7
+ * Version: 2.8
  * Author: You
  */
 
@@ -551,7 +551,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.7</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.8</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -995,52 +995,42 @@ function idx_scanner_page() {
         }
 
         // ── Widget instances table ──────────────────────────────────────────────
-        let html = '<h3 style="margin-top:0;">IDX Widgets Found</h3>' +
-            '<table class="widefat striped"><thead><tr>' +
-            '<th>Widget Type</th><th>Sidebar / Area</th><th>Widget Title</th>' +
-            '<th>Matched Terms</th><th>Content Preview</th>' +
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Widget Type</th><th>Widget Title</th>' +
+            '<th>Matched Terms</th><th>Displays On</th>' +
             '</tr></thead><tbody>';
 
         widgets.forEach(w => {
+            const pages = sidebarPages[w.sidebar] || [];
+            let pagesHtml;
+            if (pages.length) {
+                pagesHtml = pages.map(pg =>
+                    pg.url
+                        ? '<a href="' + h(pg.url) + '" target="_blank">' + h(pg.title) + '</a>'
+                        : '<em>' + h(pg.title) + '</em>'
+                ).join('<br>');
+            } else {
+                pagesHtml = '<span style="color:#888;font-size:11px;">Sidebar: <code>' + h(w.sidebar) + '</code> — pages unknown</span>';
+            }
+
             widgetsResults.push({
                 type:     w.widget_type,
                 instance: w.instance_id,
                 sidebar:  w.sidebar,
                 title:    w.title,
                 matched:  w.matched.join(', '),
-                content:  w.content,
+                pages:    pages.map(pg => pg.title + (pg.url ? ' (' + pg.url + ')' : '')).join('; '),
             });
             html +=
                 '<tr>' +
-                '<td><code>' + h(w.widget_type) + '</code></td>' +
-                '<td><code>' + h(w.sidebar) + '</code></td>' +
+                '<td><code style="font-size:11px;">' + h(w.widget_type) + '</code><br>' +
+                '<span style="color:#888;font-size:10px;">area: ' + h(w.sidebar) + '</span></td>' +
                 '<td>' + h(w.title) + '</td>' +
                 '<td>' + w.matched.map(t => '<code>' + h(t) + '</code>').join(', ') + '</td>' +
-                '<td style="max-width:300px;word-break:break-word;font-size:11px;">' + h(w.content) + '</td>' +
+                '<td style="font-size:12px;line-height:1.8;">' + pagesHtml + '</td>' +
                 '</tr>';
         });
         html += '</tbody></table>';
-
-        // ── Pages that render each IDX sidebar ─────────────────────────────────
-        const sidebarIds = Object.keys(sidebarPages);
-        if (sidebarIds.length) {
-            html += '<h3 style="margin-top:24px;">Pages That Display These Widgets</h3>';
-            sidebarIds.forEach(sid => {
-                const pages = sidebarPages[sid];
-                html += '<p style="margin:12px 0 4px;"><strong>Sidebar area: <code>' + h(sid) + '</code></strong></p>' +
-                    '<table class="widefat striped"><thead><tr><th>Page Title</th><th>URL</th></tr></thead><tbody>';
-                pages.forEach(pg => {
-                    const link = pg.url
-                        ? '<a href="' + h(pg.url) + '" target="_blank">' + h(pg.title) + '</a>'
-                        : h(pg.title);
-                    html += '<tr><td>' + link + '</td><td style="font-size:11px;">' + h(pg.url) + '</td></tr>';
-                    widgetsResults.push({ type: '(page)', instance: '', sidebar: sid, title: pg.title, matched: '', content: pg.url });
-                });
-                html += '</tbody></table>';
-            });
-        } else {
-            html += '<p style="margin-top:16px;color:#888;"><em>Could not map sidebar areas to pages — check the Theme Files tab for <code>dynamic_sidebar()</code> calls.</em></p>';
-        }
 
         div.innerHTML = html;
         document.getElementById('widgets-export-btn').disabled = false;
@@ -1048,8 +1038,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.content]),
-            ['Widget Type / Page', 'Instance ID', 'Sidebar Area', 'Title / Page Title', 'Matched Terms', 'Content / URL'],
+            widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.pages]),
+            ['Widget Type', 'Instance ID', 'Sidebar Area', 'Widget Title', 'Matched Terms', 'Displays On'],
             'idx-widgets.csv'
         );
     });
