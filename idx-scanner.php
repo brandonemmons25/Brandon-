@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.10
+ * Version: 2.11
  * Author: You
  */
 
@@ -50,56 +50,86 @@ add_action('wp_ajax_idx_scan_url', function () {
 
     $html = wp_remote_retrieve_body($response);
 
-    // Strip <header> and <footer> blocks — those are site-wide and would
-    // pollute every page result with the same repeated IDX elements.
+    // Strip <header> and <footer> — site-wide repeated elements, not page-specific.
     $content = preg_replace('/<header\b[^>]*>.*?<\/header>/is', '', $html);
     $content = preg_replace('/<footer\b[^>]*>.*?<\/footer>/is', '', $content);
 
-    $tally = []; // label => occurrence count
+    // Extract sidebar/widget-area regions so we can flag elements found there.
+    $sidebar_html = '';
+    preg_match_all('/<aside\b[^>]*>.*?<\/aside>/is', $content, $aside_m);
+    $sidebar_html .= implode(' ', $aside_m[0]);
+    preg_match_all('/<div\b[^>]*(?:class|id)=["\'][^"\']*(?:widget[-_]area|sidebar)[^"\']*["\'][^>]*>.*?<\/div>/is', $content, $wdiv_m);
+    $sidebar_html .= ' ' . implode(' ', $wdiv_m[0]);
 
-    // id="IDX-something"
-    if (preg_match_all('/\bid=["\']IDX-([^"\']+)["\']/i', $content, $m)) {
-        foreach ($m[1] as $val) {
-            $label = 'Element: #IDX-' . substr($val, 0, 60);
-            $tally[$label] = ($tally[$label] ?? 0) + 1;
+    $tally = []; // label => ['count'=>n, 'in_sidebar'=>bool]
+
+    $add = function ($label, $match = '') use (&$tally, $sidebar_html) {
+        $in_sb = $match !== '' && $sidebar_html !== '' && strpos($sidebar_html, $match) !== false;
+        if (!isset($tally[$label])) $tally[$label] = ['count' => 0, 'in_sidebar' => $in_sb];
+        $tally[$label]['count']++;
+        if ($in_sb) $tally[$label]['in_sidebar'] = true;
+    };
+
+    // id="IDX-something" — IDX Broker element IDs (search box, results wrapper, etc.)
+    if (preg_match_all('/\bid=["\']IDX-([^"\']+)["\']/i', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) $add('Element: #IDX-' . substr($match[1], 0, 60), $match[0]);
+    }
+
+    // class="... idx-something ..." — IDX CSS classes on rendered widget output
+    if (preg_match_all('/\bclass=["\'][^"\']*\b(idx[-_][a-z0-9_-]+)/i', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) $add('Class: .' . strtolower($match[1]), $match[0]);
+    }
+
+    // <iframe src="...idxbroker..."> — saved search / listing widgets embedded via iframe
+    if (preg_match_all('/<iframe\b[^>]*\bsrc=["\']([^"\']*(?:idxbroker|\/idx\/)[^"\']*)["\'][^>]*>/i', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) {
+            $host = parse_url($match[1], PHP_URL_HOST) ?: 'idxbroker';
+            $path = parse_url($match[1], PHP_URL_PATH) ?: '';
+            $add('IDX iframe: ' . $host . substr($path, 0, 60), $match[0]);
         }
     }
 
-    // class="... idx-something ..."
-    if (preg_match_all('/\bclass=["\'][^"\']*\b(idx[-_][a-z0-9_-]+)/i', $content, $m)) {
-        foreach ($m[1] as $val) {
-            $label = 'Class: .' . strtolower($val);
-            $tally[$label] = ($tally[$label] ?? 0) + 1;
-        }
-    }
-
-    // src="...idxbroker..."
-    $n = preg_match_all('/\bsrc=["\'][^"\']*idxbroker[^"\']*["\']/i', $content);
-    if ($n) $tally['External script (idxbroker.com)'] = $n;
+    // src="...idxbroker..." on script/img tags (external JS loader)
+    $n = preg_match_all('/(?<!<iframe\b[^>]{0,200})\bsrc=["\'][^"\']*idxbroker[^"\']*["\']/i', $content);
+    if ($n) $add('External script (idxbroker.com)');
 
     // href="...idxbroker..."
-    $n = preg_match_all('/\bhref=["\'][^"\']*idxbroker[^"\']*["\']/i', $content);
-    if ($n) $tally['External link (idxbroker.com)'] = $n;
+    if (preg_match_all('/\bhref=["\'][^"\']*idxbroker[^"\']*["\']/i', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) $add('External link (idxbroker.com)', $match[0]);
+    }
 
-    // href=".../ idx/..."
-    if (preg_match_all('/\bhref=["\']([^"\']*\/idx\/[^"\'?#]*)/i', $content, $m)) {
-        foreach ($m[1] as $val) {
-            $label = 'IDX path: ' . substr($val, 0, 80);
-            $tally[$label] = ($tally[$label] ?? 0) + 1;
+    // href="/idx/..." — internal IDX path links
+    if (preg_match_all('/\bhref=["\']([^"\']*\/idx\/[^"\'?#]*)/i', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) $add('IDX path: ' . substr($match[1], 0, 80), $match[0]);
+    }
+
+    // data-idx-* attributes — IDX widget configuration attributes
+    if (preg_match_all('/\b(data-idx(?:-[\w-]+)?)=["\']([^"\']{0,60})["\']/', $content, $m, PREG_SET_ORDER)) {
+        foreach ($m as $match) {
+            $lbl = 'Widget attr: ' . $match[1] . ($match[2] !== '' ? '="' . $match[2] . '"' : '');
+            $add($lbl, $match[0]);
         }
     }
 
-    // data-idx-* attributes
-    if (preg_match_all('/\b(data-idx(?:-[\w-]+)?)=["\']([^"\']{0,60})["\']/', $content, $m, PREG_SET_ORDER)) {
+    // ihfKestrel — IDX Broker's JavaScript API (Kestrel/IHF platform)
+    if (preg_match('/\bihfKestrel\b/i', $content)) $add('IDX Broker API (ihfKestrel)');
+
+    // Inline <script> blocks referencing idxbroker (widget config, not external src)
+    if (preg_match_all('/<script\b(?![^>]*\bsrc\b)[^>]*>(.*?)<\/script>/is', $content, $m, PREG_SET_ORDER)) {
         foreach ($m as $match) {
-            $label = 'Widget attr: ' . $match[1] . ($match[2] !== '' ? '="' . $match[2] . '"' : '');
-            $tally[$label] = ($tally[$label] ?? 0) + 1;
+            if (stripos($match[1], 'idxbroker') !== false || stripos($match[1], 'ihfKestrel') !== false) {
+                $add('Inline IDX script block');
+            }
         }
     }
 
     $elements = [];
-    foreach ($tally as $label => $count) {
-        $elements[] = ['label' => $label, 'count' => $count];
+    foreach ($tally as $label => $data) {
+        $elements[] = [
+            'label'      => $label,
+            'count'      => $data['count'],
+            'in_sidebar' => $data['in_sidebar'],
+        ];
     }
 
     wp_send_json_success([
@@ -236,70 +266,7 @@ add_action('wp_ajax_idx_scan_postmeta', function () {
         ];
     }
 
-    // ── Map sidebar IDs → theme templates → pages ──────────────────────────────
-    $idx_sidebar_ids = array_unique( array_column( $found, 'sidebar' ) );
-    $idx_sidebar_ids = array_values( array_filter( $idx_sidebar_ids, fn($s) => $s !== 'unassigned' ) );
-
-    $sidebar_templates = [];   // sidebar_id => [template_file, ...]
-    $get_sidebar_files = [];   // files that call get_sidebar() (inherit any dynamic_sidebar from sidebar.php)
-
-    $theme_dir  = get_stylesheet_directory();
-    $parent_dir = get_template_directory();
-
-    foreach ( array_unique([ $theme_dir, $parent_dir ]) as $dir ) {
-        if ( ! is_dir($dir) ) continue;
-        $iter = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator( $dir, RecursiveDirectoryIterator::SKIP_DOTS )
-        );
-        foreach ( $iter as $file ) {
-            if ( $file->getExtension() !== 'php' ) continue;
-            $src = @file_get_contents( $file->getPathname() );
-            if ( ! $src ) continue;
-            $rel = ltrim( str_replace( [ $theme_dir, $parent_dir ], '', $file->getPathname() ), '/\\' );
-
-            // dynamic_sidebar('sidebar-id')
-            preg_match_all( "/dynamic_sidebar\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $dm );
-            foreach ( $dm[1] as $sid ) {
-                if ( in_array( $sid, $idx_sidebar_ids, true ) ) {
-                    $sidebar_templates[ $sid ][] = $rel;
-                }
-            }
-
-            // get_sidebar() callers — they transitively render any sidebar in sidebar.php
-            if ( preg_match( '/\bget_sidebar\s*\(/', $src ) ) {
-                $get_sidebar_files[] = $rel;
-            }
-        }
-    }
-
-    // If sidebar.php is in the chain, all get_sidebar() callers also render those sidebars
-    foreach ( $sidebar_templates as $sid => $templates ) {
-        if ( in_array( 'sidebar.php', $templates, true ) ) {
-            $sidebar_templates[ $sid ] = array_values( array_unique(
-                array_merge( $templates, $get_sidebar_files )
-            ));
-        }
-    }
-
-    // For each sidebar, collect all pages that use its templates
-    $sidebar_pages = [];
-    foreach ( $sidebar_templates as $sid => $templates ) {
-        $all_pages = [];
-        foreach ( $templates as $tpl ) {
-            $pages = idx_pages_for_template( $tpl, $theme_dir, $parent_dir );
-            foreach ( $pages as $pg ) {
-                $all_pages[ $pg['url'] ?: $pg['title'] ] = $pg;
-            }
-        }
-        if ( ! empty($all_pages) ) {
-            $sidebar_pages[ $sid ] = array_values( $all_pages );
-        }
-    }
-
-    wp_send_json_success([
-        'widgets'       => $found,
-        'sidebar_pages' => $sidebar_pages,
-    ]);
+    wp_send_json_success($found);
 });
 
 // Helper: given a template filename, return which published pages use it
@@ -435,11 +402,11 @@ add_action('wp_ajax_idx_scan_scripts', function () {
 // ── AJAX: Scan wp_options widget data for IDX content ─────────────────────────
 add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
-    global $wpdb;
+    global $wpdb, $wp_registered_sidebars;
 
     $idx_terms = ['idxbroker', 'idxre.com', 'mlsfinder.com', '[IDX', '[idx', 'IDX-', 'idx-', 'data-idx', '/idx/'];
 
-    // Build sidebar assignment map: "text-2" => "sidebar-1"
+    // Map widget_id => sidebar_id  e.g. "text-2" => "sidebar-1"
     $sidebars_widgets = get_option('sidebars_widgets', []);
     $widget_sidebar_map = [];
     foreach ((array) $sidebars_widgets as $sidebar_id => $widget_ids) {
@@ -449,16 +416,23 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
+    // Human-readable names for every registered sidebar
+    $sidebar_names = [];
+    foreach ((array) ($wp_registered_sidebars ?? []) as $id => $info) {
+        $sidebar_names[$id] = $info['name'] ?? $id;
+    }
+
+    // Scan every widget option for IDX content
     $rows = $wpdb->get_results(
         "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\_%'",
         ARRAY_A
     );
 
-    $found = [];
+    $found = []; // IDX widget instances
 
     foreach ($rows as $row) {
         $option_name = $row['option_name'];
-        $data = maybe_unserialize($row['option_value']);
+        $data        = maybe_unserialize($row['option_value']);
         if (!is_array($data)) continue;
 
         $type_slug = preg_replace('/^widget_/', '', $option_name);
@@ -470,39 +444,110 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             array_walk_recursive($instance, function ($val) use (&$text_parts) {
                 if (is_string($val)) $text_parts[] = $val;
             });
-            $content = implode(' ', $text_parts);
+            $flat = implode(' ', $text_parts);
 
             $matched_terms = [];
-
-            // Match by widget content (text/HTML widgets with IDX URLs or shortcodes)
             foreach ($idx_terms as $term) {
-                if (stripos($content, $term) !== false) {
-                    $matched_terms[] = $term;
-                }
+                if (stripos($flat, $term) !== false) $matched_terms[] = $term;
             }
-
-            // Match by widget TYPE NAME (IDX Broker's own widgets store config, not URLs)
             if (stripos($option_name, 'idx') !== false) {
                 $matched_terms[] = 'widget-type:' . $option_name;
             }
 
             if (!empty($matched_terms)) {
-                $sidebar_widget_id = $type_slug . '-' . $instance_id;
-                $sidebar = $widget_sidebar_map[$sidebar_widget_id] ?? 'unassigned';
-
+                $sid  = $widget_sidebar_map[$type_slug . '-' . $instance_id] ?? 'unassigned';
                 $found[] = [
-                    'widget_type' => $option_name,
-                    'instance_id' => $instance_id,
-                    'sidebar'     => $sidebar,
-                    'title'       => $instance['title'] ?? '(no title)',
-                    'content'     => substr(wp_strip_all_tags($content), 0, 300),
-                    'matched'     => $matched_terms,
+                    'widget_type'  => $option_name,
+                    'instance_id'  => $instance_id,
+                    'sidebar_id'   => $sid,
+                    'sidebar_name' => $sidebar_names[$sid] ?? $sid,
+                    'title'        => $instance['title'] ?? '(no title)',
+                    'content'      => substr(wp_strip_all_tags($flat), 0, 300),
+                    'matched'      => $matched_terms,
                 ];
             }
         }
     }
 
-    wp_send_json_success($found);
+    // ── Build all-sidebars list with IDX widget counts and page mappings ────────
+    $theme_dir  = get_stylesheet_directory();
+    $parent_dir = get_template_directory();
+
+    // Every registered sidebar + any unregistered ones that have IDX widgets
+    $all_sidebar_ids = array_values(array_unique(array_filter(
+        array_merge(
+            array_keys($sidebar_names),
+            array_column($found, 'sidebar_id')
+        ),
+        fn($s) => $s !== 'unassigned' && $s !== 'wp_inactive_widgets'
+    )));
+
+    // Scan theme files: dynamic_sidebar() → sidebar_id; get_sidebar() → transitively loads sidebar.php
+    $sidebar_templates = []; // sidebar_id => [rel_path, ...]
+    $get_sidebar_files = []; // files that call get_sidebar()
+
+    foreach (array_unique([$theme_dir, $parent_dir]) as $dir) {
+        if (!is_dir($dir)) continue;
+        $iter = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iter as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            $src = @file_get_contents($file->getPathname());
+            if (!$src) continue;
+            $rel = ltrim(str_replace([$theme_dir, $parent_dir], '', $file->getPathname()), '/\\');
+
+            preg_match_all("/dynamic_sidebar\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $dm);
+            foreach ($dm[1] as $sid) {
+                // Track every dynamic_sidebar call, not just IDX ones
+                $sidebar_templates[$sid][] = $rel;
+            }
+            if (preg_match('/\bget_sidebar\s*\(/', $src)) {
+                $get_sidebar_files[] = $rel;
+            }
+        }
+    }
+
+    // Propagate get_sidebar() callers into any sidebar rendered via sidebar.php
+    foreach ($sidebar_templates as $sid => $templates) {
+        if (in_array('sidebar.php', $templates, true)) {
+            $sidebar_templates[$sid] = array_values(array_unique(
+                array_merge($templates, $get_sidebar_files)
+            ));
+        }
+    }
+
+    // Compute pages per sidebar
+    $sidebar_pages = [];
+    foreach ($sidebar_templates as $sid => $templates) {
+        $pages = [];
+        foreach ($templates as $tpl) {
+            foreach (idx_pages_for_template($tpl, $theme_dir, $parent_dir) as $pg) {
+                $pages[$pg['url'] ?: $pg['title']] = $pg;
+            }
+        }
+        if (!empty($pages)) $sidebar_pages[$sid] = array_values($pages);
+    }
+
+    // Build the complete ordered sidebar list
+    $sidebars_out = [];
+    foreach ($all_sidebar_ids as $sid) {
+        $idx_in_this = array_values(array_filter($found, fn($w) => $w['sidebar_id'] === $sid));
+        $sidebars_out[] = [
+            'id'          => $sid,
+            'name'        => $sidebar_names[$sid] ?? $sid,
+            'idx_widgets' => array_map(fn($w) => [
+                'title'       => $w['title'],
+                'widget_type' => $w['widget_type'],
+            ], $idx_in_this),
+            'pages'       => $sidebar_pages[$sid] ?? [],
+        ];
+    }
+
+    wp_send_json_success([
+        'widgets'  => $found,
+        'sidebars' => $sidebars_out,
+    ]);
 });
 
 // ── AJAX: Scan active theme PHP files for IDX content ─────────────────────────
@@ -591,7 +636,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.10</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.11</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -814,16 +859,17 @@ function idx_scanner_page() {
                 const tbody = document.getElementById('crawler-tbody');
                 elements.forEach((e, idx) => {
                     const tr = document.createElement('tr');
-                    // Only show page title & URL on the first element row for this page;
-                    // subsequent rows for the same page use a lighter repeated label.
                     const pageCell = idx === 0
                         ? '<td rowspan="' + elements.length + '" style="vertical-align:top;font-weight:600;">' +
                           '<a href="' + h(item.url) + '" target="_blank">' + h(item.title) + '</a></td>' +
                           '<td rowspan="' + elements.length + '" style="vertical-align:top;font-size:11px;word-break:break-all;">' +
                           '<code>' + h(item.url) + '</code></td>'
-                        : ''; // cells already covered by rowspan
+                        : '';
+                    const locBadge = e.in_sidebar
+                        ? ' <span style="background:#b45309;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px;">widget/sidebar</span>'
+                        : '';
                     tr.innerHTML = pageCell +
-                        '<td style="font-size:12px;">' + h(e.label) + '</td>' +
+                        '<td style="font-size:12px;">' + h(e.label) + locBadge + '</td>' +
                         '<td style="text-align:center;">' +
                         (e.count > 1
                             ? '<span class="idx-badge found">×' + e.count + '</span>'
@@ -859,11 +905,11 @@ function idx_scanner_page() {
                 rows.push([r.title, r.url, '(none)', '']);
             } else {
                 r.elements.forEach(e => {
-                    rows.push([r.title, r.url, e.label, e.count]);
+                    rows.push([r.title, r.url, e.label, e.count, e.in_sidebar ? 'sidebar/widget' : 'content']);
                 });
             }
         });
-        exportCSV(rows, ['Page Title', 'Page URL', 'IDX Element', 'Count'], 'idx-site-crawl.csv');
+        exportCSV(rows, ['Page Title', 'Page URL', 'IDX Element', 'Count', 'Location'], 'idx-site-crawl.csv');
     });
 
     // ── Shortcode Scanner ──────────────────────────────────────────────────────
@@ -1059,7 +1105,7 @@ function idx_scanner_page() {
         this.disabled = true;
         widgetsResults = [];
         const div = document.getElementById('widgets-results');
-        div.innerHTML = '<em>Scanning widget data in wp_options…</em>';
+        div.innerHTML = '<em>Scanning widget areas and sidebars…</em>';
 
         const res = await ajax('idx_scan_widgets');
         this.disabled = false;
@@ -1069,51 +1115,101 @@ function idx_scanner_page() {
             return;
         }
 
-        const widgets = res.data.widgets || res.data;  // backwards-compat
-        const sidebarPages = res.data.sidebar_pages || {};
+        const widgets  = res.data.widgets  || [];
+        const sidebars = res.data.sidebars || [];
 
-        if (!widgets.length) {
-            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any widget areas.</p>';
-            return;
+        // Build a lookup: sidebar_id => pages[]
+        const sbPages = {};
+        sidebars.forEach(sb => { sbPages[sb.id] = sb.pages || []; });
+
+        let html = '';
+
+        // ── Section 1: All Sidebar Areas ────────────────────────────────────────
+        html += '<h3 style="margin-top:0;">All Sidebar / Widget Areas</h3>';
+
+        if (sidebars.length === 0) {
+            html += '<p style="color:#888;"><em>No registered sidebar areas found. Make sure this plugin runs inside the WordPress admin context.</em></p>';
+        } else {
+            html += '<table class="widefat striped"><thead><tr>' +
+                '<th>Sidebar Name</th><th>Sidebar ID</th>' +
+                '<th>IDX Widgets In This Sidebar</th><th>Pages This Sidebar Displays On</th>' +
+                '</tr></thead><tbody>';
+
+            sidebars.forEach(sb => {
+                const hasIDX = sb.idx_widgets.length > 0;
+                const idxCell = hasIDX
+                    ? sb.idx_widgets.map(w =>
+                        '<span style="background:#d63638;color:#fff;font-size:11px;padding:1px 7px;border-radius:8px;display:inline-block;margin:1px;">' +
+                        h(w.title || w.widget_type) + '</span>'
+                      ).join(' ')
+                    : '<span style="color:#aaa;font-size:11px;">none</span>';
+
+                const pagesCell = sb.pages.length
+                    ? sb.pages.map(pg =>
+                        pg.url
+                            ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
+                            : '<span style="font-size:12px;color:#888;">' + h(pg.title) + '</span>'
+                      ).join('')
+                    : '<span style="color:#aaa;font-size:11px;">Could not detect — check Theme Files tab</span>';
+
+                html += '<tr' + (hasIDX ? ' style="background:#fff8e1;"' : '') + '>' +
+                    '<td><strong>' + h(sb.name) + '</strong></td>' +
+                    '<td><code style="font-size:11px;">' + h(sb.id) + '</code></td>' +
+                    '<td>' + idxCell + '</td>' +
+                    '<td>' + pagesCell + '</td>' +
+                    '</tr>';
+
+                // Record for CSV
+                sb.pages.forEach(pg => {
+                    sb.idx_widgets.forEach(w => {
+                        widgetsResults.push({
+                            sidebar_name: sb.name, sidebar_id: sb.id,
+                            widget: w.title || w.widget_type,
+                            page_title: pg.title, page_url: pg.url || '',
+                        });
+                    });
+                    if (sb.idx_widgets.length === 0) {
+                        widgetsResults.push({
+                            sidebar_name: sb.name, sidebar_id: sb.id,
+                            widget: '(no IDX widgets)',
+                            page_title: pg.title, page_url: pg.url || '',
+                        });
+                    }
+                });
+            });
+            html += '</tbody></table>';
         }
 
-        // ── Widget instances table ──────────────────────────────────────────────
-        let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Widget Type</th><th>Widget Title</th>' +
-            '<th>Matched Terms</th><th>Displays On</th>' +
-            '</tr></thead><tbody>';
+        // ── Section 2: IDX Widget Instances detail ───────────────────────────────
+        if (widgets.length === 0) {
+            html += '<p style="margin-top:20px;color:#00a32a;font-weight:bold;">No IDX content found in any widget instances.</p>';
+        } else {
+            html += '<h3 style="margin-top:28px;">IDX Widget Instances</h3>' +
+                '<table class="widefat striped"><thead><tr>' +
+                '<th>Widget Title</th><th>Widget Type</th>' +
+                '<th>Sidebar</th><th>Matched Terms</th><th>Displays On</th>' +
+                '</tr></thead><tbody>';
 
-        widgets.forEach(w => {
-            const pages = sidebarPages[w.sidebar] || [];
-            let pagesHtml;
-            if (pages.length) {
-                pagesHtml = pages.map(pg =>
-                    pg.url
-                        ? '<a href="' + h(pg.url) + '" target="_blank">' + h(pg.title) + '</a>'
-                        : '<em>' + h(pg.title) + '</em>'
-                ).join('<br>');
-            } else {
-                pagesHtml = '<span style="color:#888;font-size:11px;">Sidebar: <code>' + h(w.sidebar) + '</code> — pages unknown</span>';
-            }
+            widgets.forEach(w => {
+                const pages = sbPages[w.sidebar_id] || [];
+                const pagesHtml = pages.length
+                    ? pages.map(pg => pg.url
+                        ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
+                        : '<em style="font-size:12px;">' + h(pg.title) + '</em>'
+                      ).join('')
+                    : '<span style="color:#888;font-size:11px;">See sidebar table above</span>';
 
-            widgetsResults.push({
-                type:     w.widget_type,
-                instance: w.instance_id,
-                sidebar:  w.sidebar,
-                title:    w.title,
-                matched:  w.matched.join(', '),
-                pages:    pages.map(pg => pg.title + (pg.url ? ' (' + pg.url + ')' : '')).join('; '),
+                html += '<tr>' +
+                    '<td><strong>' + h(w.title) + '</strong></td>' +
+                    '<td><code style="font-size:11px;">' + h(w.widget_type) + '</code></td>' +
+                    '<td><strong>' + h(w.sidebar_name) + '</strong><br>' +
+                    '<code style="font-size:10px;color:#888;">' + h(w.sidebar_id) + '</code></td>' +
+                    '<td>' + w.matched.map(t => '<code style="font-size:11px;">' + h(t) + '</code>').join('<br>') + '</td>' +
+                    '<td>' + pagesHtml + '</td>' +
+                    '</tr>';
             });
-            html +=
-                '<tr>' +
-                '<td><code style="font-size:11px;">' + h(w.widget_type) + '</code><br>' +
-                '<span style="color:#888;font-size:10px;">area: ' + h(w.sidebar) + '</span></td>' +
-                '<td>' + h(w.title) + '</td>' +
-                '<td>' + w.matched.map(t => '<code>' + h(t) + '</code>').join(', ') + '</td>' +
-                '<td style="font-size:12px;line-height:1.8;">' + pagesHtml + '</td>' +
-                '</tr>';
-        });
-        html += '</tbody></table>';
+            html += '</tbody></table>';
+        }
 
         div.innerHTML = html;
         document.getElementById('widgets-export-btn').disabled = false;
@@ -1121,8 +1217,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.type, r.instance, r.sidebar, r.title, r.matched, r.pages]),
-            ['Widget Type', 'Instance ID', 'Sidebar Area', 'Widget Title', 'Matched Terms', 'Displays On'],
+            widgetsResults.map(r => [r.sidebar_name, r.sidebar_id, r.widget, r.page_title, r.page_url]),
+            ['Sidebar Name', 'Sidebar ID', 'IDX Widget', 'Page Title', 'Page URL'],
             'idx-widgets.csv'
         );
     });
