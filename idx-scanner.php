@@ -264,10 +264,15 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     $theme_dir  = get_stylesheet_directory();
     $parent_dir = get_template_directory();
 
-    $sidebar_templates   = []; // sidebar_id => [rel_path, ...]
+    // Normalize to forward slashes for consistent string matching
+    $theme_dir_n  = rtrim(str_replace('\\', '/', $theme_dir), '/');
+    $parent_dir_n = rtrim(str_replace('\\', '/', $parent_dir), '/');
+
+    $file_sidebars       = []; // rel => [sidebar_ids called in this file]
+    $file_includes       = []; // rel => [partial paths loaded via get_template_part/include]
     $get_sidebar_callers = []; // files that call get_sidebar()
 
-    foreach (array_unique([$theme_dir, $parent_dir]) as $dir) {
+    foreach (array_unique([$theme_dir_n, $parent_dir_n]) as $dir) {
         if (!is_dir($dir)) continue;
         try {
             $iter = new RecursiveIteratorIterator(
@@ -277,23 +282,78 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 if ($file->getExtension() !== 'php') continue;
                 $src = @file_get_contents($file->getPathname());
                 if (!$src) continue;
-                $path = $file->getPathname();
-                $rel  = ltrim(str_replace([$theme_dir, $parent_dir], '', $path), '/\\');
+                $norm = str_replace('\\', '/', $file->getPathname());
+                $rel  = ltrim(str_replace([$theme_dir_n, $parent_dir_n], '', $norm), '/');
 
+                // dynamic_sidebar() calls
                 preg_match_all("/dynamic_sidebar\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $dm);
-                foreach ($dm[1] as $sid) $sidebar_templates[$sid][] = $rel;
+                if ($dm[1]) {
+                    foreach ($dm[1] as $sid) $file_sidebars[$rel][] = $sid;
+                }
 
+                // get_sidebar() calls
                 if (preg_match('/\bget_sidebar\s*\(/', $src)) $get_sidebar_callers[] = $rel;
+
+                // get_template_part('path/name') — records what parts this file loads
+                preg_match_all("/get_template_part\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $gtp);
+                foreach ($gtp[1] as $part) $file_includes[$rel][] = $part;
+
+                // include/require with relative paths
+                preg_match_all(
+                    "/(?:include|require)(?:_once)?\s*[\(\s]*(?:get_(?:template|stylesheet)_directory\(\)\s*\.\s*['\"]\/?)?" .
+                    "['\"]([^'\"]+\.php)['\"]/",
+                    $src, $inc
+                );
+                foreach ($inc[1] as $inc_file) {
+                    $file_includes[$rel][] = ltrim(str_replace('\\', '/', $inc_file), '/');
+                }
             }
         } catch (Exception $e) {}
+    }
+
+    // Build sidebar_templates: sidebar_id => direct files
+    $sidebar_templates = [];
+    foreach ($file_sidebars as $rel => $sids) {
+        foreach ($sids as $sid) $sidebar_templates[$sid][] = $rel;
     }
 
     // Propagate get_sidebar() callers into sidebars rendered via sidebar.php
     foreach ($sidebar_templates as $sid => $templates) {
         if (in_array('sidebar.php', $templates, true)) {
-            $sidebar_templates[$sid] = array_values(array_unique(array_merge($templates, $get_sidebar_callers)));
+            $sidebar_templates[$sid] = array_values(array_unique(
+                array_merge($templates, $get_sidebar_callers)
+            ));
         }
     }
+
+    // Expand: for sidebars found only in template parts (non-root files),
+    // trace back one level to find the root templates that load those parts.
+    foreach ($sidebar_templates as $sid => $direct_files) {
+        $extra = [];
+        foreach ($direct_files as $rel) {
+            // If this file is in a subdirectory it's a template part — find who includes it
+            if (strpos($rel, '/') === false) continue; // already a root file
+            $rel_no_ext = preg_replace('/\.php$/', '', $rel);
+            foreach ($file_includes as $includer => $parts) {
+                foreach ($parts as $part) {
+                    $part_norm = ltrim(str_replace('\\', '/', $part), '/');
+                    // Match by base path (get_template_part uses path without .php)
+                    if ($part_norm === $rel_no_ext || $part_norm === $rel ||
+                        basename($part_norm) === basename($rel_no_ext)) {
+                        $extra[] = $includer;
+                    }
+                }
+            }
+        }
+        if ($extra) {
+            $sidebar_templates[$sid] = array_values(array_unique(array_merge($direct_files, $extra)));
+        }
+    }
+
+    // For any sidebar still without page mapping (dynamic_sidebar not found in theme),
+    // fall back to querying pages that use the default template if the sidebar name
+    // suggests it is the primary or global sidebar.
+    $fallback_pages = null; // lazy-loaded
 
     // Helper: map a template file to pages
     $tpl_to_pages = function ($rel) use ($wpdb, $theme_dir, $parent_dir) {
@@ -308,7 +368,9 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             return $id ? [['title' => get_the_title($id), 'url' => get_permalink($id)]]
                        : [['title' => 'Blog index', 'url' => home_url('/')]];
         }
-        if (in_array($base, ['page.php', 'index.php', 'sidebar.php'], true))
+        if (in_array($base, ['page.php', 'index.php', 'sidebar.php',
+                             'archive.php', 'category.php', 'tag.php',
+                             'author.php', 'search.php', '404.php'], true))
             return [['title' => 'All pages (sitewide)', 'url' => '']];
         if ($base === 'single.php')
             return [['title' => 'All single posts', 'url' => '']];
@@ -384,8 +446,32 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $pages[$pg['url'] ?: $pg['title']] = $pg;
             }
         }
-        if (empty($pages) && !empty($templates)) {
-            foreach ($templates as $tpl) $pages[$tpl] = ['title' => 'Via: ' . $tpl, 'url' => ''];
+
+        // If theme scan found nothing useful, fall back to heuristics
+        if (empty($pages)) {
+            $name_lc = strtolower($sidebar_names[$sid] ?? $sid);
+            if (preg_match('/footer/', $name_lc)) {
+                $pages['sitewide'] = ['title' => 'Sitewide (footer)', 'url' => ''];
+            } elseif (preg_match('/header/', $name_lc)) {
+                $pages['sitewide'] = ['title' => 'Sitewide (header)', 'url' => ''];
+            } else {
+                // Query pages using the default template as the best available signal
+                if ($fallback_pages === null) {
+                    $rows = $wpdb->get_results(
+                        "SELECT p.ID, p.post_title FROM {$wpdb->posts} p
+                         LEFT JOIN {$wpdb->postmeta} pm
+                           ON pm.post_id = p.ID AND pm.meta_key = '_wp_page_template'
+                         WHERE p.post_status = 'publish' AND p.post_type = 'page'
+                           AND (pm.meta_value IS NULL OR pm.meta_value IN ('default',''))",
+                        ARRAY_A
+                    );
+                    $fallback_pages = [];
+                    foreach ($rows as $r) {
+                        $fallback_pages[] = ['title' => $r['post_title'], 'url' => get_permalink($r['ID'])];
+                    }
+                }
+                foreach ($fallback_pages as $pg) $pages[$pg['url']] = $pg;
+            }
         }
 
         $sidebars_out[] = [
