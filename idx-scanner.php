@@ -883,7 +883,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: IDX Widgets ── -->
         <div id="tab-widgets" class="idx-tab" style="display:none;">
-            <p>Scans all WordPress classic widget instances stored in <code>wp_options</code> for IDX Broker content — showing exactly which widgets contain IDX features so you can identify what to replace with iHomefinder shortcodes.</p>
+            <p>Scans all WordPress classic widget instances for IDX Broker content. Shows the page, the IDX widget name, and where on the page the widget lives (sidebar area, footer, etc.).</p>
             <button id="widgets-scan-btn" class="button button-primary">Scan IDX Widgets</button>
             <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="widgets-results" style="margin-top:16px;"></div>
@@ -1318,34 +1318,32 @@ function idx_scanner_page() {
             return;
         }
 
-        // Collect unique pages that have IDX widgets
-        const seen = new Set();
+        // Build one row per widget-per-page combination
         widgets.forEach(w => {
-            const pages = sbPages[w.sidebar_id] || [];
-            pages.forEach(pg => {
-                const key = pg.url || pg.title;
-                if (!seen.has(key)) {
-                    seen.add(key);
-                    widgetsResults.push({ title: pg.title, url: pg.url || '' });
-                }
-            });
+            const pages    = sbPages[w.sidebar_id] || [];
+            const label    = (w.title && w.title !== '(no title)') ? w.title : w.widget_type;
+            const location = w.sidebar_name || w.sidebar_id || '(unknown area)';
+            if (pages.length === 0) {
+                widgetsResults.push({ page_title: '(pages unknown — see Sidebar Areas tab)', page_url: '', widget: label, location });
+            } else {
+                pages.forEach(pg => {
+                    widgetsResults.push({ page_title: pg.title, page_url: pg.url || '', widget: label, location });
+                });
+            }
         });
 
-        if (widgetsResults.length === 0) {
-            div.innerHTML = '<p style="color:#888;">IDX widgets found but could not map to pages — check the Sidebar Areas tab.</p>';
-            document.getElementById('widgets-export-btn').disabled = true;
-            return;
-        }
-
-        let html = '<p><strong>' + widgetsResults.length + ' page(s) with IDX widgets:</strong></p>' +
-            '<table class="widefat striped"><thead><tr>' +
-            '<th>Page Title</th><th>Page URL</th>' +
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Page</th><th>IDX Widget</th><th>Location on Page</th>' +
             '</tr></thead><tbody>';
 
         widgetsResults.forEach(r => {
+            const pageCell = r.page_url
+                ? '<a href="' + h(r.page_url) + '" target="_blank">' + h(r.page_title) + '</a>'
+                : '<em style="color:#888;">' + h(r.page_title) + '</em>';
             html += '<tr>' +
-                '<td>' + (r.url ? '<a href="' + h(r.url) + '" target="_blank">' + h(r.title) + '</a>' : h(r.title)) + '</td>' +
-                '<td><code style="font-size:11px;">' + h(r.url) + '</code></td>' +
+                '<td>' + pageCell + '</td>' +
+                '<td><strong>' + h(r.widget) + '</strong></td>' +
+                '<td>' + h(r.location) + '</td>' +
                 '</tr>';
         });
 
@@ -1356,8 +1354,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.title, r.url]),
-            ['Page Title', 'Page URL'],
+            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.location]),
+            ['Page', 'Page URL', 'IDX Widget', 'Location on Page'],
             'idx-widget-pages.csv'
         );
     });
