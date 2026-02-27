@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.2
+ * Version: 3.3
  * Author: You
  */
 
@@ -522,15 +522,89 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
-    // Deduplicate per type
-    foreach ($type_content_pages as $slug => $pgs) {
-        $seen = []; $deduped = [];
-        foreach ($pgs as $pg) {
-            $key = $pg['url'] ?: $pg['title'];
-            if (!isset($seen[$key])) { $seen[$key] = true; $deduped[] = $pg; }
+    // Deduplicate per type (run again at the end after all sources are merged)
+    $dedup_type_pages = function () use (&$type_content_pages) {
+        foreach ($type_content_pages as $slug => $pgs) {
+            $seen = []; $deduped = [];
+            foreach ($pgs as $pg) {
+                $key = $pg['url'] ?: $pg['title'];
+                if (!isset($seen[$key])) { $seen[$key] = true; $deduped[] = $pg; }
+            }
+            $type_content_pages[$slug] = $deduped;
         }
-        $type_content_pages[$slug] = $deduped;
+    };
+    $dedup_type_pages();
+
+    // ── Broad IDX URL scan ────────────────────────────────────────────────────
+    // When IMPress embeds content via iframe / JS (not shortcodes), the page
+    // post_content contains idxbroker.com, idxforza.com, etc. URLs.
+    $url_cond = []; $url_vals = [];
+    foreach (['idxbroker', 'idxforza', 'mlssearch.', 'mlsfinder', 'idxre.com',
+              'data-idx', 'idx-broker', 'ihf_idx', 'imforza'] as $pat) {
+        $url_cond[] = "post_content LIKE %s"; $url_vals[] = '%' . $wpdb->esc_like($pat) . '%';
     }
+    $url_rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT ID, post_title, post_content FROM {$wpdb->posts}
+             WHERE post_status = 'publish' AND post_type IN ('page','post')
+               AND (" . implode(' OR ', $url_cond) . ")",
+            $url_vals
+        ),
+        ARRAY_A
+    );
+    foreach ($url_rows as $row) {
+        $pg = ['title' => $row['post_title'], 'url' => get_permalink($row['ID'])];
+        $hit = false;
+        foreach ($idx_page_id_map as $pid => $widget_slug) {
+            if (strpos($row['post_content'], $pid) !== false) {
+                $type_content_pages[$widget_slug][] = $pg; $hit = true;
+            }
+        }
+        if (!$hit) {
+            foreach ($idx_type_set as $slug) $type_content_pages[$slug][] = $pg;
+        }
+    }
+
+    // ── Title-based heuristic ─────────────────────────────────────────────────
+    // IMPress creates WP pages whose titles match the widget title.
+    // E.g. widget "Featured Properties" → WP page "Featured Properties".
+    foreach ($idx_widgets as $iw) {
+        $wtitle = trim($iw['title'] ?? '');
+        if (strlen($wtitle) < 4 || !empty($type_content_pages[$iw['type']])) continue;
+        $t_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT ID, post_title FROM {$wpdb->posts}
+                 WHERE post_status = 'publish' AND post_type = 'page'
+                   AND post_title LIKE %s LIMIT 5",
+                '%' . $wpdb->esc_like($wtitle) . '%'
+            ),
+            ARRAY_A
+        );
+        foreach ($t_rows as $r) {
+            $type_content_pages[$iw['type']][] = [
+                'title' => $r['post_title'] . ' (title match)',
+                'url'   => get_permalink($r['ID']),
+            ];
+        }
+    }
+
+    // Final dedup
+    $dedup_type_pages();
+
+    // ── IMPress / imFORZA plugin options scan (for debug) ─────────────────────
+    // Reveals how the plugin stores its page-to-IDX mappings so we can
+    // improve detection in future versions.
+    $plugin_opt_rows = $wpdb->get_results(
+        "SELECT option_name FROM {$wpdb->options}
+         WHERE ( option_name LIKE 'impress%' OR option_name LIKE 'ihf_%'
+              OR option_name LIKE 'imforza%' OR option_name LIKE 'idxforza%'
+              OR option_name LIKE 'idx_broker%' OR option_name LIKE 'idx_options%' )
+           AND option_name NOT LIKE 'widget\_%'
+           AND option_name NOT LIKE '\\_transient%'
+         LIMIT 40",
+        ARRAY_A
+    );
+    $debug_plugin_option_names = array_column($plugin_opt_rows, 'option_name');
 
     // Add found postmeta keys to debug output
     $debug_pm_keys = array_unique(array_column($pm_rows, 'meta_key'));
@@ -821,8 +895,9 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             'idx_id_base_map'     => $idx_id_base_map,
             'sidebars_map'        => $debug_sidebars_map,
             'registered_widgets'  => $debug_registered,
-            'idx_page_id_map'     => $idx_page_id_map,
-            'postmeta_keys_found' => $debug_pm_keys ?? [],
+            'idx_page_id_map'       => $idx_page_id_map,
+            'postmeta_keys_found'   => $debug_pm_keys ?? [],
+            'plugin_option_names'   => $debug_plugin_option_names ?? [],
         ],
     ]);
 });
@@ -1261,9 +1336,10 @@ function idx_scanner_page() {
 
         const sourceBadge = s => {
             const map = {
-                sidebar:   ['#0073aa', 'sidebar'],
-                shortcode: ['#46b450', 'shortcode / block'],
-                none:      ['#999',    'not found in pages'],
+                sidebar:      ['#0073aa', 'sidebar'],
+                shortcode:    ['#46b450', 'shortcode / block'],
+                'title-match':['#e6a817', 'title match'],
+                none:         ['#999',    'not found in pages'],
             };
             const [color, label] = map[s] || ['#999', s];
             return '<span style="font-size:10px;background:' + color + ';color:#fff;padding:2px 6px;border-radius:3px;">' + h(label) + '</span>';
@@ -1297,8 +1373,9 @@ function idx_scanner_page() {
         const dbgSbMap   = dbg.sidebars_map       || {};
         const dbgReg     = dbg.registered_widgets || [];
 
-        const dbgPmKeys   = dbg.postmeta_keys_found || [];
-        const dbgPageIds  = dbg.idx_page_id_map    || {};
+        const dbgPmKeys    = dbg.postmeta_keys_found  || [];
+        const dbgPageIds   = dbg.idx_page_id_map     || {};
+        const dbgPluginOpts= dbg.plugin_option_names || [];
 
         let dbgHtml = '<details style="margin-top:16px;"><summary style="cursor:pointer;color:#777;font-size:11px;">&#9654; Debug info (expand if widgets are still missing)</summary>' +
             '<div style="margin-top:8px;font-size:10px;font-family:monospace;background:#f8f8f8;padding:10px;border:1px solid #ddd;overflow:auto;max-height:280px;">';
@@ -1308,6 +1385,8 @@ function idx_scanner_page() {
                 : '  (none — widget type names did not match idx{account}_{page_id} pattern)');
         dbgHtml += '<br><br><b>Postmeta keys found on IDX/IMPress pages:</b><br>' +
             (dbgPmKeys.length ? dbgPmKeys.map(k => '  ' + h(k)).join('<br>') : '  (none — no postmeta with impress/ihf/idx_page keys found)');
+        dbgHtml += '<br><br><b>IMPress/imFORZA plugin options (non-widget):</b><br>' +
+            (dbgPluginOpts.length ? dbgPluginOpts.map(n => '  ' + h(n)).join('<br>') : '  (none — impress_*, ihf_*, idxforza_* options not found)');
         dbgHtml += '<br><br><b>widget_* option names matching idx/impress/broker:</b><br>' +
             (dbgIdxOpts.length ? dbgIdxOpts.map(n => '  ' + h(n)).join('<br>') : '  (none)');
         dbgHtml += '<br><br><b>sidebars_widgets buckets:</b><br>';
