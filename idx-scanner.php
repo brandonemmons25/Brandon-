@@ -203,42 +203,71 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         $sidebar_names[$id] = $info['name'] ?? $id;
     }
 
-    // Load all widget option rows
-    $rows = $wpdb->get_results(
-        "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\_%'",
-        ARRAY_A
-    );
+    $idx_widgets     = []; // IDX-containing instances only
+    $all_widget_data = []; // widget_id => {type, title} — every active instance
 
-    $idx_widgets    = []; // IDX-containing instances only
-    $all_widget_data = []; // widget_key => {type, title} — every instance
+    // Cache for get_option() calls — avoids duplicate lookups for the same widget type
+    $widget_opt_cache = [];
+    $get_widget_opt   = function ($id_base) use (&$widget_opt_cache) {
+        if (!array_key_exists($id_base, $widget_opt_cache)) {
+            $raw = get_option('widget_' . $id_base);
+            $widget_opt_cache[$id_base] = is_array($raw) ? $raw : [];
+        }
+        return $widget_opt_cache[$id_base];
+    };
 
-    foreach ($rows as $row) {
-        $data = maybe_unserialize($row['option_value']);
-        if (!is_array($data)) continue;
-        $type_slug = preg_replace('/^widget_/', '', $row['option_name']);
+    // Iterate sidebars → widget IDs so sidebar_id is always known and correct.
+    // Old approach (scan all widget options then reverse-lookup the sidebar) fails
+    // when the option name format doesn't match the sidebars_widgets key format.
+    foreach ((array) $sidebars_widgets as $sid => $wids) {
+        if (!is_array($wids)) continue;
+        if ($sid === 'wp_inactive_widgets' || strpos($sid, 'orphaned_widgets') === 0) continue;
 
-        foreach ($data as $instance_id => $instance) {
-            if ($instance_id === '_multiwidget' || !is_array($instance)) continue;
+        foreach ($wids as $wid) {
+            // Widget IDs are always "{id_base}-{number}" e.g. "text-3", "IDX_Broker_Omnibar_Widget-1"
+            if (!preg_match('/^(.+)-(\d+)$/', $wid, $wm)) {
+                $all_widget_data[$wid] = ['type' => $wid, 'title' => $wid];
+                continue;
+            }
+            $id_base     = $wm[1];
+            $instance_id = (int) $wm[2];
 
-            $wkey = $type_slug . '-' . $instance_id;
-            $title = ($instance['title'] ?? '') ?: $type_slug;
-            $all_widget_data[$wkey] = ['type' => $type_slug, 'title' => $title];
+            $opt  = $get_widget_opt($id_base);
+            $inst = (isset($opt[$instance_id]) && is_array($opt[$instance_id])) ? $opt[$instance_id] : null;
 
-            // Flatten all string values to check for IDX content
+            if ($inst === null) {
+                // Assigned to sidebar but option data missing — record what we know
+                $all_widget_data[$wid] = ['type' => $id_base, 'title' => $wid];
+                // If the widget type name contains 'idx' it's an IDX widget even without data
+                if (stripos($id_base, 'idx') !== false) {
+                    $idx_widgets[] = [
+                        'widget_key'   => $wid,
+                        'type'         => $id_base,
+                        'sidebar_id'   => $sid,
+                        'sidebar_name' => $sidebar_names[$sid] ?? $sid,
+                        'title'        => $wid,
+                        'matched'      => ['widget-type:' . $id_base],
+                        'links'        => [],
+                    ];
+                }
+                continue;
+            }
+
+            $title = ($inst['title'] ?? '') ?: $id_base;
+            $all_widget_data[$wid] = ['type' => $id_base, 'title' => $title];
+
+            // Flatten all string values for IDX term matching
             $parts = [];
-            array_walk_recursive($instance, function ($v) use (&$parts) { if (is_string($v)) $parts[] = $v; });
+            array_walk_recursive($inst, function ($v) use (&$parts) { if (is_string($v)) $parts[] = $v; });
             $flat = implode(' ', $parts);
 
             $matched = [];
             foreach ($idx_terms as $term) {
                 if (stripos($flat, $term) !== false) $matched[] = $term;
             }
-            if (stripos($row['option_name'], 'idx') !== false) $matched[] = 'widget-type:' . $type_slug;
+            if (stripos($id_base, 'idx') !== false) $matched[] = 'widget-type:' . $id_base;
 
             if (!empty($matched)) {
-                $sid = $widget_sidebar_map[$wkey] ?? 'unassigned';
-
-                // Extract actual IDX broker link URLs from the widget content
                 $links = [];
                 if (preg_match_all('/href=["\']([^"\']*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^"\']*)["\']/', $flat, $lm))
                     foreach ($lm[1] as $u) $links[] = $u;
@@ -248,8 +277,8 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     foreach ($lm[0] as $u) $links[] = $u;
 
                 $idx_widgets[] = [
-                    'widget_key'   => $wkey,
-                    'type'         => $type_slug,
+                    'widget_key'   => $wid,
+                    'type'         => $id_base,
                     'sidebar_id'   => $sid,
                     'sidebar_name' => $sidebar_names[$sid] ?? $sid,
                     'title'        => $title,
