@@ -237,6 +237,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 
             if (!empty($matched)) {
                 $sid = $widget_sidebar_map[$wkey] ?? 'unassigned';
+
+                // Extract actual IDX broker link URLs from the widget content
+                $links = [];
+                if (preg_match_all('/href=["\']([^"\']*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^"\']*)["\']/', $flat, $lm))
+                    foreach ($lm[1] as $u) $links[] = $u;
+                if (preg_match_all('/href=["\']([^"\']*\/idx\/[^"\']*)["\']/', $flat, $lm))
+                    foreach ($lm[1] as $u) $links[] = $u;
+                if (preg_match_all('/https?:\/\/[^\s"\'<>]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>]*/i', $flat, $lm))
+                    foreach ($lm[0] as $u) $links[] = $u;
+
                 $idx_widgets[] = [
                     'widget_key'   => $wkey,
                     'type'         => $type_slug,
@@ -244,6 +254,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     'sidebar_name' => $sidebar_names[$sid] ?? $sid,
                     'title'        => $title,
                     'matched'      => $matched,
+                    'links'        => array_values(array_unique($links)),
                 ];
             }
         }
@@ -788,23 +799,37 @@ function idx_scanner_page() {
             return;
         }
 
+        // Derive a physical position from the sidebar name/ID
+        function widgetPosition(name, id) {
+            const s = (name + ' ' + id).toLowerCase();
+            if (/header|top[\s_-]bar|top[\s_-]nav/.test(s)) return 'Header';
+            if (/footer/.test(s))                            return 'Footer';
+            if (/right/.test(s))                             return 'Right side';
+            if (/left/.test(s))                              return 'Left side';
+            if (/top/.test(s))                               return 'Top';
+            if (/bottom/.test(s))                            return 'Bottom';
+            if (/content|main[\s_-]content/.test(s))         return 'Content area';
+            // Strip generic suffixes and return the cleaned name
+            return name.replace(/\b(widget\s*area|widget\s*zone|widgets?)\b/gi, '').trim() || name || id;
+        }
+
         // Build one row per page+widget combination, sorted by page title
         const rows = [];
         idxWidgets.forEach(w => {
-            const pages        = sbPages[w.sidebar_id] || [];
-            const sidebarLabel = w.sidebar_name || w.sidebar_id;
+            const pages    = sbPages[w.sidebar_id] || [];
+            const position = widgetPosition(w.sidebar_name || '', w.sidebar_id || '');
             if (pages.length) {
-                pages.forEach(pg => rows.push({ page_title: pg.title, page_url: pg.url || '', widget: w.title, widget_type: w.type, location: sidebarLabel }));
+                pages.forEach(pg => rows.push({ page_title: pg.title, page_url: pg.url || '', widget: w.title, position }));
             } else {
-                rows.push({ page_title: '', page_url: '', widget: w.title, widget_type: w.type, location: sidebarLabel });
+                rows.push({ page_title: '', page_url: '', widget: w.title, position });
             }
         });
         rows.sort((a, b) => a.page_title.localeCompare(b.page_title));
         widgetsResults = rows;
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th style="width:25%">Page</th>' +
-            '<th style="width:28%">Widget</th>' +
+            '<th style="width:30%">Page</th>' +
+            '<th style="width:35%">Widget</th>' +
             '<th>Where on Page</th>' +
             '</tr></thead><tbody>';
 
@@ -817,8 +842,8 @@ function idx_scanner_page() {
             html +=
                 '<tr>' +
                 '<td>' + pageCell + '</td>' +
-                '<td><strong>' + h(r.widget) + '</strong><br><code style="font-size:10px;color:#888;">' + h(r.widget_type) + '</code></td>' +
-                '<td>' + h(r.location) + '</td>' +
+                '<td><strong>' + h(r.widget) + '</strong></td>' +
+                '<td>' + h(r.position) + '</td>' +
                 '</tr>';
         });
 
@@ -829,8 +854,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.widget_type, r.location]),
-            ['Page', 'Page URL', 'Widget', 'Widget Type', 'Where on Page'],
+            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.position]),
+            ['Page', 'Page URL', 'Widget', 'Where on Page'],
             'idx-widgets.csv'
         );
     });
@@ -848,28 +873,41 @@ function idx_scanner_page() {
 
         if (!res.success) { div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>'; return; }
 
-        const sidebars = res.data.sidebars || [];
+        const sidebars   = res.data.sidebars    || [];
+        const idxWidgets = res.data.idx_widgets  || [];
 
         if (sidebars.length === 0) {
             div.innerHTML = '<p style="color:#888;"><em>No registered sidebar areas found.</em></p>';
             return;
         }
 
+        // Build a map: sidebar_id => idx links found in its widgets
+        const sbIdxLinks = {};
+        idxWidgets.forEach(w => {
+            if (!sbIdxLinks[w.sidebar_id]) sbIdxLinks[w.sidebar_id] = [];
+            (w.links || []).forEach(l => {
+                if (!sbIdxLinks[w.sidebar_id].includes(l)) sbIdxLinks[w.sidebar_id].push(l);
+            });
+        });
+
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th style="width:20%">Sidebar Area</th>' +
-            '<th style="width:30%">Widgets in This Area</th>' +
+            '<th style="width:18%">Sidebar Area</th>' +
+            '<th style="width:25%">Widgets in This Area</th>' +
+            '<th style="width:25%">IDX Links in This Sidebar</th>' +
             '<th>Pages This Sidebar Displays On</th>' +
             '</tr></thead><tbody>';
 
         sidebars.forEach(sb => {
             const widgetsHtml = sb.widgets.length
                 ? sb.widgets.map(w =>
-                    '<div style="margin:2px 0;">' +
-                    '<span class="idx-tag blue">' + h(w.title) + '</span>' +
-                    '<span style="font-size:10px;color:#888;margin-left:4px;">' + h(w.type) + '</span>' +
-                    '</div>'
+                    '<div style="margin:2px 0;"><span class="idx-tag blue">' + h(w.title) + '</span></div>'
                   ).join('')
                 : '<span style="color:#aaa;font-size:11px;">(empty)</span>';
+
+            const sbLinks     = sbIdxLinks[sb.id] || [];
+            const linksHtml   = sbLinks.length
+                ? sbLinks.map(l => '<div style="font-size:11px;font-family:monospace;word-break:break-all;margin:1px 0;">' + h(l) + '</div>').join('')
+                : '<span style="color:#aaa;font-size:11px;">None found</span>';
 
             const pagesHtml = sb.pages.length
                 ? sb.pages.map(pg =>
@@ -883,14 +921,15 @@ function idx_scanner_page() {
                 '<tr>' +
                 '<td><strong>' + h(sb.name) + '</strong><br><code style="font-size:10px;color:#888;">' + h(sb.id) + '</code></td>' +
                 '<td>' + widgetsHtml + '</td>' +
+                '<td>' + linksHtml + '</td>' +
                 '<td>' + pagesHtml + '</td>' +
                 '</tr>';
 
             const widgetTitles = sb.widgets.map(w => w.title).join(', ') || '(empty)';
             if (sb.pages.length) {
-                sb.pages.forEach(pg => sidebarsResults.push({ sidebar: sb.name, sidebar_id: sb.id, widgets: widgetTitles, page: pg.title, page_url: pg.url || '' }));
+                sb.pages.forEach(pg => sidebarsResults.push({ sidebar: sb.name, sidebar_id: sb.id, widgets: widgetTitles, idx_links: sbLinks.join(' | '), page: pg.title, page_url: pg.url || '' }));
             } else {
-                sidebarsResults.push({ sidebar: sb.name, sidebar_id: sb.id, widgets: widgetTitles, page: '', page_url: '' });
+                sidebarsResults.push({ sidebar: sb.name, sidebar_id: sb.id, widgets: widgetTitles, idx_links: sbLinks.join(' | '), page: '', page_url: '' });
             }
         });
 
@@ -901,8 +940,8 @@ function idx_scanner_page() {
 
     document.getElementById('sidebars-export-btn').addEventListener('click', function () {
         exportCSV(
-            sidebarsResults.map(r => [r.sidebar, r.sidebar_id, r.widgets, r.page, r.page_url]),
-            ['Sidebar Area', 'Sidebar ID', 'Widgets In Area', 'Page', 'Page URL'],
+            sidebarsResults.map(r => [r.sidebar, r.sidebar_id, r.widgets, r.idx_links, r.page, r.page_url]),
+            ['Sidebar Area', 'Sidebar ID', 'Widgets In Area', 'IDX Links', 'Page', 'Page URL'],
             'idx-sidebar-areas.csv'
         );
     });
