@@ -351,24 +351,45 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
-    // ── PASS 3: Post-content scan ─────────────────────────────────────────────
-    // Widgets that aren't in any WordPress sidebar are typically embedded in
-    // page content via shortcodes or Gutenberg legacy-widget blocks.
-    // Search post_content for every unique IDX widget type we found.
-    $idx_type_set = array_unique(array_column($idx_widgets, 'type'));
+    // ── PASS 3: Post-content + postmeta scan ─────────────────────────────────
+    // Widget types like 'idx909_30371' encode the IDX Broker page ID (30371).
+    // IMPress embeds these as [ihf_idx page_id="30371"] or [ihf-idx] — NOT as
+    // [idx909_30371]. So we must search by the numeric ID and by IMPress shortcode
+    // patterns, not just the widget type slug.
+    $idx_type_set       = array_unique(array_column($idx_widgets, 'type'));
     $type_content_pages = []; // type_slug => [ ['title'=>..,'url'=>..], … ]
 
-    if (!empty($idx_type_set)) {
-        $sc_cond = []; $sc_vals = [];
-        foreach ($idx_type_set as $slug) {
-            // Classic shortcode: [widget_type or [widget_type id=...
-            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%[' . $wpdb->esc_like($slug) . '%';
-            // Gutenberg legacy-widget block stores widget id as "id":"type-N"
-            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%"id":"' . $wpdb->esc_like($slug) . '%';
-            // Gutenberg widget block: <!-- wp:widget/type or <!-- wp:legacy-widget ... type
-            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%widget/' . $wpdb->esc_like($slug) . '%';
+    // Map numeric IDX page IDs → widget type slug
+    // e.g. 'idx909_30371' → '30371' → 'idx909_30371'
+    $idx_page_id_map = []; // '30371' => 'idx909_30371'
+    foreach ($idx_type_set as $slug) {
+        if (preg_match('/^idx\d+_(\d+)$/', $slug, $m)) {
+            $idx_page_id_map[$m[1]] = $slug;
         }
+    }
 
+    // Build a combined search: widget type slugs + IMPress/IHF patterns + numeric IDs
+    $sc_cond = []; $sc_vals = [];
+
+    // 1. Widget type slug in post_content (catches classic widgets used as shortcodes)
+    foreach ($idx_type_set as $slug) {
+        $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%[' . $wpdb->esc_like($slug) . '%';
+        $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%"id":"' . $wpdb->esc_like($slug) . '%';
+        $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%widget/' . $wpdb->esc_like($slug) . '%';
+    }
+
+    // 2. IMPress / IHF shortcode patterns (the actual shortcodes IMPress registers)
+    $impress_patterns = ['[ihf_idx', '[ihf-idx', '[ihf ', '[IMPress', '[impress_', 'ihf_idx'];
+    foreach ($impress_patterns as $pat) {
+        $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%' . $wpdb->esc_like($pat) . '%';
+    }
+
+    // 3. Numeric IDX page IDs embedded in shortcode attributes, e.g. page_id="30371"
+    foreach (array_keys($idx_page_id_map) as $pid) {
+        $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%' . $wpdb->esc_like($pid) . '%';
+    }
+
+    if (!empty($sc_cond)) {
         $sc_rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT ID, post_title, post_content FROM {$wpdb->posts}
@@ -380,22 +401,109 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         );
 
         foreach ($sc_rows as $row) {
+            $url     = get_permalink($row['ID']);
+            $pg      = ['title' => $row['post_title'], 'url' => $url];
+            $content = $row['post_content'];
+            $matched = false;
+
+            // Precise: match by numeric IDX page ID in content
+            foreach ($idx_page_id_map as $pid => $widget_slug) {
+                if (strpos($content, $pid) !== false) {
+                    $type_content_pages[$widget_slug][] = $pg;
+                    $matched = true;
+                }
+            }
+
+            // Precise: match by widget type slug
             foreach ($idx_type_set as $slug) {
-                if (stripos($row['post_content'], '[' . $slug)           !== false ||
-                    stripos($row['post_content'], '"id":"' . $slug)       !== false ||
-                    stripos($row['post_content'], 'widget/' . $slug)      !== false) {
-                    $type_content_pages[$slug][] = [
-                        'title' => $row['post_title'],
-                        'url'   => get_permalink($row['ID']),
-                    ];
+                if (stripos($content, '[' . $slug)      !== false ||
+                    stripos($content, '"id":"' . $slug)  !== false ||
+                    stripos($content, 'widget/' . $slug) !== false) {
+                    $type_content_pages[$slug][] = $pg;
+                    $matched = true;
+                }
+            }
+
+            // Broad: page has IMPress shortcode but we can't tell which specific widget —
+            // associate with every IMPress-typed widget on this site
+            if (!$matched) {
+                foreach ($impress_patterns as $pat) {
+                    if (stripos($content, $pat) !== false) {
+                        foreach ($idx_type_set as $slug) {
+                            $type_content_pages[$slug][] = $pg;
+                        }
+                        break;
+                    }
                 }
             }
         }
+    }
 
-        // Page-builder scan (Elementor, Divi, Oxygen, etc. store widget data in postmeta)
+    // ── Postmeta scan ─────────────────────────────────────────────────────────
+    // IMPress sets meta like '_impress_page_id', '_ihf_page_id', '_idx_page_id', etc.
+    // Also check for page template assignments from IMPress.
+    $pm_cond = []; $pm_vals = [];
+
+    // Meta keys containing IDX page IDs (IMPress assigns these to wrapper pages)
+    foreach (array_keys($idx_page_id_map) as $pid) {
+        $pm_cond[] = "pm.meta_value = %s";  $pm_vals[] = $pid;
+        $pm_cond[] = "pm.meta_key LIKE %s"; $pm_vals[] = '%' . $wpdb->esc_like($pid) . '%';
+    }
+    // Generic IMPress/IHF meta key patterns
+    $pm_cond[] = "pm.meta_key LIKE %s"; $pm_vals[] = '%impress%';
+    $pm_cond[] = "pm.meta_key LIKE %s"; $pm_vals[] = '%_ihf_%';
+    $pm_cond[] = "pm.meta_key LIKE %s"; $pm_vals[] = '%idx_page%';
+    // IMPress page template
+    $pm_cond[] = "(pm.meta_key = '_wp_page_template' AND (pm.meta_value LIKE %s OR pm.meta_value LIKE %s))";
+    $pm_vals[] = '%impress%'; $pm_vals[] = '%ihf%';
+
+    $pm_rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT DISTINCT p.ID, p.post_title, pm.meta_key, pm.meta_value
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+             WHERE p.post_status = 'publish' AND p.post_type IN ('page','post')
+               AND (" . implode(' OR ', $pm_cond) . ")
+             LIMIT 200",
+            $pm_vals
+        ),
+        ARRAY_A
+    );
+
+    $pm_pages_by_id   = []; // WP post ID => page info (dedup)
+    $pm_widget_hits   = []; // widget_slug => [page info] from postmeta
+    foreach ($pm_rows as $row) {
+        $url = get_permalink($row['ID']);
+        $pg  = ['title' => $row['post_title'], 'url' => $url];
+        $pm_pages_by_id[$row['ID']] = $pg;
+
+        // Try to match meta_value to a specific IDX page ID
+        foreach ($idx_page_id_map as $pid => $widget_slug) {
+            if ($row['meta_value'] === $pid || strpos($row['meta_value'], $pid) !== false) {
+                $pm_widget_hits[$widget_slug][] = $pg;
+            }
+        }
+    }
+
+    // Merge postmeta results into type_content_pages
+    foreach ($pm_widget_hits as $slug => $pgs) {
+        foreach ($pgs as $pg) $type_content_pages[$slug][] = $pg;
+    }
+    // If postmeta found pages but couldn't map to specific widget, distribute broadly
+    if (!empty($pm_pages_by_id) && empty($pm_widget_hits)) {
+        foreach ($pm_pages_by_id as $pg) {
+            foreach ($idx_type_set as $slug) $type_content_pages[$slug][] = $pg;
+        }
+    }
+
+    // Page-builder scan (Elementor, Divi, Oxygen)
+    if (!empty($idx_type_set)) {
         $pb_cond = []; $pb_vals = [];
         foreach ($idx_type_set as $slug) {
             $pb_cond[] = "pm.meta_value LIKE %s"; $pb_vals[] = '%' . $wpdb->esc_like($slug) . '%';
+        }
+        foreach (array_keys($idx_page_id_map) as $pid) {
+            $pb_cond[] = "pm.meta_value LIKE %s"; $pb_vals[] = '%' . $wpdb->esc_like($pid) . '%';
         }
         $pb_rows = $wpdb->get_results(
             $wpdb->prepare(
@@ -409,27 +517,23 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             ARRAY_A
         );
         foreach ($pb_rows as $row) {
-            // Can't easily determine which specific type — associate with all IDX types
-            // as a hint (marked with '(page builder)' suffix to be transparent)
-            foreach ($idx_type_set as $slug) {
-                $type_content_pages[$slug][] = [
-                    'title' => $row['post_title'] . ' (via page builder)',
-                    'url'   => get_permalink($row['ID']),
-                ];
-            }
-        }
-
-        // Deduplicate per type
-        foreach ($type_content_pages as $slug => $pgs) {
-            $seen_urls = [];
-            $deduped   = [];
-            foreach ($pgs as $pg) {
-                $key = $pg['url'] ?: $pg['title'];
-                if (!isset($seen_urls[$key])) { $seen_urls[$key] = true; $deduped[] = $pg; }
-            }
-            $type_content_pages[$slug] = $deduped;
+            $pg = ['title' => $row['post_title'] . ' (page builder)', 'url' => get_permalink($row['ID'])];
+            foreach ($idx_type_set as $slug) $type_content_pages[$slug][] = $pg;
         }
     }
+
+    // Deduplicate per type
+    foreach ($type_content_pages as $slug => $pgs) {
+        $seen = []; $deduped = [];
+        foreach ($pgs as $pg) {
+            $key = $pg['url'] ?: $pg['title'];
+            if (!isset($seen[$key])) { $seen[$key] = true; $deduped[] = $pg; }
+        }
+        $type_content_pages[$slug] = $deduped;
+    }
+
+    // Add found postmeta keys to debug output
+    $debug_pm_keys = array_unique(array_column($pm_rows, 'meta_key'));
 
     // ── Theme file scan: sidebar_id => template files that call dynamic_sidebar() ──
     $theme_dir  = get_stylesheet_directory();
@@ -717,6 +821,8 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             'idx_id_base_map'     => $idx_id_base_map,
             'sidebars_map'        => $debug_sidebars_map,
             'registered_widgets'  => $debug_registered,
+            'idx_page_id_map'     => $idx_page_id_map,
+            'postmeta_keys_found' => $debug_pm_keys ?? [],
         ],
     ]);
 });
@@ -1191,14 +1297,19 @@ function idx_scanner_page() {
         const dbgSbMap   = dbg.sidebars_map       || {};
         const dbgReg     = dbg.registered_widgets || [];
 
+        const dbgPmKeys   = dbg.postmeta_keys_found || [];
+        const dbgPageIds  = dbg.idx_page_id_map    || {};
+
         let dbgHtml = '<details style="margin-top:16px;"><summary style="cursor:pointer;color:#777;font-size:11px;">&#9654; Debug info (expand if widgets are still missing)</summary>' +
-            '<div style="margin-top:8px;font-size:10px;font-family:monospace;background:#f8f8f8;padding:10px;border:1px solid #ddd;overflow:auto;max-height:260px;">';
-        dbgHtml += '<b>widget_* option names in DB matching idx/impress/broker:</b><br>' +
+            '<div style="margin-top:8px;font-size:10px;font-family:monospace;background:#f8f8f8;padding:10px;border:1px solid #ddd;overflow:auto;max-height:280px;">';
+        dbgHtml += '<b>IDX page ID map extracted from widget types:</b><br>' +
+            (Object.entries(dbgPageIds).length
+                ? Object.entries(dbgPageIds).map(([id,slug]) => '  page_id ' + h(id) + ' → widget type "' + h(slug) + '"').join('<br>')
+                : '  (none — widget type names did not match idx{account}_{page_id} pattern)');
+        dbgHtml += '<br><br><b>Postmeta keys found on IDX/IMPress pages:</b><br>' +
+            (dbgPmKeys.length ? dbgPmKeys.map(k => '  ' + h(k)).join('<br>') : '  (none — no postmeta with impress/ihf/idx_page keys found)');
+        dbgHtml += '<br><br><b>widget_* option names matching idx/impress/broker:</b><br>' +
             (dbgIdxOpts.length ? dbgIdxOpts.map(n => '  ' + h(n)).join('<br>') : '  (none)');
-        dbgHtml += '<br><br><b>IDX id_base map (from $wp_widget_factory):</b><br>' +
-            (Object.entries(dbgIdxMap).length
-                ? Object.entries(dbgIdxMap).map(([b,c]) => '  ' + h(b) + ' → ' + h(c)).join('<br>')
-                : '  (empty — IDX plugin may not register widgets during admin AJAX)');
         dbgHtml += '<br><br><b>sidebars_widgets buckets:</b><br>';
         Object.entries(dbgSbMap).forEach(([sid, wids]) => {
             dbgHtml += '  [' + h(sid) + '] ' + (Array.isArray(wids) ? wids.map(w => h(w)).join(', ') : '') + '<br>';
