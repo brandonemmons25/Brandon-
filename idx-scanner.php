@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.12
+ * Version: 2.13
  * Author: You
  */
 
@@ -157,6 +157,8 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
         ARRAY_A
     );
 
+    $sc_idx_terms = ['[IDX', '[idx', '/idx/', 'idxbroker', 'idxre.com'];
+
     $found = [];
     foreach ($posts as $post) {
         $content = get_post_field('post_content', $post['ID']);
@@ -175,6 +177,15 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
         )));
 
         if (empty($all_matches)) continue;
+
+        // ── Gutenberg block location detection ──────────────────────────────
+        // parse_blocks() is available on every WP site; works with any
+        // accordion block plugin (Kadence, CoBlocks, UAG, GenerateBlocks, etc.)
+        $locations = [];
+        if ( function_exists( 'parse_blocks' ) ) {
+            $blocks    = parse_blocks( $content );
+            $locations = idx_find_in_blocks( $blocks, $sc_idx_terms );
+        }
 
         // If this is a child CPT (accordion item etc.), surface the parent page too
         $parent_info = null;
@@ -196,10 +207,51 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
             'url'        => get_permalink($post['ID']),
             'parent'     => $parent_info,
             'shortcodes' => $all_matches,
+            'locations'  => $locations,
         ];
     }
     wp_send_json_success($found);
 });
+
+// ── Helper: walk Gutenberg block tree, return breadcrumb paths for IDX hits ────
+// Uses WP's native parse_blocks() so it works with any accordion block plugin
+// (Kadence, CoBlocks, UAG/Spectra, GenerateBlocks, etc.) out of the box.
+function idx_find_in_blocks( $blocks, $idx_terms, $breadcrumb = [] ) {
+    $hits = [];
+    foreach ( (array) $blocks as $block ) {
+        $block_name   = $block['blockName']   ?? '';
+        $attrs        = $block['attrs']        ?? [];
+        $inner_html   = $block['innerHTML']    ?? '';
+        $inner_blocks = $block['innerBlocks']  ?? [];
+
+        // Build a human label for this block level
+        $label = '';
+        if ( $block_name ) {
+            // Strip namespace prefix for readability (kadence/pane → pane)
+            $short = ltrim( strrchr( $block_name, '/' ), '/' ) ?: $block_name;
+            // Common title keys used by accordion plugins
+            $title = $attrs['title']    ?? $attrs['heading'] ?? $attrs['label']
+                  ?? $attrs['question'] ?? $attrs['tabTitle'] ?? '';
+            $label = $title ? '"' . $title . '"' : $short;
+        }
+        $crumb = $label ? array_merge( $breadcrumb, [ $label ] ) : $breadcrumb;
+
+        // Leaf block (no inner blocks) — check its HTML directly
+        if ( empty( $inner_blocks ) ) {
+            $hit = [];
+            foreach ( $idx_terms as $term ) {
+                if ( stripos( $inner_html, $term ) !== false ) $hit[] = $term;
+            }
+            if ( $hit ) {
+                $hits[] = implode( ' → ', $crumb ?: [ $block_name ?: '(block)' ] );
+            }
+        } else {
+            // Container block — recurse into children
+            $hits = array_merge( $hits, idx_find_in_blocks( $inner_blocks, $idx_terms, $crumb ) );
+        }
+    }
+    return array_values( array_unique( $hits ) );
+}
 
 // ── Helper: walk Elementor JSON data, return location breadcrumbs for IDX hits ─
 function idx_elementor_find( $elements, $idx_terms, $breadcrumb = [] ) {
@@ -744,7 +796,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.12</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.13</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -752,7 +804,8 @@ function idx_scanner_page() {
             <a class="nav-tab" onclick="switchTab('shortcode',this);return false;" href="#">Content / Shortcodes</a>
             <a class="nav-tab" onclick="switchTab('postmeta',this);return false;" href="#">Post Meta</a>
             <a class="nav-tab" onclick="switchTab('scripts',this);return false;" href="#">External Scripts</a>
-            <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">Widgets / Sidebar</a>
+            <a class="nav-tab" onclick="switchTab('widgets',this);return false;" href="#">IDX Widgets</a>
+            <a class="nav-tab" onclick="switchTab('sidebars',this);return false;" href="#">Sidebar Areas</a>
             <a class="nav-tab" onclick="switchTab('navmenus',this);return false;" href="#">Nav Menus</a>
             <a class="nav-tab" onclick="switchTab('themefiles',this);return false;" href="#">Theme Files</a>
         </nav>
@@ -824,12 +877,20 @@ function idx_scanner_page() {
             <div id="scripts-results" style="margin-top:16px;"></div>
         </div>
 
-        <!-- ── Tab: Widgets / Sidebar ── -->
+        <!-- ── Tab: IDX Widgets ── -->
         <div id="tab-widgets" class="idx-tab" style="display:none;">
-            <p>Scans all WordPress widget instances stored in <code>wp_options</code> for IDX Broker URLs, saved links, and shortcodes — covering sidebars, footers, and any other registered widget areas.</p>
-            <button id="widgets-scan-btn" class="button button-primary">Scan Widgets &amp; Sidebars</button>
+            <p>Scans all WordPress classic widget instances stored in <code>wp_options</code> for IDX Broker content — showing exactly which widgets contain IDX features so you can identify what to replace with iHomefinder shortcodes.</p>
+            <button id="widgets-scan-btn" class="button button-primary">Scan IDX Widgets</button>
             <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="widgets-results" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- ── Tab: Sidebar Areas ── -->
+        <div id="tab-sidebars" class="idx-tab" style="display:none;">
+            <p>Maps every registered sidebar / widget area to the pages it appears on, highlighting which areas contain IDX widgets.</p>
+            <button id="sidebars-scan-btn" class="button button-primary">Scan Sidebar Areas</button>
+            <button id="sidebars-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
+            <div id="sidebars-results" style="margin-top:16px;"></div>
         </div>
 
         <!-- ── Tab: Nav Menus ── -->
@@ -1043,7 +1104,7 @@ function idx_scanner_page() {
         }
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Post / Item</th><th>Type</th><th>Parent Page</th><th>Matches Found</th>' +
+            '<th>Post / Item</th><th>Type</th><th>Parent Page</th><th>Location in Page</th><th>Matches Found</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(p => {
@@ -1052,12 +1113,17 @@ function idx_scanner_page() {
                 ? '<a href="' + h(p.parent.url) + '" target="_blank">' + h(p.parent.title) + '</a>'
                 : '—';
             const csvParent = p.parent ? p.parent.title + ' (' + p.parent.url + ')' : '';
-            shortcodeResults.push({ title: p.title, type: p.type, url: p.url, parent: csvParent, shortcodes: p.shortcodes.join(', ') });
+            const locs = p.locations || [];
+            const locHtml = locs.length
+                ? locs.map(l => '<div style="font-size:11px;font-weight:600;color:#7c3aed;white-space:nowrap;">&#128205; ' + h(l) + '</div>').join('')
+                : '<span style="color:#aaa;font-size:11px;">—</span>';
+            shortcodeResults.push({ title: p.title, type: p.type, url: p.url, parent: csvParent, locations: locs.join(' | '), shortcodes: p.shortcodes.join(', ') });
             html +=
                 '<tr>' +
                 '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
                 '<td><code>' + h(p.type) + '</code></td>' +
                 '<td>' + parentCell + '</td>' +
+                '<td style="min-width:160px;">' + locHtml + '</td>' +
                 '<td style="font-size:11px;font-family:monospace;">' + codes + '</td>' +
                 '</tr>';
         });
@@ -1069,8 +1135,8 @@ function idx_scanner_page() {
 
     document.getElementById('shortcode-export-btn').addEventListener('click', function () {
         exportCSV(
-            shortcodeResults.map(r => [r.title, r.type, r.url, r.parent, r.shortcodes]),
-            ['Post / Item', 'Type', 'URL', 'Parent Page', 'Matches Found'],
+            shortcodeResults.map(r => [r.title, r.type, r.url, r.parent, r.locations, r.shortcodes]),
+            ['Post / Item', 'Type', 'URL', 'Parent Page', 'Location in Page', 'Matches Found'],
             'idx-content.csv'
         );
     });
@@ -1211,16 +1277,25 @@ function idx_scanner_page() {
         );
     });
 
-    // ── Widgets / Sidebar Scanner ──────────────────────────────────────────────
-    let widgetsResults = [];
+    // ── IDX Widgets Scanner ────────────────────────────────────────────────────
+    let widgetsResults  = [];
+    let widgetsRawData  = null; // cache so Sidebar Areas tab reuses the same fetch
+
+    async function fetchWidgetData(statusDiv) {
+        if (widgetsRawData) return widgetsRawData;
+        statusDiv.innerHTML = '<em>Scanning widget instances…</em>';
+        const res = await ajax('idx_scan_widgets');
+        if (res.success) widgetsRawData = res;
+        return res;
+    }
 
     document.getElementById('widgets-scan-btn').addEventListener('click', async function () {
-        this.disabled = true;
-        widgetsResults = [];
+        this.disabled   = true;
+        widgetsResults  = [];
+        widgetsRawData  = null; // force fresh fetch
         const div = document.getElementById('widgets-results');
-        div.innerHTML = '<em>Scanning widget areas and sidebars…</em>';
 
-        const res = await ajax('idx_scan_widgets');
+        const res = await fetchWidgetData(div);
         this.disabled = false;
 
         if (!res.success) {
@@ -1230,109 +1305,129 @@ function idx_scanner_page() {
 
         const widgets  = res.data.widgets  || [];
         const sidebars = res.data.sidebars || [];
-
-        // Build a lookup: sidebar_id => pages[]
-        const sbPages = {};
+        const sbPages  = {};
         sidebars.forEach(sb => { sbPages[sb.id] = sb.pages || []; });
 
-        let html = '';
-
-        // ── Section 1: All Sidebar Areas ────────────────────────────────────────
-        html += '<h3 style="margin-top:0;">All Sidebar / Widget Areas</h3>';
-
-        if (sidebars.length === 0) {
-            html += '<p style="color:#888;"><em>No registered sidebar areas found. Make sure this plugin runs inside the WordPress admin context.</em></p>';
-        } else {
-            html += '<table class="widefat striped"><thead><tr>' +
-                '<th>Sidebar Name</th><th>Sidebar ID</th>' +
-                '<th>IDX Widgets In This Sidebar</th><th>Pages This Sidebar Displays On</th>' +
-                '</tr></thead><tbody>';
-
-            sidebars.forEach(sb => {
-                const hasIDX = sb.idx_widgets.length > 0;
-                const idxCell = hasIDX
-                    ? sb.idx_widgets.map(w =>
-                        '<span style="background:#d63638;color:#fff;font-size:11px;padding:1px 7px;border-radius:8px;display:inline-block;margin:1px;">' +
-                        h(w.title || w.widget_type) + '</span>'
-                      ).join(' ')
-                    : '<span style="color:#aaa;font-size:11px;">none</span>';
-
-                const pagesCell = sb.pages.length
-                    ? sb.pages.map(pg =>
-                        pg.url
-                            ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
-                            : '<span style="font-size:12px;color:#888;">' + h(pg.title) + '</span>'
-                      ).join('')
-                    : '<span style="color:#aaa;font-size:11px;">Could not detect — check Theme Files tab</span>';
-
-                html += '<tr' + (hasIDX ? ' style="background:#fff8e1;"' : '') + '>' +
-                    '<td><strong>' + h(sb.name) + '</strong></td>' +
-                    '<td><code style="font-size:11px;">' + h(sb.id) + '</code></td>' +
-                    '<td>' + idxCell + '</td>' +
-                    '<td>' + pagesCell + '</td>' +
-                    '</tr>';
-
-                // Record for CSV
-                sb.pages.forEach(pg => {
-                    sb.idx_widgets.forEach(w => {
-                        widgetsResults.push({
-                            sidebar_name: sb.name, sidebar_id: sb.id,
-                            widget: w.title || w.widget_type,
-                            page_title: pg.title, page_url: pg.url || '',
-                        });
-                    });
-                    if (sb.idx_widgets.length === 0) {
-                        widgetsResults.push({
-                            sidebar_name: sb.name, sidebar_id: sb.id,
-                            widget: '(no IDX widgets)',
-                            page_title: pg.title, page_url: pg.url || '',
-                        });
-                    }
-                });
-            });
-            html += '</tbody></table>';
-        }
-
-        // ── Section 2: IDX Widget Instances detail ───────────────────────────────
         if (widgets.length === 0) {
-            html += '<p style="margin-top:20px;color:#00a32a;font-weight:bold;">No IDX content found in any widget instances.</p>';
-        } else {
-            html += '<h3 style="margin-top:28px;">IDX Widget Instances</h3>' +
-                '<table class="widefat striped"><thead><tr>' +
-                '<th>Widget Title</th><th>Widget Type</th>' +
-                '<th>Sidebar</th><th>Matched Terms</th><th>Displays On</th>' +
-                '</tr></thead><tbody>';
-
-            widgets.forEach(w => {
-                const pages = sbPages[w.sidebar_id] || [];
-                const pagesHtml = pages.length
-                    ? pages.map(pg => pg.url
-                        ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
-                        : '<em style="font-size:12px;">' + h(pg.title) + '</em>'
-                      ).join('')
-                    : '<span style="color:#888;font-size:11px;">See sidebar table above</span>';
-
-                html += '<tr>' +
-                    '<td><strong>' + h(w.title) + '</strong></td>' +
-                    '<td><code style="font-size:11px;">' + h(w.widget_type) + '</code></td>' +
-                    '<td><strong>' + h(w.sidebar_name) + '</strong><br>' +
-                    '<code style="font-size:10px;color:#888;">' + h(w.sidebar_id) + '</code></td>' +
-                    '<td>' + w.matched.map(t => '<code style="font-size:11px;">' + h(t) + '</code>').join('<br>') + '</td>' +
-                    '<td>' + pagesHtml + '</td>' +
-                    '</tr>';
-            });
-            html += '</tbody></table>';
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any widget instances.</p>';
+            document.getElementById('widgets-export-btn').disabled = true;
+            return;
         }
 
+        // Collect unique pages that have IDX widgets
+        const seen = new Set();
+        widgets.forEach(w => {
+            const pages = sbPages[w.sidebar_id] || [];
+            pages.forEach(pg => {
+                const key = pg.url || pg.title;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    widgetsResults.push({ title: pg.title, url: pg.url || '' });
+                }
+            });
+        });
+
+        if (widgetsResults.length === 0) {
+            div.innerHTML = '<p style="color:#888;">IDX widgets found but could not map to pages — check the Sidebar Areas tab.</p>';
+            document.getElementById('widgets-export-btn').disabled = true;
+            return;
+        }
+
+        let html = '<p><strong>' + widgetsResults.length + ' page(s) with IDX widgets:</strong></p>' +
+            '<table class="widefat striped"><thead><tr>' +
+            '<th>Page Title</th><th>Page URL</th>' +
+            '</tr></thead><tbody>';
+
+        widgetsResults.forEach(r => {
+            html += '<tr>' +
+                '<td>' + (r.url ? '<a href="' + h(r.url) + '" target="_blank">' + h(r.title) + '</a>' : h(r.title)) + '</td>' +
+                '<td><code style="font-size:11px;">' + h(r.url) + '</code></td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
         div.innerHTML = html;
         document.getElementById('widgets-export-btn').disabled = false;
     });
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.sidebar_name, r.sidebar_id, r.widget, r.page_title, r.page_url]),
-            ['Sidebar Name', 'Sidebar ID', 'IDX Widget', 'Page Title', 'Page URL'],
-            'idx-widgets.csv'
+            widgetsResults.map(r => [r.title, r.url]),
+            ['Page Title', 'Page URL'],
+            'idx-widget-pages.csv'
+        );
+    });
+
+    // ── Sidebar Areas Scanner ──────────────────────────────────────────────────
+    let sidebarsResults = [];
+
+    document.getElementById('sidebars-scan-btn').addEventListener('click', async function () {
+        this.disabled  = true;
+        sidebarsResults = [];
+        const div = document.getElementById('sidebars-results');
+
+        const res = await fetchWidgetData(div);
+        this.disabled = false;
+
+        if (!res.success) {
+            div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>';
+            return;
+        }
+
+        const sidebars = res.data.sidebars || [];
+
+        if (sidebars.length === 0) {
+            div.innerHTML = '<p style="color:#888;"><em>No registered sidebar areas found.</em></p>';
+            return;
+        }
+
+        let html = '<table class="widefat striped"><thead><tr>' +
+            '<th>Sidebar Name</th><th>Sidebar ID</th>' +
+            '<th>IDX Widgets In This Area</th><th>Pages This Area Displays On</th>' +
+            '</tr></thead><tbody>';
+
+        sidebars.forEach(sb => {
+            const hasIDX   = sb.idx_widgets.length > 0;
+            const idxCell  = hasIDX
+                ? sb.idx_widgets.map(w =>
+                    '<span style="background:#d63638;color:#fff;font-size:11px;padding:1px 7px;border-radius:8px;display:inline-block;margin:1px;">' +
+                    h(w.title || w.widget_type) + '</span>'
+                  ).join(' ')
+                : '<span style="color:#aaa;font-size:11px;">none</span>';
+            const pagesCell = sb.pages.length
+                ? sb.pages.map(pg =>
+                    pg.url
+                        ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
+                        : '<span style="font-size:12px;color:#888;">' + h(pg.title) + '</span>'
+                  ).join('')
+                : '<span style="color:#aaa;font-size:11px;">Could not detect — check Theme Files tab</span>';
+
+            html += '<tr' + (hasIDX ? ' style="background:#fff8e1;"' : '') + '>' +
+                '<td><strong>' + h(sb.name) + '</strong></td>' +
+                '<td><code style="font-size:11px;">' + h(sb.id) + '</code></td>' +
+                '<td>' + idxCell + '</td>' +
+                '<td>' + pagesCell + '</td>' +
+                '</tr>';
+
+            sb.pages.forEach(pg => {
+                sidebarsResults.push({
+                    sidebar_name: sb.name, sidebar_id: sb.id,
+                    idx_widgets: sb.idx_widgets.map(w => w.title || w.widget_type).join(', ') || '(none)',
+                    page_title: pg.title, page_url: pg.url || '',
+                });
+            });
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('sidebars-export-btn').disabled = false;
+    });
+
+    document.getElementById('sidebars-export-btn').addEventListener('click', function () {
+        exportCSV(
+            sidebarsResults.map(r => [r.sidebar_name, r.sidebar_id, r.idx_widgets, r.page_title, r.page_url]),
+            ['Sidebar Name', 'Sidebar ID', 'IDX Widgets', 'Page Title', 'Page URL'],
+            'idx-sidebar-areas.csv'
         );
     });
 
