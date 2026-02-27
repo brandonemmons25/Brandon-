@@ -285,10 +285,13 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $norm = str_replace('\\', '/', $file->getPathname());
                 $rel  = ltrim(str_replace([$theme_dir_n, $parent_dir_n], '', $norm), '/');
 
-                // dynamic_sidebar() calls
+                // dynamic_sidebar() — string argument: dynamic_sidebar('sidebar-1')
                 preg_match_all("/dynamic_sidebar\s*\(\s*['\"]([^'\"]+)['\"]/", $src, $dm);
-                if ($dm[1]) {
-                    foreach ($dm[1] as $sid) $file_sidebars[$rel][] = $sid;
+                foreach ($dm[1] as $sid) $file_sidebars[$rel][] = $sid;
+
+                // dynamic_sidebar() — numeric argument or no argument → first registered sidebar
+                if (preg_match('/\bdynamic_sidebar\s*\(\s*(?:\d|\))/', $src)) {
+                    $file_sidebars[$rel][] = '__first__';
                 }
 
                 // get_sidebar() calls
@@ -310,6 +313,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             }
         } catch (Exception $e) {}
     }
+
+    // Resolve __first__ placeholder to the first registered sidebar ID
+    $first_sidebar_id = !empty($sidebar_names) ? array_key_first($sidebar_names) : 'sidebar-1';
+    foreach ($file_sidebars as $rel => &$sids) {
+        foreach ($sids as &$sid) {
+            if ($sid === '__first__') $sid = $first_sidebar_id;
+        }
+        unset($sid);
+    }
+    unset($sids);
 
     // Build sidebar_templates: sidebar_id => direct files
     $sidebar_templates = [];
@@ -455,22 +468,43 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             } elseif (preg_match('/header/', $name_lc)) {
                 $pages['sitewide'] = ['title' => 'Sitewide (header)', 'url' => ''];
             } else {
-                // Query pages using the default template as the best available signal
+                // Query published pages as fallback. Try default-template pages first;
+                // if the site uses a page builder (all pages have custom templates),
+                // fall back to ALL published pages.
                 if ($fallback_pages === null) {
-                    $rows = $wpdb->get_results(
+                    $default_rows = $wpdb->get_results(
                         "SELECT p.ID, p.post_title FROM {$wpdb->posts} p
                          LEFT JOIN {$wpdb->postmeta} pm
                            ON pm.post_id = p.ID AND pm.meta_key = '_wp_page_template'
                          WHERE p.post_status = 'publish' AND p.post_type = 'page'
-                           AND (pm.meta_value IS NULL OR pm.meta_value IN ('default',''))",
+                           AND (pm.meta_value IS NULL OR pm.meta_value IN ('default',''))
+                         ORDER BY p.post_title ASC",
                         ARRAY_A
                     );
-                    $fallback_pages = [];
-                    foreach ($rows as $r) {
-                        $fallback_pages[] = ['title' => $r['post_title'], 'url' => get_permalink($r['ID'])];
+                    if ($default_rows) {
+                        $fallback_pages = [];
+                        foreach ($default_rows as $r) {
+                            $fallback_pages[] = ['title' => $r['post_title'], 'url' => get_permalink($r['ID'])];
+                        }
+                    } else {
+                        // Page builder site — every page has a custom template; fetch all pages
+                        $all_rows = $wpdb->get_results(
+                            "SELECT ID, post_title FROM {$wpdb->posts}
+                             WHERE post_status = 'publish' AND post_type = 'page'
+                             ORDER BY post_title ASC LIMIT 50",
+                            ARRAY_A
+                        );
+                        $fallback_pages = [];
+                        foreach ($all_rows as $r) {
+                            $fallback_pages[] = ['title' => $r['post_title'], 'url' => get_permalink($r['ID'])];
+                        }
+                        // If the site has no pages at all, mark as sitewide
+                        if (empty($fallback_pages)) {
+                            $fallback_pages = [['title' => 'All pages (sitewide)', 'url' => '']];
+                        }
                     }
                 }
-                foreach ($fallback_pages as $pg) $pages[$pg['url']] = $pg;
+                foreach ($fallback_pages as $pg) $pages[$pg['url'] ?: $pg['title']] = $pg;
             }
         }
 
