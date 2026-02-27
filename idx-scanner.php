@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — current page, site-wide crawler, visual highlighter, CSV export, shortcode detector, and external script detector.
- * Version: 2.11
+ * Version: 2.12
  * Author: You
  */
 
@@ -201,6 +201,99 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
     wp_send_json_success($found);
 });
 
+// ── Helper: walk Elementor JSON data, return location breadcrumbs for IDX hits ─
+function idx_elementor_find( $elements, $idx_terms, $breadcrumb = [] ) {
+    $hits = [];
+    foreach ( (array) $elements as $el ) {
+        if ( ! is_array( $el ) && ! is_object( $el ) ) continue;
+        $el          = (array) $el;
+        $widget_type = $el['widgetType'] ?? '';
+        $el_type     = $el['elType']     ?? '';
+        $settings    = (array) ( $el['settings'] ?? [] );
+
+        // Build a human label for this level
+        $label = '';
+        if ( $widget_type ) {
+            $label = $widget_type;
+            if ( ! empty( $settings['_title'] ) ) $label = $settings['_title'] . ' [' . $widget_type . ']';
+        } elseif ( $el_type && ! in_array( $el_type, [ 'section', 'column', 'container' ], true ) ) {
+            $label = $el_type;
+        }
+        $crumb = $label ? array_merge( $breadcrumb, [ $label ] ) : $breadcrumb;
+
+        // Accordion / toggle / tabs — drill into panel items for precise location
+        if ( in_array( $widget_type, [ 'accordion', 'toggle', 'tabs', 'flip-box' ], true ) ) {
+            $items = $settings['items'] ?? $settings['tabs'] ?? [];
+            foreach ( (array) $items as $item ) {
+                $item      = (array) $item;
+                $item_json = wp_json_encode( $item );
+                $item_hit  = [];
+                foreach ( $idx_terms as $term ) {
+                    if ( stripos( $item_json, $term ) !== false ) $item_hit[] = $term;
+                }
+                if ( $item_hit ) {
+                    $panel  = $item['item_title'] ?? $item['tab_title'] ?? $item['title'] ?? $item['label'] ?? '(untitled panel)';
+                    $hits[] = implode( ' → ', array_merge( $crumb, [ 'Panel: "' . $panel . '"' ] ) );
+                }
+            }
+        } else {
+            // Generic widget — check entire settings blob
+            $settings_json = wp_json_encode( $settings );
+            $hit           = [];
+            foreach ( $idx_terms as $term ) {
+                if ( stripos( $settings_json, $term ) !== false ) $hit[] = $term;
+            }
+            if ( $hit ) {
+                $hits[] = implode( ' → ', $crumb ?: [ '(widget)' ] );
+            }
+        }
+
+        // Recurse into child elements
+        if ( ! empty( $el['elements'] ) ) {
+            $hits = array_merge( $hits, idx_elementor_find( $el['elements'], $idx_terms, $crumb ) );
+        }
+    }
+    return array_values( array_unique( $hits ) );
+}
+
+// ── Helper: walk Beaver Builder node map, return location strings for IDX hits ─
+function idx_beaver_find( $nodes, $idx_terms ) {
+    $hits = [];
+    foreach ( (array) $nodes as $node ) {
+        $node = (array) $node;
+        if ( ( $node['type'] ?? '' ) !== 'module' ) continue;
+        $name          = $node['name'] ?? '';
+        $settings      = (array) ( $node['settings'] ?? [] );
+        $settings_json = wp_json_encode( $settings );
+
+        $matched = [];
+        foreach ( $idx_terms as $term ) {
+            if ( stripos( $settings_json, $term ) !== false ) $matched[] = $term;
+        }
+        if ( ! $matched ) continue;
+
+        // Accordion / tabs — identify panel
+        if ( in_array( $name, [ 'accordion', 'tabs', 'toggle' ], true ) ) {
+            $items = $settings['items'] ?? [];
+            foreach ( (array) $items as $item ) {
+                $item      = (array) $item;
+                $item_json = wp_json_encode( $item );
+                $item_hit  = [];
+                foreach ( $idx_terms as $term ) {
+                    if ( stripos( $item_json, $term ) !== false ) $item_hit[] = $term;
+                }
+                if ( $item_hit ) {
+                    $panel  = $item['label'] ?? $item['title'] ?? $item['item_title'] ?? '(panel)';
+                    $hits[] = $name . ' → Panel: "' . $panel . '"';
+                }
+            }
+        } else {
+            $hits[] = $name . ' widget';
+        }
+    }
+    return array_values( array_unique( $hits ) );
+}
+
 // ── AJAX: Scan wp_postmeta for IDX content (accordion/custom fields) ──────────
 add_action('wp_ajax_idx_scan_postmeta', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
@@ -253,6 +346,20 @@ add_action('wp_ajax_idx_scan_postmeta', function () {
             }
         }
 
+        // ── Page-builder–aware location detection ───────────────────────────────
+        $locations = [];
+        if ( $row['meta_key'] === '_elementor_data' ) {
+            $el_data = json_decode( $row['meta_value'], true );
+            if ( is_array( $el_data ) ) {
+                $locations = idx_elementor_find( $el_data, $idx_terms );
+            }
+        } elseif ( in_array( $row['meta_key'], [ '_fl_builder_data', '_fl_builder_draft' ], true ) ) {
+            $bb_data = maybe_unserialize( $row['meta_value'] );
+            if ( is_array( $bb_data ) || is_object( $bb_data ) ) {
+                $locations = idx_beaver_find( $bb_data, $idx_terms );
+            }
+        }
+
         $found[] = [
             'meta_id'    => $row['meta_id'],
             'post_id'    => $row['post_id'],
@@ -263,6 +370,7 @@ add_action('wp_ajax_idx_scan_postmeta', function () {
             'meta_key'   => $row['meta_key'],
             'matched'    => $matched,
             'snippet'    => substr(wp_strip_all_tags($text), 0, 400),
+            'locations'  => $locations,
         ];
     }
 
@@ -636,7 +744,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.11</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v2.12</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -702,7 +810,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Post Meta ── -->
         <div id="tab-postmeta" class="idx-tab" style="display:none;">
-            <p>Scans <code>wp_postmeta</code> for IDX content stored in custom fields — catches accordion plugins that serialize panel content into meta values instead of <code>post_content</code>.</p>
+            <p>Scans <code>wp_postmeta</code> for IDX content in custom fields and page-builder data. For <strong>Elementor</strong> and <strong>Beaver Builder</strong> pages, the <em>Location</em> column drills into accordion/tabs/toggle widgets and names the exact panel where the IDX widget lives.</p>
             <button id="postmeta-scan-btn" class="button button-primary">Scan Post Meta</button>
             <button id="postmeta-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="postmeta-results" style="margin-top:16px;"></div>
@@ -990,7 +1098,7 @@ function idx_scanner_page() {
         }
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Post</th><th>Type</th><th>Parent Page</th><th>Meta Key</th><th>Matched</th><th>Snippet</th>' +
+            '<th>Post</th><th>Type</th><th>Parent Page</th><th>Meta Key</th><th>Matched</th><th>Location in Page</th><th>Snippet</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(r => {
@@ -998,10 +1106,14 @@ function idx_scanner_page() {
                 ? '<a href="' + h(r.parent.url) + '" target="_blank">' + h(r.parent.title) + '</a>'
                 : '—';
             const csvParent = r.parent ? r.parent.title + ' (' + r.parent.url + ')' : '';
+            const locs = r.locations || [];
+            const locHtml = locs.length
+                ? locs.map(l => '<div style="font-size:11px;font-weight:600;color:#7c3aed;white-space:nowrap;">&#128205; ' + h(l) + '</div>').join('')
+                : '<span style="color:#aaa;font-size:11px;">—</span>';
             postMetaResults.push({
                 title: r.post_title, type: r.post_type, url: r.post_url,
                 parent: csvParent, key: r.meta_key,
-                matched: r.matched.join(', '), snippet: r.snippet
+                matched: r.matched.join(', '), locations: locs.join(' | '), snippet: r.snippet
             });
             html +=
                 '<tr>' +
@@ -1010,7 +1122,8 @@ function idx_scanner_page() {
                 '<td>' + parentCell + '</td>' +
                 '<td><code>' + h(r.meta_key) + '</code></td>' +
                 '<td><code>' + h(r.matched.join(', ')) + '</code></td>' +
-                '<td style="max-width:300px;word-break:break-all;font-size:11px;">' + h(r.snippet) + '</td>' +
+                '<td style="min-width:160px;">' + locHtml + '</td>' +
+                '<td style="max-width:260px;word-break:break-all;font-size:11px;">' + h(r.snippet) + '</td>' +
                 '</tr>';
         });
 
@@ -1021,8 +1134,8 @@ function idx_scanner_page() {
 
     document.getElementById('postmeta-export-btn').addEventListener('click', function () {
         exportCSV(
-            postMetaResults.map(r => [r.title, r.type, r.url, r.parent, r.key, r.matched, r.snippet]),
-            ['Post', 'Type', 'URL', 'Parent Page', 'Meta Key', 'Matched', 'Snippet'],
+            postMetaResults.map(r => [r.title, r.type, r.url, r.parent, r.key, r.matched, r.locations, r.snippet]),
+            ['Post', 'Type', 'URL', 'Parent Page', 'Meta Key', 'Matched', 'Location in Page', 'Snippet'],
             'idx-postmeta.csv'
         );
     });
