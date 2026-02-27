@@ -338,18 +338,96 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
-    // ── Diagnostic: what widget_* option names contain idx/impress/broker ────
+    // ── Diagnostic data ──────────────────────────────────────────────────────
     $debug_option_names = array_column($db_idx_rows ?? [], 'option_name');
-    // What's actually in each sidebar bucket (id_base list per bucket)
     $debug_sidebars_map = [];
     foreach ((array) $sidebars_widgets as $sid => $wids) {
         if (is_array($wids)) $debug_sidebars_map[$sid] = $wids;
     }
-    // All registered widget id_bases from $wp_widget_factory
     $debug_registered = [];
     if (!empty($wp_widget_factory->widgets)) {
         foreach ($wp_widget_factory->widgets as $cls => $obj) {
             $debug_registered[] = $cls . ' → id_base:' . ($obj->id_base ?? '?');
+        }
+    }
+
+    // ── PASS 3: Post-content scan ─────────────────────────────────────────────
+    // Widgets that aren't in any WordPress sidebar are typically embedded in
+    // page content via shortcodes or Gutenberg legacy-widget blocks.
+    // Search post_content for every unique IDX widget type we found.
+    $idx_type_set = array_unique(array_column($idx_widgets, 'type'));
+    $type_content_pages = []; // type_slug => [ ['title'=>..,'url'=>..], … ]
+
+    if (!empty($idx_type_set)) {
+        $sc_cond = []; $sc_vals = [];
+        foreach ($idx_type_set as $slug) {
+            // Classic shortcode: [widget_type or [widget_type id=...
+            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%[' . $wpdb->esc_like($slug) . '%';
+            // Gutenberg legacy-widget block stores widget id as "id":"type-N"
+            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%"id":"' . $wpdb->esc_like($slug) . '%';
+            // Gutenberg widget block: <!-- wp:widget/type or <!-- wp:legacy-widget ... type
+            $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%widget/' . $wpdb->esc_like($slug) . '%';
+        }
+
+        $sc_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT ID, post_title, post_content FROM {$wpdb->posts}
+                 WHERE post_status = 'publish' AND post_type IN ('page','post')
+                   AND (" . implode(' OR ', $sc_cond) . ")",
+                $sc_vals
+            ),
+            ARRAY_A
+        );
+
+        foreach ($sc_rows as $row) {
+            foreach ($idx_type_set as $slug) {
+                if (stripos($row['post_content'], '[' . $slug)           !== false ||
+                    stripos($row['post_content'], '"id":"' . $slug)       !== false ||
+                    stripos($row['post_content'], 'widget/' . $slug)      !== false) {
+                    $type_content_pages[$slug][] = [
+                        'title' => $row['post_title'],
+                        'url'   => get_permalink($row['ID']),
+                    ];
+                }
+            }
+        }
+
+        // Page-builder scan (Elementor, Divi, Oxygen, etc. store widget data in postmeta)
+        $pb_cond = []; $pb_vals = [];
+        foreach ($idx_type_set as $slug) {
+            $pb_cond[] = "pm.meta_value LIKE %s"; $pb_vals[] = '%' . $wpdb->esc_like($slug) . '%';
+        }
+        $pb_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT DISTINCT p.ID, p.post_title FROM {$wpdb->posts} p
+                 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+                 WHERE pm.meta_key IN ('_elementor_data','_ct_builder_shortcodes','_et_pb_use_builder')
+                   AND p.post_status = 'publish' AND p.post_type IN ('page','post')
+                   AND (" . implode(' OR ', $pb_cond) . ")",
+                $pb_vals
+            ),
+            ARRAY_A
+        );
+        foreach ($pb_rows as $row) {
+            // Can't easily determine which specific type — associate with all IDX types
+            // as a hint (marked with '(page builder)' suffix to be transparent)
+            foreach ($idx_type_set as $slug) {
+                $type_content_pages[$slug][] = [
+                    'title' => $row['post_title'] . ' (via page builder)',
+                    'url'   => get_permalink($row['ID']),
+                ];
+            }
+        }
+
+        // Deduplicate per type
+        foreach ($type_content_pages as $slug => $pgs) {
+            $seen_urls = [];
+            $deduped   = [];
+            foreach ($pgs as $pg) {
+                $key = $pg['url'] ?: $pg['title'];
+                if (!isset($seen_urls[$key])) { $seen_urls[$key] = true; $deduped[] = $pg; }
+            }
+            $type_content_pages[$slug] = $deduped;
         }
     }
 
@@ -609,12 +687,25 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         ];
     }
 
-    // Inject each sidebar's page list directly into the widget entry so the
-    // JS doesn't depend on a separate sbPages key lookup (which fails when
-    // sidebar_id is 'wp_inactive_widgets', 'unassigned', or format-mismatched).
+    // Inject pages into every widget entry. Priority:
+    //   1. Sidebar-based (widget is in an active sidebar → theme-template page mapping)
+    //   2. Post-content shortcode/block scan (widget type found in post_content / postmeta)
+    //   3. Empty → widget exists in DB but couldn't be located on any page
     $sid_to_pages = array_column($sidebars_out, 'pages', 'id');
     foreach ($idx_widgets as &$iw) {
-        $iw['pages'] = $sid_to_pages[$iw['sidebar_id']] ?? [];
+        $from_sidebar  = $sid_to_pages[$iw['sidebar_id']] ?? [];
+        $from_content  = $type_content_pages[$iw['type']]  ?? [];
+
+        if (!empty($from_sidebar)) {
+            $iw['pages']        = $from_sidebar;
+            $iw['pages_source'] = 'sidebar';
+        } elseif (!empty($from_content)) {
+            $iw['pages']        = $from_content;
+            $iw['pages_source'] = 'shortcode';
+        } else {
+            $iw['pages']        = [];
+            $iw['pages_source'] = 'none';
+        }
     }
     unset($iw);
 
@@ -1044,66 +1135,74 @@ function idx_scanner_page() {
             return name.replace(/\b(widget\s*area|widget\s*zone|widgets?)\b/gi, '').trim() || name || id;
         }
 
-        // Build one row per page+widget combination, sorted by page title
+        // Build one row per page+widget combination
         const rows = [];
         idxWidgets.forEach(w => {
-            const isActive = w.active !== false;
-            const pages    = (w.pages && w.pages.length) ? w.pages : (sbPages[w.sidebar_id] || []);
-            const position = isActive ? widgetPosition(w.sidebar_name || '', w.sidebar_id || '') : '(inactive — not displayed)';
-            if (pages.length && isActive) {
-                pages.forEach(pg => rows.push({ page_title: pg.title, page_url: pg.url || '', widget: w.title, type: w.type, position, active: isActive, sidebar: w.sidebar_name }));
+            const pages  = w.pages && w.pages.length ? w.pages : [];
+            const source = w.pages_source || 'none';
+
+            if (pages.length) {
+                pages.forEach(pg => rows.push({
+                    page_title: pg.title, page_url: pg.url || '',
+                    widget: w.title, type: w.type, source,
+                }));
             } else {
-                rows.push({ page_title: isActive ? '' : '⚠ Widget exists but is NOT in any active sidebar', page_url: '', widget: w.title, type: w.type, position, active: isActive, sidebar: w.sidebar_name || w.sidebar_id });
+                rows.push({ page_title: '', page_url: '', widget: w.title, type: w.type, source: 'none' });
             }
         });
-        rows.sort((a, b) => a.page_title.localeCompare(b.page_title));
+        rows.sort((a, b) => (a.page_title || '').localeCompare(b.page_title || ''));
         widgetsResults = rows;
 
+        const sourceBadge = s => {
+            const map = {
+                sidebar:   ['#0073aa', 'sidebar'],
+                shortcode: ['#46b450', 'shortcode / block'],
+                none:      ['#999',    'not found in pages'],
+            };
+            const [color, label] = map[s] || ['#999', s];
+            return '<span style="font-size:10px;background:' + color + ';color:#fff;padding:2px 6px;border-radius:3px;">' + h(label) + '</span>';
+        };
+
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th style="width:28%">Page</th>' +
-            '<th style="width:28%">Widget / Type</th>' +
-            '<th style="width:22%">Where on Page</th>' +
-            '<th>Sidebar</th>' +
+            '<th style="width:35%">Page</th>' +
+            '<th style="width:35%">Widget</th>' +
+            '<th>Found via</th>' +
             '</tr></thead><tbody>';
 
         rows.forEach(r => {
             const pageCell = r.page_url
                 ? '<a href="' + h(r.page_url) + '" target="_blank"><strong>' + h(r.page_title) + '</strong></a>'
                 : r.page_title
-                    ? '<span style="color:' + (r.active ? '#888' : '#d63638') + ';">' + h(r.page_title) + '</span>'
-                    : '<em style="color:#aaa;">Could not detect — check Sidebar Areas tab</em>';
+                    ? h(r.page_title)
+                    : '<em style="color:#aaa;">Not found in page content — check Pages/Shortcodes tab</em>';
             html +=
-                '<tr' + (r.active ? '' : ' style="opacity:0.65;"') + '>' +
+                '<tr>' +
                 '<td>' + pageCell + '</td>' +
                 '<td><strong>' + h(r.widget) + '</strong><br><code style="font-size:10px;color:#888;">' + h(r.type) + '</code></td>' +
-                '<td>' + h(r.position) + '</td>' +
-                '<td style="font-size:11px;">' + h(r.sidebar || '') + '</td>' +
+                '<td>' + sourceBadge(r.source) + '</td>' +
                 '</tr>';
         });
-
         html += '</tbody></table>';
 
-        // ── Debug panel ──────────────────────────────────────────────────────
+        // ── Debug panel (collapsed by default) ──────────────────────────────
         const dbg = res.data.debug || {};
-        const dbgIdxOpts  = dbg.idx_option_names  || [];
-        const dbgIdxMap   = dbg.idx_id_base_map   || {};
-        const dbgSbMap    = dbg.sidebars_map       || {};
-        const dbgReg      = dbg.registered_widgets || [];
+        const dbgIdxOpts = dbg.idx_option_names  || [];
+        const dbgIdxMap  = dbg.idx_id_base_map   || {};
+        const dbgSbMap   = dbg.sidebars_map       || {};
+        const dbgReg     = dbg.registered_widgets || [];
 
-        let dbgHtml = '<details style="margin-top:16px;"><summary style="cursor:pointer;color:#555;font-size:12px;">🔍 Debug Info (click to expand — share this if widgets are still missing)</summary>' +
-            '<div style="margin-top:8px;font-size:11px;font-family:monospace;background:#f0f0f0;padding:12px;border:1px solid #ccc;overflow:auto;max-height:300px;">';
-
-        dbgHtml += '<b>Widget option names in DB containing idx/impress/broker:</b><br>';
-        dbgHtml += dbgIdxOpts.length ? dbgIdxOpts.map(n => '  ' + h(n)).join('<br>') : '  (none found)';
-        dbgHtml += '<br><br><b>IDX id_base → class (from $wp_widget_factory):</b><br>';
-        const mapEntries = Object.entries(dbgIdxMap);
-        dbgHtml += mapEntries.length ? mapEntries.map(([b, c]) => '  ' + h(b) + ' → ' + h(c)).join('<br>') : '  (none — IDX plugin may not register widgets during admin AJAX)';
+        let dbgHtml = '<details style="margin-top:16px;"><summary style="cursor:pointer;color:#777;font-size:11px;">&#9654; Debug info (expand if widgets are still missing)</summary>' +
+            '<div style="margin-top:8px;font-size:10px;font-family:monospace;background:#f8f8f8;padding:10px;border:1px solid #ddd;overflow:auto;max-height:260px;">';
+        dbgHtml += '<b>widget_* option names in DB matching idx/impress/broker:</b><br>' +
+            (dbgIdxOpts.length ? dbgIdxOpts.map(n => '  ' + h(n)).join('<br>') : '  (none)');
+        dbgHtml += '<br><br><b>IDX id_base map (from $wp_widget_factory):</b><br>' +
+            (Object.entries(dbgIdxMap).length
+                ? Object.entries(dbgIdxMap).map(([b,c]) => '  ' + h(b) + ' → ' + h(c)).join('<br>')
+                : '  (empty — IDX plugin may not register widgets during admin AJAX)');
         dbgHtml += '<br><br><b>sidebars_widgets buckets:</b><br>';
         Object.entries(dbgSbMap).forEach(([sid, wids]) => {
-            dbgHtml += '  [' + h(sid) + '] → ' + (Array.isArray(wids) ? wids.map(w => h(w)).join(', ') : '(empty)') + '<br>';
+            dbgHtml += '  [' + h(sid) + '] ' + (Array.isArray(wids) ? wids.map(w => h(w)).join(', ') : '') + '<br>';
         });
-        dbgHtml += '<br><b>All registered widget classes (truncated to 30):</b><br>';
-        dbgHtml += dbgReg.slice(0, 30).map(r => '  ' + h(r)).join('<br>') || '  (none)';
         dbgHtml += '</div></details>';
 
         div.innerHTML = html + dbgHtml;
