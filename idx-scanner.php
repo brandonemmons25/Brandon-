@@ -516,6 +516,15 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         ];
     }
 
+    // Inject each sidebar's page list directly into the widget entry so the
+    // JS doesn't depend on a separate sbPages key lookup (which fails when
+    // sidebar_id is 'wp_inactive_widgets', 'unassigned', or format-mismatched).
+    $sid_to_pages = array_column($sidebars_out, 'pages', 'id');
+    foreach ($idx_widgets as &$iw) {
+        $iw['pages'] = $sid_to_pages[$iw['sidebar_id']] ?? [];
+    }
+    unset($iw);
+
     wp_send_json_success(['idx_widgets' => $idx_widgets, 'sidebars' => $sidebars_out]);
 });
 
@@ -545,7 +554,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v3.0</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v3.1</span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
@@ -936,7 +945,7 @@ function idx_scanner_page() {
         // Build one row per page+widget combination, sorted by page title
         const rows = [];
         idxWidgets.forEach(w => {
-            const pages    = sbPages[w.sidebar_id] || [];
+            const pages    = (w.pages && w.pages.length) ? w.pages : (sbPages[w.sidebar_id] || []);
             const position = widgetPosition(w.sidebar_name || '', w.sidebar_id || '');
             if (pages.length) {
                 pages.forEach(pg => rows.push({ page_title: pg.title, page_url: pg.url || '', widget: w.title, position }));
