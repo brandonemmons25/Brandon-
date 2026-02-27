@@ -8,6 +8,10 @@
 
 if (!defined('ABSPATH')) exit;
 
+// Guard against being loaded twice (e.g. old loose file + new directory install).
+if (defined('IDX_SCANNER_LOADED')) return;
+define('IDX_SCANNER_LOADED', true);
+
 // ── Admin Menu ─────────────────────────────────────────────────────────────────
 add_action('admin_menu', function () {
     add_management_page(
