@@ -788,30 +788,37 @@ function idx_scanner_page() {
             return;
         }
 
+        // Build one row per page+widget combination, sorted by page title
+        const rows = [];
+        idxWidgets.forEach(w => {
+            const pages        = sbPages[w.sidebar_id] || [];
+            const sidebarLabel = w.sidebar_name || w.sidebar_id;
+            if (pages.length) {
+                pages.forEach(pg => rows.push({ page_title: pg.title, page_url: pg.url || '', widget: w.title, widget_type: w.type, location: sidebarLabel }));
+            } else {
+                rows.push({ page_title: '', page_url: '', widget: w.title, widget_type: w.type, location: sidebarLabel });
+            }
+        });
+        rows.sort((a, b) => a.page_title.localeCompare(b.page_title));
+        widgetsResults = rows;
+
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Widget</th><th>Sidebar Area</th><th>IDX Content Matched</th><th>Pages This Sidebar Appears On</th>' +
+            '<th style="width:25%">Page</th>' +
+            '<th style="width:28%">Widget</th>' +
+            '<th>Where on Page</th>' +
             '</tr></thead><tbody>';
 
-        idxWidgets.forEach(w => {
-            const pages = sbPages[w.sidebar_id] || [];
-            const pagesHtml = pages.length
-                ? pages.map(pg => pg.url
-                    ? '<a href="' + h(pg.url) + '" target="_blank" style="display:block;font-size:12px;">' + h(pg.title) + '</a>'
-                    : '<span style="font-size:12px;color:#888;display:block;">' + h(pg.title) + '</span>'
-                  ).join('')
-                : '<span style="color:#aaa;font-size:11px;">Could not detect — check Sidebar Areas</span>';
-            const matchHtml = w.matched.map(m => '<code style="font-size:10px;display:block;">' + h(m) + '</code>').join('');
-            const sidebarLabel = w.sidebar_name || w.sidebar_id;
-
-            pages.forEach(pg => widgetsResults.push({ widget: w.title, sidebar: sidebarLabel, matched: w.matched.join(', '), page: pg.title, page_url: pg.url || '' }));
-            if (!pages.length) widgetsResults.push({ widget: w.title, sidebar: sidebarLabel, matched: w.matched.join(', '), page: '', page_url: '' });
-
+        rows.forEach(r => {
+            const pageCell = r.page_url
+                ? '<a href="' + h(r.page_url) + '" target="_blank"><strong>' + h(r.page_title) + '</strong></a>'
+                : r.page_title
+                    ? '<span style="color:#888;">' + h(r.page_title) + '</span>'
+                    : '<em style="color:#aaa;">Could not detect page — check Sidebar Areas tab</em>';
             html +=
                 '<tr>' +
-                '<td><strong>' + h(w.title) + '</strong><br><code style="font-size:10px;color:#888;">' + h(w.type) + '</code></td>' +
-                '<td>' + h(sidebarLabel) + '<br><code style="font-size:10px;color:#888;">' + h(w.sidebar_id) + '</code></td>' +
-                '<td>' + matchHtml + '</td>' +
-                '<td>' + pagesHtml + '</td>' +
+                '<td>' + pageCell + '</td>' +
+                '<td><strong>' + h(r.widget) + '</strong><br><code style="font-size:10px;color:#888;">' + h(r.widget_type) + '</code></td>' +
+                '<td>' + h(r.location) + '</td>' +
                 '</tr>';
         });
 
@@ -822,8 +829,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.widget, r.sidebar, r.matched, r.page, r.page_url]),
-            ['Widget', 'Sidebar Area', 'IDX Content Matched', 'Page', 'Page URL'],
+            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.widget_type, r.location]),
+            ['Page', 'Page URL', 'Widget', 'Widget Type', 'Where on Page'],
             'idx-widgets.csv'
         );
     });
