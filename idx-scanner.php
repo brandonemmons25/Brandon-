@@ -494,7 +494,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Widgets ── -->
         <div id="tab-widgets" class="idx-tab" style="display:none;">
-            <p>Scans all WordPress widget instances for IDX Broker content. Shows the widget, the sidebar area it lives in, and the pages that sidebar appears on.</p>
+            <p>Scans all WordPress widget instances for IDX Broker content. Shows the page the widget appears on, the widget being used, and where on the page it is displayed.</p>
             <button id="widgets-scan-btn" class="button button-primary">Scan Widgets</button>
             <button id="widgets-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
             <div id="widgets-results" style="margin-top:16px;"></div>
