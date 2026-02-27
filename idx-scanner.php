@@ -411,10 +411,10 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 );
                 $result = [];
                 foreach ($uses as $r) $result[] = ['title' => $r['post_title'], 'url' => get_permalink($r['ID'])];
-                return $result ?: [['title' => 'Template: ' . $hdrs['Template Name'] . ' (no pages assigned)', 'url' => '']];
+                return $result; // empty → sidebar-level fallback will supply pages
             }
         }
-        return [['title' => 'Via: ' . $rel, 'url' => '']];
+        return []; // unrecognised template part — let the sidebar-level fallback run
     };
 
     // Build the ordered list of all sidebar IDs to show
