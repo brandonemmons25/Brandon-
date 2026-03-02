@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.6
+ * Version: 3.7
  * Author: You
  */
 
@@ -641,8 +641,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // Also read idxforza-general which may have page ID assignments per feature.
     $debug_pass4 = [];
 
-    // ---- IDX Broker dynamic wrapper page ----
-    $dw_page_id = (int) get_option('idx_broker_dynamic_wrapper_page_id');
+    // ---- IDX Broker dynamic wrapper: show raw stored values ----
+    $dw_raw_id   = get_option('idx_broker_dynamic_wrapper_page_id');
+    $dw_raw_name = get_option('idx_broker_dynamic_wrapper_page_name');
+    $dw_raw_url  = get_option('idx_broker_dynamic_wrapper_page_url');
+    $debug_pass4[] = 'idx_broker_dynamic_wrapper_page_id   = ' . var_export($dw_raw_id, true);
+    $debug_pass4[] = 'idx_broker_dynamic_wrapper_page_name = ' . var_export($dw_raw_name, true);
+    $debug_pass4[] = 'idx_broker_dynamic_wrapper_page_url  = ' . var_export($dw_raw_url, true);
+
+    $dw_pg = null;
+    $dw_page_id = (int) $dw_raw_id;
     if ($dw_page_id > 0) {
         $dw_post = get_post($dw_page_id);
         if ($dw_post && $dw_post->post_status === 'publish') {
@@ -650,18 +658,45 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 'title' => $dw_post->post_title . ' (IDX wrapper)',
                 'url'   => get_permalink($dw_page_id),
             ];
-            $debug_pass4[] = 'dynamic wrapper page: "' . $dw_post->post_title . '" (ID ' . $dw_page_id . ')';
-            // Assign wrapper page to all IDX-specific types that have no match yet
-            foreach ($idx_specific_type_set as $slug) {
-                if (empty($type_content_pages[$slug])) {
-                    $type_content_pages[$slug][] = $dw_pg;
-                }
+            $debug_pass4[] = '→ resolved wrapper page: "' . $dw_post->post_title . '" status=' . $dw_post->post_status;
+        } else {
+            $debug_pass4[] = '→ page ID ' . $dw_page_id . ' not found or not published (status: '
+                           . ($dw_post ? $dw_post->post_status : 'NULL') . ')';
+        }
+    }
+    // Fallback: look up wrapper page by stored URL slug
+    if (!$dw_pg && $dw_raw_url) {
+        $dw_by_url = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT ID, post_title, post_status FROM {$wpdb->posts}
+                 WHERE post_status = 'publish' AND post_type = 'page'
+                   AND (guid = %s OR post_name = %s) LIMIT 1",
+                $dw_raw_url,
+                sanitize_title($dw_raw_name ?: '')
+            ),
+            ARRAY_A
+        );
+        if ($dw_by_url) {
+            $dw_pg = [
+                'title' => $dw_by_url['post_title'] . ' (IDX wrapper)',
+                'url'   => get_permalink((int)$dw_by_url['ID']),
+            ];
+            $debug_pass4[] = '→ wrapper found via URL/name lookup: "' . $dw_by_url['post_title'] . '"';
+        } else {
+            $debug_pass4[] = '→ wrapper not found via URL/name lookup either';
+        }
+    }
+    if ($dw_pg) {
+        foreach ($idx_specific_type_set as $slug) {
+            if (empty($type_content_pages[$slug])) {
+                $type_content_pages[$slug][] = $dw_pg;
             }
         }
     }
 
-    // ---- imFORZA general settings: extract page ID assignments ----
+    // ---- imFORZA general settings: show raw values + extract page IDs ----
     $ifz_general = get_option('idxforza-general');
+    $debug_pass4[] = 'idxforza-general = ' . (is_array($ifz_general) ? json_encode($ifz_general) : var_export($ifz_general, true));
     if (is_array($ifz_general)) {
         foreach ($ifz_general as $key => $val) {
             if (!is_numeric($val) || (int) $val < 2) continue;
@@ -672,7 +707,6 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 'url'   => get_permalink((int) $val),
             ];
             $debug_pass4[] = 'idxforza-general[' . $key . '] = page "' . $ifz_post->post_title . '" (ID ' . (int)$val . ')';
-            // Map setting key to likely widget types by keyword overlap
             foreach ($idx_specific_type_set as $slug) {
                 $key_l  = strtolower($key);
                 $slug_l = strtolower($slug);
@@ -1043,7 +1077,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v3.1</span></h1>
+        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v<?php echo esc_html( get_plugin_data( __FILE__ )['Version'] ?? '?' ); ?></span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
