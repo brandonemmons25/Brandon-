@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.4
+ * Version: 3.5
  * Author: You
  */
 
@@ -360,6 +360,13 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     $type_content_pages    = []; // type_slug => [ ['title'=>..,'url'=>..], … ]
     $debug_unmatched_pages = []; // pages with IDX content but no specific widget match
 
+    // Only IDX-specific slugs are safe to search in post_content / meta_value.
+    // Generic slugs like 'text' match almost every page and cause false positives.
+    $idx_specific_type_set = array_values(array_filter(
+        $idx_type_set,
+        fn($s) => (bool) preg_match('/idx|impress|ihf|broker|forza|omnibar|mlssearch/i', $s)
+    ));
+
     // Map numeric IDX page IDs → widget type slug
     // e.g. 'idx909_30371' → '30371' → 'idx909_30371'
     $idx_page_id_map = []; // '30371' => 'idx909_30371'
@@ -372,8 +379,9 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // Build a combined search: widget type slugs + IMPress/IHF patterns + numeric IDs
     $sc_cond = []; $sc_vals = [];
 
-    // 1. Widget type slug in post_content (catches classic widgets used as shortcodes)
-    foreach ($idx_type_set as $slug) {
+    // 1. Widget type slug in post_content (IDX-specific slugs only — generic ones
+    //    like 'text' match almost every page so are excluded here)
+    foreach ($idx_specific_type_set as $slug) {
         $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%[' . $wpdb->esc_like($slug) . '%';
         $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%"id":"' . $wpdb->esc_like($slug) . '%';
         $sc_cond[] = "post_content LIKE %s"; $sc_vals[] = '%widget/' . $wpdb->esc_like($slug) . '%';
@@ -415,8 +423,8 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 }
             }
 
-            // Precise: match by widget type slug
-            foreach ($idx_type_set as $slug) {
+            // Precise: match by widget type slug (IDX-specific only)
+            foreach ($idx_specific_type_set as $slug) {
                 if (stripos($content, '[' . $slug)      !== false ||
                     stripos($content, '"id":"' . $slug)  !== false ||
                     stripos($content, 'widget/' . $slug) !== false) {
@@ -499,7 +507,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // Fetch meta_value so we can match only the specific widget types present.
     if (!empty($idx_type_set)) {
         $pb_cond = []; $pb_vals = [];
-        foreach ($idx_type_set as $slug) {
+        foreach ($idx_specific_type_set as $slug) {
             $pb_cond[] = "pm.meta_value LIKE %s"; $pb_vals[] = '%' . $wpdb->esc_like($slug) . '%';
         }
         foreach (array_keys($idx_page_id_map) as $pid) {
@@ -531,7 +539,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     $type_content_pages[$widget_slug][] = $pg; $hit = true;
                 }
             }
-            foreach ($idx_type_set as $slug) {
+            foreach ($idx_specific_type_set as $slug) {
                 if (stripos($content, $slug) !== false) {
                     $type_content_pages[$slug][] = $pg; $hit = true;
                 }
@@ -582,7 +590,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $type_content_pages[$widget_slug][] = $pg; $hit = true;
             }
         }
-        foreach ($idx_type_set as $slug) {
+        foreach ($idx_specific_type_set as $slug) {
             if (stripos($content, $slug) !== false) {
                 $type_content_pages[$slug][] = $pg; $hit = true;
             }
@@ -590,29 +598,6 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         // No specific match → debug only, not broadcast to all types
         if (!$hit) {
             $debug_unmatched_pages[] = $pg + ['reason' => 'IDX URL in content (no specific widget match)'];
-        }
-    }
-
-    // ── Title-based heuristic ─────────────────────────────────────────────────
-    // IMPress creates WP pages whose titles match the widget title.
-    // E.g. widget "Featured Properties" → WP page "Featured Properties".
-    foreach ($idx_widgets as $iw) {
-        $wtitle = trim($iw['title'] ?? '');
-        if (strlen($wtitle) < 4 || !empty($type_content_pages[$iw['type']])) continue;
-        $t_rows = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT ID, post_title FROM {$wpdb->posts}
-                 WHERE post_status = 'publish' AND post_type = 'page'
-                   AND post_title LIKE %s LIMIT 5",
-                '%' . $wpdb->esc_like($wtitle) . '%'
-            ),
-            ARRAY_A
-        );
-        foreach ($t_rows as $r) {
-            $type_content_pages[$iw['type']][] = [
-                'title' => $r['post_title'] . ' (title match)',
-                'url'   => get_permalink($r['ID']),
-            ];
         }
     }
 
@@ -894,23 +879,45 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     }
 
     // Inject pages into every widget entry. Priority:
-    //   1. Sidebar-based (widget is in an active sidebar → theme-template page mapping)
-    //   2. Post-content shortcode/block scan (widget type found in post_content / postmeta)
+    //   1. Post-content / page-builder / postmeta scan (specific slug or page ID match)
+    //   2. Per-instance title match (widget display title ↔ WP page title)
     //   3. Empty → widget exists in DB but couldn't be located on any page
-    $sid_to_pages = array_column($sidebars_out, 'pages', 'id');
+    // Sidebar-based lookup is intentionally skipped: sidebar bucket contents
+    // are often stale/empty and produce incorrect "All pages (sitewide)" results.
     foreach ($idx_widgets as &$iw) {
-        $from_sidebar  = $sid_to_pages[$iw['sidebar_id']] ?? [];
-        $from_content  = $type_content_pages[$iw['type']]  ?? [];
+        $from_content = $type_content_pages[$iw['type']] ?? [];
 
-        if (!empty($from_sidebar)) {
-            $iw['pages']        = $from_sidebar;
-            $iw['pages_source'] = 'sidebar';
-        } elseif (!empty($from_content)) {
+        if (!empty($from_content)) {
             $iw['pages']        = $from_content;
             $iw['pages_source'] = 'shortcode';
         } else {
-            $iw['pages']        = [];
-            $iw['pages_source'] = 'none';
+            // Per-instance title match: each widget instance is checked independently
+            // so "Login" and "Property Search" widgets never inherit each other's pages.
+            $wtitle = trim($iw['title'] ?? '');
+            if (strlen($wtitle) >= 4) {
+                $t_rows = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT ID, post_title FROM {$wpdb->posts}
+                         WHERE post_status = 'publish' AND post_type = 'page'
+                           AND post_title LIKE %s LIMIT 5",
+                        '%' . $wpdb->esc_like($wtitle) . '%'
+                    ),
+                    ARRAY_A
+                );
+                if (!empty($t_rows)) {
+                    $iw['pages'] = array_map(fn($r) => [
+                        'title' => $r['post_title'] . ' (title match)',
+                        'url'   => get_permalink($r['ID']),
+                    ], $t_rows);
+                    $iw['pages_source'] = 'title-match';
+                } else {
+                    $iw['pages']        = [];
+                    $iw['pages_source'] = 'none';
+                }
+            } else {
+                $iw['pages']        = [];
+                $iw['pages_source'] = 'none';
+            }
         }
     }
     unset($iw);
