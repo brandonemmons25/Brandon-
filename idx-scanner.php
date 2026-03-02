@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.7
+ * Version: 3.8
  * Author: You
  */
 
@@ -721,6 +721,53 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             }
         }
     }
+
+    // ---- Dump raw idx909_* widget instance data to debug ----
+    // Instance settings may contain community names, slugs, or page URLs
+    // that we can use to match against WP page titles/slugs.
+    $debug_pass4[] = '--- raw idx909_* widget instances ---';
+    foreach ($idx_page_id_map as $pid => $slug) {
+        $raw = get_option('widget_' . $slug, []);
+        unset($raw['_multiwidget']);
+        if (!empty($raw)) {
+            $debug_pass4[] = $slug . ': ' . json_encode($raw);
+            // Try to extract community/title from instance settings and match to a WP page
+            foreach ($raw as $num => $inst) {
+                if (!is_array($inst)) continue;
+                // Collect candidate strings: title, name, community, label, etc.
+                $candidates = array_filter(array_map('strval', array_values(array_filter($inst, 'is_string'))));
+                foreach ($candidates as $candidate) {
+                    $candidate = trim($candidate);
+                    if (strlen($candidate) < 3 || strlen($candidate) > 80) continue;
+                    $found = $wpdb->get_results(
+                        $wpdb->prepare(
+                            "SELECT ID, post_title FROM {$wpdb->posts}
+                             WHERE post_status = 'publish' AND post_type = 'page'
+                               AND post_title LIKE %s LIMIT 3",
+                            '%' . $wpdb->esc_like($candidate) . '%'
+                        ),
+                        ARRAY_A
+                    );
+                    foreach ($found as $r) {
+                        $type_content_pages[$slug][] = [
+                            'title' => $r['post_title'] . ' (widget data match)',
+                            'url'   => get_permalink($r['ID']),
+                        ];
+                    }
+                }
+            }
+        } else {
+            $debug_pass4[] = $slug . ': (no instances)';
+        }
+    }
+
+    // ---- ihf_links_created ----
+    $ihf_links = get_option('ihf_links_created');
+    $debug_pass4[] = 'ihf_links_created = ' . var_export($ihf_links, true);
+
+    // ---- idxforza-info ----
+    $ifz_info = get_option('idxforza-info');
+    $debug_pass4[] = 'idxforza-info = ' . json_encode($ifz_info);
 
     // Run dedup again after PASS 4 additions
     $dedup_type_pages();
