@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.5
+ * Version: 3.6
  * Author: You
  */
 
@@ -585,14 +585,29 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         $pg      = ['title' => $row['post_title'], 'url' => get_permalink($row['ID'])];
         $content = $row['post_content'];
         $hit     = false;
+        // Match by literal IDX page ID appearing in content
         foreach ($idx_page_id_map as $pid => $widget_slug) {
             if (strpos($content, $pid) !== false) {
                 $type_content_pages[$widget_slug][] = $pg; $hit = true;
             }
         }
+        // Match by IDX-specific type slug appearing in content
         foreach ($idx_specific_type_set as $slug) {
             if (stripos($content, $slug) !== false) {
                 $type_content_pages[$slug][] = $pg; $hit = true;
+            }
+        }
+        // Extract IDX page IDs from IDX Broker URL parameters embedded in content:
+        // e.g. showcaseID=30371, pageid=30371, idx_page_id=30371
+        if (!$hit && !empty($idx_page_id_map)) {
+            preg_match_all(
+                '/\b(?:showcase[_-]?id|page[_-]?id|idx[_-]?id|community[_-]?id|featured[_-]?id)\s*[=:]\s*["\']?(\d{4,})/i',
+                $content, $url_pid_m
+            );
+            foreach ($url_pid_m[1] as $xid) {
+                if (isset($idx_page_id_map[$xid])) {
+                    $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
+                }
             }
         }
         // No specific match → debug only, not broadcast to all types
@@ -618,6 +633,63 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         ARRAY_A
     );
     $debug_plugin_option_names = array_column($plugin_opt_rows, 'option_name');
+
+    // ── PASS 4: IDX Broker / imFORZA plugin-level page assignments ───────────────
+    // The IDX Broker plugin stores the WordPress page ID of its "dynamic wrapper"
+    // — the single page through which ALL IDX Broker content is served.
+    // Use it as a fallback for any IDX-specific widget types still unmatched.
+    // Also read idxforza-general which may have page ID assignments per feature.
+    $debug_pass4 = [];
+
+    // ---- IDX Broker dynamic wrapper page ----
+    $dw_page_id = (int) get_option('idx_broker_dynamic_wrapper_page_id');
+    if ($dw_page_id > 0) {
+        $dw_post = get_post($dw_page_id);
+        if ($dw_post && $dw_post->post_status === 'publish') {
+            $dw_pg = [
+                'title' => $dw_post->post_title . ' (IDX wrapper)',
+                'url'   => get_permalink($dw_page_id),
+            ];
+            $debug_pass4[] = 'dynamic wrapper page: "' . $dw_post->post_title . '" (ID ' . $dw_page_id . ')';
+            // Assign wrapper page to all IDX-specific types that have no match yet
+            foreach ($idx_specific_type_set as $slug) {
+                if (empty($type_content_pages[$slug])) {
+                    $type_content_pages[$slug][] = $dw_pg;
+                }
+            }
+        }
+    }
+
+    // ---- imFORZA general settings: extract page ID assignments ----
+    $ifz_general = get_option('idxforza-general');
+    if (is_array($ifz_general)) {
+        foreach ($ifz_general as $key => $val) {
+            if (!is_numeric($val) || (int) $val < 2) continue;
+            $ifz_post = get_post((int) $val);
+            if (!$ifz_post || $ifz_post->post_status !== 'publish') continue;
+            $ifz_pg = [
+                'title' => $ifz_post->post_title . ' (imFORZA setting)',
+                'url'   => get_permalink((int) $val),
+            ];
+            $debug_pass4[] = 'idxforza-general[' . $key . '] = page "' . $ifz_post->post_title . '" (ID ' . (int)$val . ')';
+            // Map setting key to likely widget types by keyword overlap
+            foreach ($idx_specific_type_set as $slug) {
+                $key_l  = strtolower($key);
+                $slug_l = strtolower($slug);
+                if (
+                    (str_contains($key_l, 'search') && str_contains($slug_l, 'search')) ||
+                    (str_contains($key_l, 'featured') && str_contains($slug_l, 'featured')) ||
+                    (str_contains($key_l, 'login') && str_contains($slug_l, 'login')) ||
+                    (str_contains($key_l, 'omnibar') && str_contains($slug_l, 'omnibar'))
+                ) {
+                    $type_content_pages[$slug][] = $ifz_pg;
+                }
+            }
+        }
+    }
+
+    // Run dedup again after PASS 4 additions
+    $dedup_type_pages();
 
     // Add found postmeta keys to debug output
     $debug_pm_keys = array_unique(array_column($pm_rows, 'meta_key'));
@@ -889,7 +961,13 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 
         if (!empty($from_content)) {
             $iw['pages']        = $from_content;
-            $iw['pages_source'] = 'shortcode';
+            // If every matched page came from the IDX wrapper fallback, label it distinctly
+            $all_wrapper = !empty($from_content) && array_reduce(
+                $from_content,
+                fn($c, $p) => $c && str_ends_with($p['title'] ?? '', '(IDX wrapper)'),
+                true
+            );
+            $iw['pages_source'] = $all_wrapper ? 'wrapper' : 'shortcode';
         } else {
             // Per-instance title match: each widget instance is checked independently
             // so "Login" and "Property Search" widgets never inherit each other's pages.
@@ -933,6 +1011,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             'idx_page_id_map'       => $idx_page_id_map,
             'postmeta_keys_found'   => $debug_pm_keys ?? [],
             'plugin_option_names'   => $debug_plugin_option_names ?? [],
+            'pass4'                 => $debug_pass4 ?? [],
             'unmatched_pages'       => $debug_unmatched_pages ?? [],
         ],
     ]);
@@ -1374,6 +1453,7 @@ function idx_scanner_page() {
             const map = {
                 sidebar:      ['#0073aa', 'sidebar'],
                 shortcode:    ['#46b450', 'shortcode / block'],
+                wrapper:      ['#9b59b6', 'IDX wrapper page'],
                 'title-match':['#e6a817', 'title match'],
                 none:         ['#999',    'not found in pages'],
             };
@@ -1421,7 +1501,12 @@ function idx_scanner_page() {
                 : '  (none — widget type names did not match idx{account}_{page_id} pattern)');
         dbgHtml += '<br><br><b>Postmeta keys found on IDX/IMPress pages:</b><br>' +
             (dbgPmKeys.length ? dbgPmKeys.map(k => '  ' + h(k)).join('<br>') : '  (none — no postmeta with impress/ihf/idx_page keys found)');
+        const dbgPass4     = dbg.pass4 || [];
         const dbgUnmatched = dbg.unmatched_pages || [];
+        if (dbgPass4.length) {
+            dbgHtml += '<br><br><b>PASS 4 — IDX Broker / imFORZA page assignments:</b><br>' +
+                dbgPass4.map(s => '  ' + h(s)).join('<br>');
+        }
         if (dbgUnmatched.length) {
             dbgHtml += '<br><br><b>Pages with IDX content (no specific widget match — excluded from results):</b><br>' +
                 dbgUnmatched.map(p => '  <a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a> — ' + h(p.reason)).join('<br>');
