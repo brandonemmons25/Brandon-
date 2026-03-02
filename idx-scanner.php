@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.8
+ * Version: 3.9
  * Author: You
  */
 
@@ -376,6 +376,29 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
+    // ── Extend $idx_page_id_map from the DB ──────────────────────────────────
+    // The map above only covers widget types found in sidebars_widgets.
+    // IMPress registers a widget_idx{account}_{page_id} option for EVERY IDX
+    // Broker page, regardless of whether it's been placed in a sidebar.
+    // Scan wp_options so every IDX page ID is checked in all downstream scans.
+    $db_idx_opts = $wpdb->get_col(
+        "SELECT option_name FROM {$wpdb->options}
+         WHERE option_name LIKE 'widget\_idx%'
+           AND option_name NOT LIKE '\\_transient%'
+         LIMIT 200"
+    );
+    foreach ($db_idx_opts as $opt_name) {
+        $slug = substr($opt_name, 7); // strip 'widget_'
+        if (!preg_match('/^idx\d+_(\d+)$/', $slug, $m)) continue;
+        $pid = $m[1];
+        if (!isset($idx_page_id_map[$pid])) {
+            $idx_page_id_map[$pid] = $slug;
+        }
+        if (!in_array($slug, $idx_specific_type_set, true)) {
+            $idx_specific_type_set[] = $slug;
+        }
+    }
+
     // Build a combined search: widget type slugs + IMPress/IHF patterns + numeric IDs
     $sc_cond = []; $sc_vals = [];
 
@@ -581,6 +604,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         ),
         ARRAY_A
     );
+    $unmatched_url_post_ids = [];
     foreach ($url_rows as $row) {
         $pg      = ['title' => $row['post_title'], 'url' => get_permalink($row['ID'])];
         $content = $row['post_content'];
@@ -601,7 +625,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         // e.g. showcaseID=30371, pageid=30371, idx_page_id=30371
         if (!$hit && !empty($idx_page_id_map)) {
             preg_match_all(
-                '/\b(?:showcase[_-]?id|page[_-]?id|idx[_-]?id|community[_-]?id|featured[_-]?id)\s*[=:]\s*["\']?(\d{4,})/i',
+                '/\b(?:showcase[_-]?id|page[_-]?id|idx[_-]?id|community[_-]?id|featured[_-]?id|widgetid|widget[_-]?id|pageid|idxID|ihf_id)\s*[=:]\s*["\']?(\d{4,})/i',
                 $content, $url_pid_m
             );
             foreach ($url_pid_m[1] as $xid) {
@@ -610,9 +634,62 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 }
             }
         }
-        // No specific match → debug only, not broadcast to all types
+        // No specific match → collect ID for follow-up elementor scan
         if (!$hit) {
+            $unmatched_url_post_ids[] = (int) $row['ID'];
             $debug_unmatched_pages[] = $pg + ['reason' => 'IDX URL in content (no specific widget match)'];
+        }
+    }
+
+    // ── Follow-up: scan _elementor_data for URL-unmatched pages ──────────────
+    // URL scan only checks post_content. For Elementor-built pages the IDX
+    // widget type slug lives in _elementor_data postmeta, not post_content.
+    if (!empty($unmatched_url_post_ids)) {
+        $id_ph     = implode(',', array_fill(0, count($unmatched_url_post_ids), '%d'));
+        $elem_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT p.ID, p.post_title, pm.meta_value AS ed
+                 FROM {$wpdb->posts} p
+                 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+                 WHERE p.ID IN ({$id_ph})
+                   AND pm.meta_key = '_elementor_data'
+                   AND pm.meta_value != ''",
+                $unmatched_url_post_ids
+            ),
+            ARRAY_A
+        );
+        foreach ($elem_rows as $er) {
+            $pg2  = ['title' => $er['post_title'] . ' (elementor)', 'url' => get_permalink($er['ID'])];
+            $ed   = $er['ed'];
+            $hit2 = false;
+            foreach ($idx_page_id_map as $pid => $widget_slug) {
+                if (stripos($ed, $widget_slug) !== false) {
+                    $type_content_pages[$widget_slug][] = $pg2; $hit2 = true;
+                }
+                // Also match bare numeric ID in JSON (e.g. "page_id":"30371")
+                if (!$hit2 && strpos($ed, '"' . $pid . '"') !== false) {
+                    $type_content_pages[$widget_slug][] = $pg2; $hit2 = true;
+                }
+            }
+            if (!$hit2) {
+                // URL param extraction in elementor data
+                preg_match_all(
+                    '/\b(?:showcase[_-]?id|page[_-]?id|idx[_-]?id|widgetid|widget[_-]?id|pageid|idxID|ihf_id)\s*[=:]\s*["\']?(\d{4,})/i',
+                    $ed, $ep_m
+                );
+                foreach ($ep_m[1] as $xid) {
+                    if (isset($idx_page_id_map[$xid])) {
+                        $type_content_pages[$idx_page_id_map[$xid]][] = $pg2; $hit2 = true;
+                    }
+                }
+            }
+            if ($hit2) {
+                // Remove from unmatched bucket now that we found a match
+                $debug_unmatched_pages = array_values(array_filter(
+                    $debug_unmatched_pages,
+                    fn($p) => $p['url'] !== get_permalink($er['ID'])
+                ));
+            }
         }
     }
 
