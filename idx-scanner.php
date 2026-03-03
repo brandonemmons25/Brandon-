@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 4.2
+ * Version: 4.3
  * Author: You
  */
 
@@ -377,9 +377,14 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     }
 
     // ── Read IDX Broker account info early (needed for URL scan + synthetic types) ─
-    $ifz_info_early   = get_option('idxforza-info', []);
-    $idx_account_id   = is_array($ifz_info_early) ? ($ifz_info_early['account_id'] ?? '909') : '909';
-    $idx_search_domain = is_array($ifz_info_early) ? ($ifz_info_early['domain'] ?? '') : '';
+    $ifz_info_early = get_option('idxforza-info', []);
+    // imFORZA stores this as a JSON string, not a serialized PHP array
+    if (is_string($ifz_info_early)) {
+        $decoded = json_decode($ifz_info_early, true);
+        if (is_array($decoded)) $ifz_info_early = $decoded;
+    }
+    $idx_account_id    = is_array($ifz_info_early) ? ($ifz_info_early['account_id'] ?? '909') : '909';
+    $idx_search_domain = is_array($ifz_info_early) ? ($ifz_info_early['domain']     ?? '')    : '';
 
     // ── Extend $idx_page_id_map from the DB ──────────────────────────────────
     // The map above only covers widget types found in sidebars_widgets.
@@ -661,7 +666,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     $url_cond = []; $url_vals = [];
     foreach (['idxbroker', 'idxforza', 'mlssearch.', 'mlsfinder', 'idxre.com',
               'data-idx', 'idx-broker', 'ihf_idx', 'imforza',
-              'customshowcasejs'] as $pat) {
+              'customshowcasejs', 'idx-broker-platinum'] as $pat) {
         $url_cond[] = "post_content LIKE %s"; $url_vals[] = '%' . $wpdb->esc_like($pat) . '%';
     }
     // Add the site's own IDX Broker search domain (e.g. search.collegestationhomes.com)
@@ -695,25 +700,47 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $type_content_pages[$slug][] = $pg; $hit = true;
             }
         }
-        // Extract IDX page IDs from IDX Broker URL parameters embedded in content:
-        // e.g. showcaseID=30371, pageid=30371, idx_page_id=30371
-        if (!$hit && !empty($idx_page_id_map)) {
+        // ── IDX Broker Platinum Gutenberg blocks ─────────────────────────────
+        // Block format: <!-- wp:idx-broker-platinum/idx-widgets-block {"id":"909-42343"} /-->
+        // The "id" attribute is "{account_id}-{widget_id}".
+        preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $gb_m);
+        foreach ($gb_m[2] as $i => $xid) {
+            $acct  = !empty($gb_m[1][$i]) ? $gb_m[1][$i] : $idx_account_id;
+            $synth = 'idx' . $acct . '_' . $xid;
+            if (!isset($idx_page_id_map[$xid])) $idx_page_id_map[$xid] = $synth;
+            $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
+        }
+        // impress-showcase-block: {"saved_link_id":"23613"}
+        preg_match_all('/"saved_link_id":"(\d+)"/', $content, $sl_m);
+        foreach ($sl_m[1] as $slid) {
+            $type_content_pages['idx_savedlink_' . $slid][] = $pg; $hit = true;
+        }
+        // impress-carousel-block (no page ID parameter)
+        if (strpos($content, 'impress-carousel-block') !== false) {
+            $type_content_pages['idx_impress_carousel'][] = $pg; $hit = true;
+        }
+        // Old-style JS embed: id="idxwidgetsrc-42229" (e.g. Austin's Colony accordion)
+        preg_match_all('/idxwidgetsrc-(\d{4,})/', $content, $ws_m);
+        foreach ($ws_m[1] as $xid) {
+            $synth = 'idx' . $idx_account_id . '_' . $xid;
+            if (!isset($idx_page_id_map[$xid])) $idx_page_id_map[$xid] = $synth;
+            $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
+        }
+        // URL parameter extraction for remaining unmatched pages (widgetid=, pageid=, etc.)
+        if (!$hit) {
             preg_match_all(
                 '/\b(?:showcase[_-]?id|page[_-]?id|idx[_-]?id|community[_-]?id|featured[_-]?id|widgetid|widget[_-]?id|pageid|idxID|ihf_id)\s*[=:]\s*["\']?(\d{4,})/i',
                 $content, $url_pid_m
             );
             foreach ($url_pid_m[1] as $xid) {
                 if (!isset($idx_page_id_map[$xid])) {
-                    // Not a registered WP widget — create a synthetic type so it
-                    // still shows up in results (e.g. customshowcasejs widgetid=42229
-                    // → synthetic widget type idx909_42229)
                     $synth = 'idx' . $idx_account_id . '_' . $xid;
                     $idx_page_id_map[$xid] = $synth;
                 }
                 $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
             }
         }
-        // No specific match → collect ID for follow-up elementor scan
+        // No specific match → collect ID for follow-up Elementor scan
         if (!$hit) {
             $unmatched_url_post_ids[] = (int) $row['ID'];
             $debug_unmatched_pages[] = $pg + ['reason' => 'IDX URL in content (no specific widget match)'];
@@ -998,6 +1025,42 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 
     // Run dedup again after PASS 4 additions
     $dedup_type_pages();
+
+    // ── Synthetic widget entries for IDX Broker Platinum Gutenberg blocks ────
+    // idx-broker-platinum/idx-widgets-block, impress-showcase-block,
+    // impress-carousel-block, and old-style JS embeds (idxwidgetsrc-NNN) are NOT
+    // WordPress widget instances — they are Gutenberg blocks embedded directly in
+    // page post_content. Create synthetic $idx_widgets entries so the Widgets tab
+    // shows the pages where these embeds live.
+    $existing_w_types = array_flip(array_unique(array_column($idx_widgets, 'type')));
+    foreach ($type_content_pages as $wp_type => $pages_list) {
+        if (isset($existing_w_types[$wp_type]) || empty($pages_list)) continue;
+        if (!preg_match('/^(?:idx\d+_\d+|idx_savedlink_\d+|idx_impress_carousel)$/', $wp_type)) continue;
+        if ($wp_type === 'idx_impress_carousel') {
+            $synth_title   = 'IMPress Carousel';
+            $synth_matched = ['impress-carousel-block'];
+        } elseif (preg_match('/^idx_savedlink_(\d+)$/', $wp_type, $stm)) {
+            $synth_title   = 'IMPress Showcase (saved search ' . $stm[1] . ')';
+            $synth_matched = ['impress-showcase-block'];
+        } elseif (preg_match('/^idx\d+_(\d+)$/', $wp_type, $stm)) {
+            $synth_title   = 'IDX Widget ' . $stm[1];
+            $synth_matched = ['gutenberg-block'];
+        } else {
+            $synth_title   = $wp_type;
+            $synth_matched = ['content-embed'];
+        }
+        $idx_widgets[] = [
+            'widget_key'   => $wp_type . '-embed',
+            'type'         => $wp_type,
+            'sidebar_id'   => 'post-content',
+            'sidebar_name' => 'Embedded in Page Content',
+            'title'        => $synth_title,
+            'matched'      => $synth_matched,
+            'links'        => [],
+            'active'       => true,
+        ];
+        $existing_w_types[$wp_type] = true;
+    }
 
     // Add found postmeta keys to debug output
     $debug_pm_keys = array_unique(array_column($pm_rows, 'meta_key'));
