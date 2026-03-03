@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 3.9
+ * Version: 4.0
  * Author: You
  */
 
@@ -571,6 +571,69 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             if (!$hit) {
                 $debug_unmatched_pages[] = $pg + ['reason' => 'page builder (no specific slug found)'];
             }
+        }
+    }
+
+    // ── Dynamic IDX slug scan (catch-all for accordion / Gutenberg blocks) ───
+    // All scans above rely on a pre-built list of known IDX page IDs.  If the
+    // accordion block stores an IDX widget whose page ID is NOT in wp_options
+    // (e.g. a Gutenberg Legacy Widget block referencing idx909_34615 that was
+    // never placed in a sidebar), all previous scans miss it.
+    //
+    // This scan uses REGEXP to find ANY idx{account}_{page_id} slug inside
+    // post_content (Gutenberg blocks) and _elementor_data (Elementor panels)
+    // without requiring a pre-known list.  Results are merged normally and any
+    // newly-discovered slugs are added to $idx_page_id_map for completeness.
+    $dyn_pages = []; // wp_id => ['title'=>..., 'text'=>...]
+
+    // 1. post_content — Gutenberg blocks, Classic editor, raw embeds
+    foreach ($wpdb->get_results(
+        "SELECT ID, post_title, post_content AS txt FROM {$wpdb->posts}
+         WHERE post_status = 'publish' AND post_type IN ('page','post')
+           AND post_content REGEXP 'idx[0-9]+_[0-9]{4,}'
+         LIMIT 300",
+        ARRAY_A
+    ) as $r) {
+        $dyn_pages[$r['ID']] = ['title' => $r['post_title'], 'text' => $r['txt']];
+    }
+
+    // 2. _elementor_data — Elementor panels, accordion widgets, HTML blocks
+    foreach ($wpdb->get_results(
+        "SELECT p.ID, p.post_title, pm.meta_value AS txt
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_elementor_data'
+         WHERE p.post_status = 'publish' AND p.post_type IN ('page','post')
+           AND pm.meta_value REGEXP 'idx[0-9]+_[0-9]{4,}'
+         LIMIT 300",
+        ARRAY_A
+    ) as $r) {
+        $id = $r['ID'];
+        if (!isset($dyn_pages[$id])) {
+            $dyn_pages[$id] = ['title' => $r['post_title'], 'text' => ''];
+        }
+        $dyn_pages[$id]['text'] .= ' ' . $r['txt'];
+    }
+
+    foreach ($dyn_pages as $wp_id => $data) {
+        $pg = ['title' => $data['title'], 'url' => get_permalink($wp_id)];
+        preg_match_all('/\b(idx\d+_(\d{4,}))\b/', $data['text'], $ms);
+        $seen_slugs = [];
+        foreach ($ms[1] as $i => $full_slug) {
+            if (isset($seen_slugs[$full_slug])) continue;
+            $seen_slugs[$full_slug] = true;
+            $pid = $ms[2][$i];
+            if (!isset($idx_page_id_map[$pid])) {
+                $idx_page_id_map[$pid] = $full_slug;
+            }
+            if (!in_array($full_slug, $idx_specific_type_set, true)) {
+                $idx_specific_type_set[] = $full_slug;
+            }
+            $type_content_pages[$full_slug][] = $pg;
+            // If this page was in the unmatched bucket, promote it
+            $debug_unmatched_pages = array_values(array_filter(
+                $debug_unmatched_pages,
+                fn($p) => $p['url'] !== $pg['url']
+            ));
         }
     }
 
