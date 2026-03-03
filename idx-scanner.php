@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 4.0
+ * Version: 4.1
  * Author: You
  */
 
@@ -908,6 +908,75 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // ---- idxforza-info ----
     $ifz_info = get_option('idxforza-info');
     $debug_pass4[] = 'idxforza-info = ' . json_encode($ifz_info);
+
+    // ---- imforzacntrl options (may hold IDX page ↔ WP page mappings) ----
+    foreach (['imforzacntrl_sync_status', 'imforzacntrl_site_details', 'ihf_permissions', 'idx_broker_listings_enabled'] as $opt) {
+        $val = get_option($opt);
+        $debug_pass4[] = $opt . ' = ' . ( $val !== false
+            ? substr(json_encode($val), 0, 800)
+            : '(not set)' );
+    }
+
+    // ---- PASS 5: raw content snippets for EVERY unmatched page ─────────────
+    // Show exactly what IDX-related text is stored in post_content AND
+    // _elementor_data so we can see the real embed format.
+    $debug_pass4[] = '';
+    $debug_pass4[] = '=== PASS 5 — content snippets for unmatched pages ===';
+    foreach ($debug_unmatched_pages as $um) {
+        $slug    = basename( rtrim( parse_url( $um['url'], PHP_URL_PATH ), '/' ) );
+        $um_row  = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT ID, post_content FROM {$wpdb->posts}
+                 WHERE post_status = 'publish' AND post_type IN ('page','post')
+                   AND (post_name = %s OR ID = %d)
+                 LIMIT 1",
+                $slug, 0
+            ),
+            ARRAY_A
+        );
+        if ( ! $um_row ) {
+            // Fallback: match by title
+            $um_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT ID, post_content FROM {$wpdb->posts}
+                     WHERE post_status = 'publish' AND post_type IN ('page','post')
+                       AND post_title = %s LIMIT 1",
+                    $um['title']
+                ),
+                ARRAY_A
+            );
+        }
+        if ( ! $um_row ) {
+            $debug_pass4[] = $um['title'] . ': (page not found in DB by slug/title)';
+            continue;
+        }
+
+        // post_content — grab first 1200 chars that mention IDX
+        $pc = $um_row['post_content'];
+        if ( preg_match( '/(.{0,300}(?:ihf|idx|impress|imforza|idxforza|mlssearch|broker).{0,300})/is', $pc, $pcm ) ) {
+            $snippet_pc = trim( $pcm[1] );
+        } else {
+            $snippet_pc = substr( $pc, 0, 400 ) ?: '(empty)';
+        }
+        $debug_pass4[] = $um['title'] . ' [post_content]: ' . $snippet_pc;
+
+        // _elementor_data — search for IDX-related content in JSON
+        $ed = $wpdb->get_var( $wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta}
+             WHERE post_id = %d AND meta_key = '_elementor_data' LIMIT 1",
+            $um_row['ID']
+        ) );
+        if ( $ed ) {
+            if ( preg_match( '/(.{0,200}(?:ihf|idx|impress|imforza|idxforza|mlssearch|broker|widgetid|widgetType).{0,200})/is', $ed, $edm ) ) {
+                $snippet_ed = trim( $edm[1] );
+            } else {
+                $snippet_ed = '(IDX-related text not found in elementor data)';
+            }
+            $debug_pass4[] = $um['title'] . ' [_elementor_data]: ' . $snippet_ed;
+        } else {
+            $debug_pass4[] = $um['title'] . ' [_elementor_data]: (no _elementor_data meta found)';
+        }
+    }
 
     // Run dedup again after PASS 4 additions
     $dedup_type_pages();
