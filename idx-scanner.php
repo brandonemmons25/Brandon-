@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Element Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 4.1
+ * Version: 4.2
  * Author: You
  */
 
@@ -376,6 +376,11 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
     }
 
+    // ── Read IDX Broker account info early (needed for URL scan + synthetic types) ─
+    $ifz_info_early   = get_option('idxforza-info', []);
+    $idx_account_id   = is_array($ifz_info_early) ? ($ifz_info_early['account_id'] ?? '909') : '909';
+    $idx_search_domain = is_array($ifz_info_early) ? ($ifz_info_early['domain'] ?? '') : '';
+
     // ── Extend $idx_page_id_map from the DB ──────────────────────────────────
     // The map above only covers widget types found in sidebars_widgets.
     // IMPress registers a widget_idx{account}_{page_id} option for EVERY IDX
@@ -655,8 +660,14 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // post_content contains idxbroker.com, idxforza.com, etc. URLs.
     $url_cond = []; $url_vals = [];
     foreach (['idxbroker', 'idxforza', 'mlssearch.', 'mlsfinder', 'idxre.com',
-              'data-idx', 'idx-broker', 'ihf_idx', 'imforza'] as $pat) {
+              'data-idx', 'idx-broker', 'ihf_idx', 'imforza',
+              'customshowcasejs'] as $pat) {
         $url_cond[] = "post_content LIKE %s"; $url_vals[] = '%' . $wpdb->esc_like($pat) . '%';
+    }
+    // Add the site's own IDX Broker search domain (e.g. search.collegestationhomes.com)
+    if ($idx_search_domain) {
+        $url_cond[] = "post_content LIKE %s";
+        $url_vals[] = '%' . $wpdb->esc_like($idx_search_domain) . '%';
     }
     $url_rows = $wpdb->get_results(
         $wpdb->prepare(
@@ -692,9 +703,14 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $content, $url_pid_m
             );
             foreach ($url_pid_m[1] as $xid) {
-                if (isset($idx_page_id_map[$xid])) {
-                    $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
+                if (!isset($idx_page_id_map[$xid])) {
+                    // Not a registered WP widget — create a synthetic type so it
+                    // still shows up in results (e.g. customshowcasejs widgetid=42229
+                    // → synthetic widget type idx909_42229)
+                    $synth = 'idx' . $idx_account_id . '_' . $xid;
+                    $idx_page_id_map[$xid] = $synth;
                 }
+                $type_content_pages[$idx_page_id_map[$xid]][] = $pg; $hit = true;
             }
         }
         // No specific match → collect ID for follow-up elementor scan
@@ -741,9 +757,11 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     $ed, $ep_m
                 );
                 foreach ($ep_m[1] as $xid) {
-                    if (isset($idx_page_id_map[$xid])) {
-                        $type_content_pages[$idx_page_id_map[$xid]][] = $pg2; $hit2 = true;
+                    if (!isset($idx_page_id_map[$xid])) {
+                        $synth = 'idx' . $idx_account_id . '_' . $xid;
+                        $idx_page_id_map[$xid] = $synth;
                     }
+                    $type_content_pages[$idx_page_id_map[$xid]][] = $pg2; $hit2 = true;
                 }
             }
             if ($hit2) {
