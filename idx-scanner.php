@@ -896,10 +896,10 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                 $key_l  = strtolower($key);
                 $slug_l = strtolower($slug);
                 if (
-                    (str_contains($key_l, 'search') && str_contains($slug_l, 'search')) ||
-                    (str_contains($key_l, 'featured') && str_contains($slug_l, 'featured')) ||
-                    (str_contains($key_l, 'login') && str_contains($slug_l, 'login')) ||
-                    (str_contains($key_l, 'omnibar') && str_contains($slug_l, 'omnibar'))
+                    (strpos($key_l, 'search') !== false && strpos($slug_l, 'search') !== false) ||
+                    (strpos($key_l, 'featured') !== false && strpos($slug_l, 'featured') !== false) ||
+                    (strpos($key_l, 'login') !== false && strpos($slug_l, 'login') !== false) ||
+                    (strpos($key_l, 'omnibar') !== false && strpos($slug_l, 'omnibar') !== false)
                 ) {
                     $type_content_pages[$slug][] = $ifz_pg;
                 }
@@ -1335,7 +1335,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             // If every matched page came from the IDX wrapper fallback, label it distinctly
             $all_wrapper = !empty($from_content) && array_reduce(
                 $from_content,
-                fn($c, $p) => $c && str_ends_with($p['title'] ?? '', '(IDX wrapper)'),
+                fn($c, $p) => $c && (strpos($p['title'] ?? '', '(IDX wrapper)') !== false),
                 true
             );
             $iw['pages_source'] = $all_wrapper ? 'wrapper' : 'shortcode';
@@ -2039,7 +2039,16 @@ function idx_scanner_page() {
     // ── Utilities ───────────────────────────────────────────────────────────────
     function ajax(action, data = {}) {
         const body = new URLSearchParams({ action, nonce, ...data });
-        return fetch(ajaxUrl, { method: 'POST', body }).then(r => r.json());
+        return fetch(ajaxUrl, { method: 'POST', body })
+            .then(r => r.text())
+            .then(text => {
+                try { return JSON.parse(text); }
+                catch (e) {
+                    // PHP fatal errors / warnings return HTML, not JSON
+                    const msg = text.replace(/<[^>]+>/g, '').trim().substring(0, 300);
+                    return { success: false, data: 'Server error: ' + (msg || 'invalid response') };
+                }
+            });
     }
 
     function h(str) {
