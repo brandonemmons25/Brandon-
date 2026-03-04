@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: IDX Element Scanner
+ * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
  * Version: 4.3
  * Author: You
@@ -13,7 +13,7 @@ define('IDX_SCANNER_LOADED', true);
 
 // ── Admin Menu ──────────────────────────────────────────────────────────────────
 add_action('admin_menu', function () {
-    add_management_page('IDX Scanner', 'IDX Scanner', 'manage_options', 'idx-scanner', 'idx_scanner_page');
+    add_management_page('AiDX Scanner', 'AiDX Scanner', 'manage_options', 'idx-scanner', 'idx_scanner_page');
 });
 
 // ── AJAX: Get all published pages ───────────────────────────────────────────────
@@ -1414,7 +1414,7 @@ function idx_scanner_page() {
     $ajax_url = admin_url('admin-ajax.php');
     ?>
     <div class="wrap">
-        <h1>IDX Element Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v<?php echo esc_html( get_plugin_data( __FILE__ )['Version'] ?? '?' ); ?></span></h1>
+        <h1>AiDX Scanner <span style="font-size:13px;color:#999;font-weight:normal;">v<?php echo esc_html( get_plugin_data( __FILE__ )['Version'] ?? '?' ); ?></span></h1>
 
         <nav class="nav-tab-wrapper" style="margin-bottom:20px;">
             <a class="nav-tab nav-tab-active" onclick="switchTab('page',this);return false;" href="#">Current Page</a>
