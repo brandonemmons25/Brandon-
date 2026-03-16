@@ -11,6 +11,30 @@ if (!defined('ABSPATH')) exit;
 if (defined('IDX_SCANNER_LOADED')) return;
 define('IDX_SCANNER_LOADED', true);
 
+// ── Shared helper: get custom IDX search domain from WordPress options ─────────
+// IMPress / imFORZA stores the site's branded IDX search subdomain in idxforza-info.
+// Example: "search.collegestationhomes.com". Without this, links like
+// https://search.collegestationhomes.com/i/luxury-homes would never be found.
+function idx_scanner_get_search_domain() {
+    $info = get_option('idxforza-info', []);
+    if (is_string($info)) {
+        $decoded = json_decode($info, true);
+        if (is_array($decoded)) $info = $decoded;
+    }
+    $domain = is_array($info) ? trim($info['domain'] ?? '') : '';
+
+    // Fallback: check idx_broker_subdomain (IDX Broker plugin) and similar options
+    if (!$domain) {
+        foreach (['idx_broker_subdomain','idx_broker_settings','idxbroker_domain'] as $opt) {
+            $val = get_option($opt);
+            if (is_string($val) && strpos($val, '.') !== false) { $domain = trim($val); break; }
+            if (is_array($val) && !empty($val['subdomain'])) { $domain = trim($val['subdomain']); break; }
+            if (is_array($val) && !empty($val['domain']))    { $domain = trim($val['domain']);    break; }
+        }
+    }
+    return $domain;
+}
+
 // ── Admin Menu ──────────────────────────────────────────────────────────────────
 add_action('admin_menu', function () {
     add_management_page('AiDX Scanner', 'AiDX Scanner', 'manage_options', 'idx-scanner', 'idx_scanner_page');
@@ -39,6 +63,12 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
+    $search_domain = idx_scanner_get_search_domain();
+    $domain_clause = $search_domain
+        ? ' OR post_content LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($search_domain) . '%')
+        : '';
+
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- domain_clause is built via prepare()
     $rows = $wpdb->get_results(
         "SELECT ID, post_title, post_content
          FROM {$wpdb->posts}
@@ -54,14 +84,15 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
                OR post_content LIKE '%[impress%'
                OR post_content LIKE '%idx-broker-platinum%'
                OR post_content LIKE '%impress-carousel-block%'
-               OR post_content LIKE '%impress-showcase-block%' )",
+               OR post_content LIKE '%impress-showcase-block%'
+               {$domain_clause} )",
         ARRAY_A
     );
 
     $found = [];
     foreach ($rows as $row) {
-        $id       = (int) $row['ID'];
-        $content  = $row['post_content'];
+        $id      = (int) $row['ID'];
+        $content = $row['post_content'];
         $elements = [];
         $seen_k   = [];
 
@@ -72,12 +103,19 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
             $elements[] = ['type' => $type, 'value' => $value];
         };
 
-        // IDX domain URLs
-        if (preg_match_all('/https?:\/\/[^\s"\'<>]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>]*/i', $content, $m))
+        // Known IDX platform domain URLs
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
             foreach ($m[0] as $u) $add('link', $u);
 
+        // Site's own custom IDX search subdomain (e.g. search.collegestationhomes.com)
+        if ($search_domain) {
+            $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
+            if (preg_match_all($pat, $content, $m))
+                foreach ($m[0] as $u) $add('link', $u);
+        }
+
         // Internal /idx/ path links
-        if (preg_match_all('/href=["\']([\'<>]*\/idx\/[^"\']*)["\']/i', $content, $m))
+        if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
             foreach ($m[1] as $u) $add('link', $u);
 
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
@@ -85,10 +123,10 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
             foreach ($m[0] as $sc) $add('shortcode', $sc);
 
         // Gutenberg block types
-        if (preg_match_all('/<!-- wp:(idx-broker-platinum\/[a-z-]+|impress-[a-z-]+-block)/', $content, $m))
+        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
             foreach ($m[1] as $blk) $add('block', $blk);
 
-        // Gutenberg block IDX widget IDs  {"id":"909-42343"}
+        // Gutenberg block widget IDs {"id":"909-42343"}
         if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
             foreach ($m[2] as $xid) $add('block', 'IDX Widget ' . $xid);
 
@@ -110,8 +148,12 @@ add_action('wp_ajax_idx_scan_post_links', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    // Fetch post_content directly in the query — no N+1 get_post_field() calls.
-    // Exclude page (has its own tab), plus WP system types.
+    $search_domain = idx_scanner_get_search_domain();
+    $domain_clause = $search_domain
+        ? ' OR post_content LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($search_domain) . '%')
+        : '';
+
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- domain_clause is built via prepare()
     $rows = $wpdb->get_results(
         "SELECT ID, post_title, post_type, post_parent, post_content
          FROM {$wpdb->posts}
@@ -130,7 +172,8 @@ add_action('wp_ajax_idx_scan_post_links', function () {
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%ihf%'
                OR post_content LIKE '%[impress%'
-               OR post_content LIKE '%idx-broker-platinum%' )",
+               OR post_content LIKE '%idx-broker-platinum%'
+               {$domain_clause} )",
         ARRAY_A
     );
 
@@ -139,11 +182,18 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         $content = $row['post_content'];
         $links   = [];
 
-        // Full IDX domain URLs (anywhere in content, not just href attributes)
+        // Known IDX platform domain URLs
         if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
             foreach ($m[0] as $u) $links[] = $u;
 
-        // href attributes pointing to /idx/ paths (site's own IDX pages)
+        // Site's own custom IDX search subdomain (e.g. search.collegestationhomes.com)
+        if ($search_domain) {
+            $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
+            if (preg_match_all($pat, $content, $m))
+                foreach ($m[0] as $u) $links[] = $u;
+        }
+
+        // Internal /idx/ path links
         if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
             foreach ($m[1] as $u) $links[] = $u;
 
