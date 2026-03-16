@@ -51,9 +51,9 @@ add_action( 'wp_ajax_ihfme_fetch', function () {
 
     if ( empty( $markets ) ) {
         wp_send_json_error(
-            'No markets found. ' .
-            'The iHF REST API may require a different key type, or markets may not be set up yet. ' .
-            'If you use the Optima Express plugin, make sure markets are published as WordPress pages.'
+            'No markets found. Expected WordPress pages with URLs matching ' .
+            '/listing-report/{name}/{id}/ — make sure those pages are published. ' .
+            'Also verify the iHomefinder registration key if using the API.'
         );
     }
 
@@ -95,52 +95,100 @@ function ihfme_try_api( string $key, string $url = 'https://api.ihomefinder.com/
     return $markets;
 }
 
-// ── WordPress DB scan for iHF market pages ────────────────────────────────────
+// ── WordPress DB scan: find /listing-report/{name}/{id}/ pages ────────────────
+// Optima Express creates pages under a "listing-report" parent.
+// URL pattern: /listing-report/Anderson-Real-Estate/2983632/
 
 function ihfme_scan_wp_posts(): array {
     global $wpdb;
     $markets = [];
 
-    // Custom post type registered by Optima Express (varies by version)
-    foreach ( [ 'ihf_market', 'ihf-market', 'ihfmarket' ] as $cpt ) {
-        $posts = get_posts( [
-            'post_type'      => $cpt,
+    // ── Strategy A: walk the page hierarchy ──────────────────────────────────
+    // Find the top-level "listing-report" page (or any page whose slug is
+    // "listing-report" regardless of depth).
+    $root = get_page_by_path( 'listing-report', OBJECT, 'page' );
+
+    if ( $root ) {
+        // Children of "listing-report" are the {name} tier.
+        // Their children are the {id} tier — those are the actual market pages.
+        $name_tier = get_posts( [
+            'post_type'      => 'page',
             'post_status'    => 'publish',
+            'post_parent'    => $root->ID,
             'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
         ] );
-        foreach ( $posts as $p ) {
-            $markets[] = [ 'name' => $p->post_title, 'url' => get_permalink( $p->ID ) ];
+
+        foreach ( $name_tier as $name_page ) {
+            $id_tier = get_posts( [
+                'post_type'      => 'page',
+                'post_status'    => 'publish',
+                'post_parent'    => $name_page->ID,
+                'posts_per_page' => -1,
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            ] );
+
+            if ( ! empty( $id_tier ) ) {
+                // Market pages live one level deeper (the numeric {id} pages)
+                foreach ( $id_tier as $p ) {
+                    $markets[] = [
+                        'name' => $p->post_title,
+                        'url'  => get_permalink( $p->ID ),
+                    ];
+                }
+            } else {
+                // Some installs only have two levels: /listing-report/{name}/
+                $markets[] = [
+                    'name' => $name_page->post_title,
+                    'url'  => get_permalink( $name_page->ID ),
+                ];
+            }
         }
+
         if ( ! empty( $markets ) ) return $markets;
     }
 
-    // Pages/posts containing [ihf_market or [idx_market shortcodes
-    foreach ( [ '[ihf_market', '[idx_market', '[omhomefinder_market' ] as $sc ) {
-        $like = $wpdb->esc_like( $sc );
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT ID, post_title FROM {$wpdb->posts}
-             WHERE post_status = 'publish'
-               AND post_type IN ('page','post')
-               AND post_content LIKE %s",
-            '%' . $like . '%'
-        ) );
-        foreach ( $rows as $r ) {
-            $markets[] = [ 'name' => $r->post_title, 'url' => get_permalink( (int) $r->ID ) ];
-        }
-        if ( ! empty( $markets ) ) return $markets;
-    }
-
-    // Fallback: any page with "market" in the title (last resort)
+    // ── Strategy B: SQL — find all pages whose permalink path contains
+    //    /listing-report/ by reconstructing paths from post_name + ancestry.
+    // We find every published page whose post_name is purely numeric
+    // (the {id} segment) AND whose grandparent slug is 'listing-report'.
     $rows = $wpdb->get_results(
+        "SELECT p.ID, p.post_title, p.post_name, p.post_parent
+         FROM {$wpdb->posts} p
+         WHERE p.post_status  = 'publish'
+           AND p.post_type    = 'page'
+           AND p.post_name    REGEXP '^[0-9]+$'"
+    );
+
+    foreach ( $rows as $r ) {
+        $permalink = get_permalink( (int) $r->ID );
+        if ( $permalink && strpos( $permalink, '/listing-report/' ) !== false ) {
+            $markets[] = [
+                'name' => $r->post_title,
+                'url'  => $permalink,
+            ];
+        }
+    }
+
+    if ( ! empty( $markets ) ) return $markets;
+
+    // ── Strategy C: broad sweep — any published page whose permalink contains
+    //    /listing-report/ (catches custom post types with that rewrite base).
+    $all_pages = $wpdb->get_results(
         "SELECT ID, post_title FROM {$wpdb->posts}
          WHERE post_status = 'publish'
-           AND post_type IN ('page','post')
-           AND LOWER(post_title) LIKE '%market%'
+           AND post_type   = 'page'
          ORDER BY post_title ASC
-         LIMIT 200"
+         LIMIT 2000"
     );
-    foreach ( $rows as $r ) {
-        $markets[] = [ 'name' => $r->post_title, 'url' => get_permalink( (int) $r->ID ) ];
+
+    foreach ( $all_pages as $p ) {
+        $url = get_permalink( (int) $p->ID );
+        if ( $url && preg_match( '#/listing-report/[^/]+/[0-9]+/?$#', $url ) ) {
+            $markets[] = [ 'name' => $p->post_title, 'url' => $url ];
+        }
     }
 
     return $markets;
@@ -171,7 +219,8 @@ function ihfme_render_page() {
                                placeholder="e.g. 715e2142-b3bb-4d57-be1d-58374920b849">
                         <p class="description">
                             Found in <strong>Optima Express → Settings → Registration</strong><br>
-                            The plugin also scans WordPress pages for iHF market shortcodes as a fallback.
+                            The plugin also scans WordPress for pages matching
+                            <code>/listing-report/{name}/{id}/</code> as a fallback.
                         </p>
                     </td>
                 </tr>
