@@ -105,67 +105,78 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
     wp_send_json_success($found);
 });
 
-// ── AJAX: Scan posts & all CPTs for IDX broker links (DB) ──────────────────────
+// ── AJAX: Scan posts & all CPTs for IDX content (DB) ──────────────────────────
 add_action('wp_ajax_idx_scan_post_links', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb;
 
-    $excluded = [
-        'page','attachment','revision','nav_menu_item','custom_css','customize_changeset',
-        'oembed_cache','user_request','wp_block','wp_template','wp_template_part',
-        'wp_global_styles','wp_navigation','wp_font_face','wp_font_family',
-    ];
-
-    $all_types = array_values(get_post_types(['public' => true], 'names'));
-    $queryable = array_values(get_post_types(['publicly_queryable' => true], 'names'));
-    $post_types = array_values(array_diff(array_unique(array_merge($all_types, $queryable)), $excluded));
-
-    if (empty($post_types)) { wp_send_json_success([]); return; }
-
-    $placeholders = implode(',', array_fill(0, count($post_types), '%s'));
+    // Fetch post_content directly in the query — no N+1 get_post_field() calls.
+    // Exclude page (has its own tab), plus WP system types.
     $rows = $wpdb->get_results(
-        $wpdb->prepare(
-            "SELECT ID, post_title, post_type, post_parent
-             FROM {$wpdb->posts}
-             WHERE post_type IN ($placeholders)
-               AND post_status IN ('publish','inherit')
-               AND (  post_content LIKE '%idxbroker%'
-                   OR post_content LIKE '%idxre.com%'
-                   OR post_content LIKE '%mlsfinder%'
-                   OR post_content LIKE '%/idx/%')",
-            ...$post_types
-        ),
+        "SELECT ID, post_title, post_type, post_parent, post_content
+         FROM {$wpdb->posts}
+         WHERE post_type NOT IN (
+                 'page','attachment','revision','nav_menu_item','custom_css',
+                 'customize_changeset','oembed_cache','user_request','wp_block',
+                 'wp_template','wp_template_part','wp_global_styles',
+                 'wp_navigation','wp_font_face','wp_font_family'
+               )
+           AND post_status IN ('publish','inherit')
+           AND (  post_content LIKE '%idxbroker%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%mlsfinder%'
+               OR post_content LIKE '%/idx/%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%ihf%'
+               OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%idx-broker-platinum%' )",
         ARRAY_A
     );
 
     $found = [];
     foreach ($rows as $row) {
-        $content = get_post_field('post_content', $row['ID']);
-        $links = [];
+        $content = $row['post_content'];
+        $links   = [];
 
-        if (preg_match_all('/href=["\']([^"\']*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^"\']*)["\']/', $content, $m))
-            foreach ($m[1] as $u) $links[] = $u;
-        if (preg_match_all('/href=["\']([^"\']*\/idx\/[^"\']*)["\']/', $content, $m))
-            foreach ($m[1] as $u) $links[] = $u;
-        if (preg_match_all('/https?:\/\/[^\s"\'<>]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>]*/i', $content, $m))
+        // Full IDX domain URLs (anywhere in content, not just href attributes)
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
             foreach ($m[0] as $u) $links[] = $u;
+
+        // href attributes pointing to /idx/ paths (site's own IDX pages)
+        if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
+            foreach ($m[1] as $u) $links[] = $u;
+
+        // IDX / IMPress shortcodes
+        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
+            foreach ($m[0] as $u) $links[] = $u;
+
+        // Gutenberg IDX block names
+        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
+            foreach ($m[1] as $u) $links[] = $u;
+
+        // Gutenberg block widget IDs {"id":"909-42343"}
+        if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
+            foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
         if (empty($links)) continue;
 
         $parent_info = null;
         if (!empty($row['post_parent'])) {
-            $parent = get_post($row['post_parent']);
+            $parent = get_post((int) $row['post_parent']);
             if ($parent) $parent_info = [
-                'id' => $parent->ID, 'title' => $parent->post_title, 'url' => get_permalink($parent->ID),
+                'id'    => $parent->ID,
+                'title' => $parent->post_title,
+                'url'   => get_permalink($parent->ID),
             ];
         }
 
         $found[] = [
-            'id'     => $row['ID'],
+            'id'     => (int) $row['ID'],
             'title'  => $row['post_title'],
             'type'   => $row['post_type'],
-            'url'    => get_permalink($row['ID']),
+            'url'    => get_permalink((int) $row['ID']),
             'parent' => $parent_info,
             'links'  => $links,
         ];
