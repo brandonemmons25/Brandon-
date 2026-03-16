@@ -1,14 +1,12 @@
 <?php
 /**
  * Plugin Name: IDX Saved Searches Exporter
- * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a spreadsheet.
+ * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
  * Version:     1.0
  * Author:      Brandon Emmons
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
-
-// ── Admin menu ────────────────────────────────────────────────────────────────
 
 add_action( 'admin_menu', function () {
     add_menu_page(
@@ -22,8 +20,6 @@ add_action( 'admin_menu', function () {
     );
 } );
 
-// ── Save API key ──────────────────────────────────────────────────────────────
-
 add_action( 'admin_post_isse_save_key', function () {
     check_admin_referer( 'isse_save_key' );
     update_option( 'isse_api_key', sanitize_text_field( $_POST['api_key'] ?? '' ) );
@@ -31,52 +27,39 @@ add_action( 'admin_post_isse_save_key', function () {
     exit;
 } );
 
-// ── AJAX: fetch searches ──────────────────────────────────────────────────────
-
 add_action( 'wp_ajax_isse_fetch', function () {
     check_ajax_referer( 'isse_fetch' );
 
     $key = get_option( 'isse_api_key', '' );
-    if ( ! $key ) {
-        wp_send_json_error( 'No API key saved.' );
-    }
+    if ( ! $key ) wp_send_json_error( 'No API key saved.' );
 
     $response = wp_remote_get( 'https://api.idxbroker.com/clients/savedlinks', [
         'headers' => [ 'accesskey' => $key ],
         'timeout' => 15,
     ] );
 
-    if ( is_wp_error( $response ) ) {
-        wp_send_json_error( $response->get_error_message() );
-    }
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
 
     $code = wp_remote_retrieve_response_code( $response );
-    if ( $code !== 200 ) {
-        wp_send_json_error( "IDX API returned HTTP $code — check your API key." );
-    }
+    if ( $code !== 200 ) wp_send_json_error( "IDX API returned HTTP $code — check your API key." );
 
     $data = json_decode( wp_remote_retrieve_body( $response ), true );
-    if ( ! is_array( $data ) ) {
-        wp_send_json_error( 'Unexpected response from IDX Broker.' );
-    }
+    if ( ! is_array( $data ) ) wp_send_json_error( 'Unexpected response from IDX Broker.' );
 
     $rows = [];
     foreach ( $data as $id => $info ) {
         $rows[] = [
             'id'       => $id,
-            'name'     => $info['linkName'] ?? '',
+            'name'     => $info['linkName']  ?? '',
             'url'      => '/i/' . ( $info['linkURL'] ?? '' ),
-            'category' => $info['category'] ?? '',
-            'created'  => $info['created'] ?? '',
+            'category' => $info['category']  ?? '',
+            'created'  => $info['created']   ?? '',
         ];
     }
-
     usort( $rows, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
 
     wp_send_json_success( $rows );
 } );
-
-// ── Page HTML ─────────────────────────────────────────────────────────────────
 
 function isse_render_page() {
     $api_key = get_option( 'isse_api_key', '' );
@@ -84,7 +67,6 @@ function isse_render_page() {
     ?>
     <div class="wrap">
         <h1>IDX Saved Searches Exporter</h1>
-
         <?php if ( $saved ) : ?>
             <div class="notice notice-success is-dismissible"><p>API key saved.</p></div>
         <?php endif; ?>
@@ -98,7 +80,7 @@ function isse_render_page() {
                     <td>
                         <input type="text" id="api_key" name="api_key"
                                value="<?php echo esc_attr( $api_key ); ?>"
-                               class="regular-text" placeholder="Paste your API key here">
+                               class="regular-text" placeholder="Paste your IDX Broker API key">
                     </td>
                 </tr>
             </table>
@@ -119,10 +101,10 @@ function isse_render_page() {
 
     <script>
     (function(){
-        const fetchBtn  = document.getElementById('isse-fetch');
-        const csvBtn    = document.getElementById('isse-csv');
-        const status    = document.getElementById('isse-status');
-        const results   = document.getElementById('isse-results');
+        const fetchBtn = document.getElementById('isse-fetch');
+        const csvBtn   = document.getElementById('isse-csv');
+        const status   = document.getElementById('isse-status');
+        const results  = document.getElementById('isse-results');
         if (!fetchBtn) return;
 
         let allRows = [];
@@ -130,7 +112,7 @@ function isse_render_page() {
         fetchBtn.addEventListener('click', function(){
             fetchBtn.disabled = true;
             status.textContent = 'Fetching…';
-            results.innerHTML  = '';
+            results.innerHTML = '';
             csvBtn.style.display = 'none';
 
             fetch(ajaxurl, {
@@ -163,35 +145,25 @@ function isse_render_page() {
         });
 
         csvBtn.addEventListener('click', function(){
-            const headers = ['ID','Name','URL','Category','Created'];
-            const lines   = [headers.join(',')];
+            const lines = ['"Name","IDX URL","Category","Created"'];
             allRows.forEach(r => {
-                lines.push([r.id, r.name, r.url, r.category, r.created]
-                    .map(v => '"' + String(v).replace(/"/g,'""') + '"')
-                    .join(','));
+                lines.push([r.name, r.url, r.category, r.created]
+                    .map(v => '"' + String(v).replace(/"/g,'""') + '"').join(','));
             });
             const blob = new Blob([lines.join('\n')], {type:'text/csv'});
-            const a    = document.createElement('a');
-            a.href     = URL.createObjectURL(blob);
-            a.download = 'idx-saved-searches.csv';
-            a.click();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = 'idx-saved-searches.csv'; a.click();
         });
 
         function renderTable(rows) {
             let html = '<table class="widefat striped" style="margin-top:16px;max-width:800px">'
                      + '<thead><tr><th>Name</th><th>URL</th><th>Category</th><th>Created</th></tr></thead><tbody>';
             rows.forEach(r => {
-                html += `<tr>
-                    <td>${esc(r.name)}</td>
-                    <td><code>${esc(r.url)}</code></td>
-                    <td>${esc(r.category)}</td>
-                    <td>${esc(r.created)}</td>
-                </tr>`;
+                html += `<tr><td>${esc(r.name)}</td><td><code>${esc(r.url)}</code></td><td>${esc(r.category)}</td><td>${esc(r.created)}</td></tr>`;
             });
             html += '</tbody></table>';
             results.innerHTML = html;
         }
-
         function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
     })();
     </script>
