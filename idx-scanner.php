@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 4.3
+ * Version: 5.0
  * Author: You
  */
 
@@ -32,45 +32,77 @@ add_action('wp_ajax_idx_get_pages', function () {
     wp_send_json_success($result);
 });
 
-// ── AJAX: Scan a single page URL for IDX broker links (HTTP fetch) ──────────────
-add_action('wp_ajax_idx_scan_page_links', function () {
+// ── AJAX: Scan published pages for IDX content via database ────────────────────
+// Database-first: no HTTP requests, no caching issues, finds shortcodes + blocks
+// that never appear in rendered HTML. Instant even on sites with 200+ pages.
+add_action('wp_ajax_idx_scan_pages_db', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
-    $url = esc_url_raw($_POST['url'] ?? '');
-    if (!$url) wp_send_json_error('No URL provided.');
+    global $wpdb;
 
-    $response = wp_remote_get($url, ['timeout' => 15, 'sslverify' => false]);
-    if (is_wp_error($response)) wp_send_json_error($response->get_error_message());
+    $rows = $wpdb->get_results(
+        "SELECT ID, post_title, post_content
+         FROM {$wpdb->posts}
+         WHERE post_type = 'page'
+           AND post_status = 'publish'
+           AND (  post_content LIKE '%idxbroker%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%mlsfinder%'
+               OR post_content LIKE '%/idx/%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%ihf%'
+               OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%impress-carousel-block%'
+               OR post_content LIKE '%impress-showcase-block%' )",
+        ARRAY_A
+    );
 
-    $html  = wp_remote_retrieve_body($response);
-    $links = [];
+    $found = [];
+    foreach ($rows as $row) {
+        $id       = (int) $row['ID'];
+        $content  = $row['post_content'];
+        $elements = [];
+        $seen_k   = [];
 
-    // <a href="...idxbroker.com/..."> or idxre.com or mlsfinder.com
-    if (preg_match_all(
-        '/<a\b[^>]*\bhref=["\']([^"\']*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^"\']*)["\'][^>]*>(.*?)<\/a>/is',
-        $html, $m, PREG_SET_ORDER
-    )) {
-        foreach ($m as $match) {
-            $links[] = ['url' => $match[1], 'text' => trim(wp_strip_all_tags($match[2])) ?: '(no text)'];
+        $add = function ($type, $value) use (&$elements, &$seen_k) {
+            $k = $type . ':' . $value;
+            if (isset($seen_k[$k])) return;
+            $seen_k[$k] = true;
+            $elements[] = ['type' => $type, 'value' => $value];
+        };
+
+        // IDX domain URLs
+        if (preg_match_all('/https?:\/\/[^\s"\'<>]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>]*/i', $content, $m))
+            foreach ($m[0] as $u) $add('link', $u);
+
+        // Internal /idx/ path links
+        if (preg_match_all('/href=["\']([\'<>]*\/idx\/[^"\']*)["\']/i', $content, $m))
+            foreach ($m[1] as $u) $add('link', $u);
+
+        // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
+        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
+            foreach ($m[0] as $sc) $add('shortcode', $sc);
+
+        // Gutenberg block types
+        if (preg_match_all('/<!-- wp:(idx-broker-platinum\/[a-z-]+|impress-[a-z-]+-block)/', $content, $m))
+            foreach ($m[1] as $blk) $add('block', $blk);
+
+        // Gutenberg block IDX widget IDs  {"id":"909-42343"}
+        if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
+            foreach ($m[2] as $xid) $add('block', 'IDX Widget ' . $xid);
+
+        if (!empty($elements)) {
+            $found[] = [
+                'id'       => $id,
+                'title'    => $row['post_title'],
+                'url'      => get_permalink($id),
+                'elements' => $elements,
+            ];
         }
     }
 
-    // <a href="/idx/..."> — internal IDX path links
-    if (preg_match_all(
-        '/<a\b[^>]*\bhref=["\']([^"\']*\/idx\/[^"\']*)["\'][^>]*>(.*?)<\/a>/is',
-        $html, $m, PREG_SET_ORDER
-    )) {
-        foreach ($m as $match) {
-            $links[] = ['url' => $match[1], 'text' => trim(wp_strip_all_tags($match[2])) ?: '(no text)'];
-        }
-    }
-
-    // Deduplicate by URL
-    $seen = []; $unique = [];
-    foreach ($links as $link) {
-        if (!isset($seen[$link['url']])) { $seen[$link['url']] = true; $unique[] = $link; }
-    }
-
-    wp_send_json_success(['url' => $url, 'links' => $unique]);
+    wp_send_json_success($found);
 });
 
 // ── AJAX: Scan posts & all CPTs for IDX broker links (DB) ──────────────────────
@@ -1428,7 +1460,7 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Current Page ── -->
         <div id="tab-page" class="idx-tab">
-            <p>Scans the DOM of the current page for IDX Broker elements. Use the bookmarklet below to scan any front-end page.</p>
+            <p>Scans the DOM of the current admin page for IDX Broker elements. Use the bookmarklet to scan any front-end page.</p>
             <button id="idx-scan-btn" class="button button-primary">Scan This Page</button>
             <button id="idx-highlight-btn" class="button" style="margin-left:8px;">Highlight Elements</button>
             <button id="idx-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
@@ -1444,25 +1476,10 @@ function idx_scanner_page() {
 
         <!-- ── Tab: Pages ── -->
         <div id="tab-pages" class="idx-tab" style="display:none;">
-            <p>Fetches every published page and lists any IDX Broker links found — including rendered output from shortcodes and widgets.</p>
+            <p>Searches the database for published pages whose content contains IDX Broker links, shortcodes, or blocks — instant, no HTTP requests.</p>
             <button id="pages-start-btn" class="button button-primary">Scan Pages</button>
             <button id="pages-export-btn" class="button" style="margin-left:8px;" disabled>Export CSV</button>
-            <div id="pages-progress" style="margin-top:16px;display:none;">
-                <progress id="pages-bar" value="0" max="100" style="width:100%;height:18px;"></progress>
-                <p id="pages-status" style="margin:6px 0;color:#555;font-style:italic;"></p>
-            </div>
-            <div id="pages-summary" style="margin-top:12px;display:none;"></div>
-            <table id="pages-table" class="widefat striped" style="margin-top:12px;display:none;">
-                <thead>
-                    <tr>
-                        <th style="width:22%">Page</th>
-                        <th style="width:28%">Page URL</th>
-                        <th>IDX Link</th>
-                        <th style="width:18%">Link Text</th>
-                    </tr>
-                </thead>
-                <tbody id="pages-tbody"></tbody>
-            </table>
+            <div id="pages-results" style="margin-top:16px;"></div>
         </div>
 
         <!-- ── Tab: Posts ── -->
@@ -1575,77 +1592,58 @@ function idx_scanner_page() {
         );
     });
 
-    // ── Pages Scanner (HTTP crawl) ──────────────────────────────────────────────
+    // ── Pages Scanner (DB) ──────────────────────────────────────────────────────
     let pagesResults = [];
 
     document.getElementById('pages-start-btn').addEventListener('click', async function () {
         this.disabled = true;
         pagesResults  = [];
-        document.getElementById('pages-table').style.display    = 'none';
-        document.getElementById('pages-tbody').innerHTML         = '';
-        document.getElementById('pages-progress').style.display  = '';
-        document.getElementById('pages-export-btn').disabled     = true;
-        document.getElementById('pages-summary').style.display   = 'none';
-        document.getElementById('pages-status').textContent      = 'Fetching page list…';
+        const div = document.getElementById('pages-results');
+        div.innerHTML = '<em>Scanning database…</em>';
+        document.getElementById('pages-export-btn').disabled = true;
 
-        const urlRes = await ajax('idx_get_pages');
-        if (!urlRes.success) { alert('Error: ' + urlRes.data); this.disabled = false; return; }
+        const res = await ajax('idx_scan_pages_db');
+        this.disabled = false;
 
-        const pages = urlRes.data;
-        const bar   = document.getElementById('pages-bar');
-        bar.max = pages.length;
-        bar.value = 0;
+        if (!res.success) { div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>'; return; }
 
-        let withLinks = 0, clean = 0;
-
-        for (let i = 0; i < pages.length; i++) {
-            const pg = pages[i];
-            document.getElementById('pages-status').textContent =
-                'Scanning ' + (i + 1) + ' / ' + pages.length + ' — ' + pg.title;
-
-            const res   = await ajax('idx_scan_page_links', { url: pg.url });
-            const links = res.success ? (res.data.links || []) : [];
-
-            if (links.length === 0) {
-                clean++;
-            } else {
-                withLinks++;
-                const tbody = document.getElementById('pages-tbody');
-                links.forEach((lk, li) => {
-                    const tr = document.createElement('tr');
-                    const pageCell = li === 0
-                        ? '<td rowspan="' + links.length + '" style="vertical-align:top;font-weight:600;">' +
-                          '<a href="' + h(pg.url) + '" target="_blank">' + h(pg.title) + '</a></td>' +
-                          '<td rowspan="' + links.length + '" style="vertical-align:top;font-size:11px;word-break:break-all;">' +
-                          '<code>' + h(pg.url) + '</code></td>'
-                        : '';
-                    tr.innerHTML = pageCell +
-                        '<td style="font-size:11px;word-break:break-all;"><code>' + h(lk.url) + '</code></td>' +
-                        '<td style="font-size:12px;">' + h(lk.text) + '</td>';
-                    tbody.appendChild(tr);
-                    pagesResults.push({ page: pg.title, page_url: pg.url, link_url: lk.url, link_text: lk.text });
-                });
-            }
-            bar.value = i + 1;
+        if (!res.data.length) {
+            div.innerHTML = '<p style="color:#00a32a;font-weight:bold;">No IDX content found in any published pages.</p>';
+            return;
         }
 
-        const summary = document.getElementById('pages-summary');
-        summary.style.display = '';
-        summary.innerHTML =
-            '<strong>' + pages.length + '</strong> pages scanned — ' +
-            '<span style="color:#d63638;font-weight:600;">' + withLinks + ' with IDX links</span>, ' +
-            '<span style="color:#00a32a;">' + clean + ' clean</span>.';
+        const typeColor = { link: '#d63638', shortcode: '#0073aa', block: '#46b450' };
+        const typeLabel = { link: 'IDX Link', shortcode: 'Shortcode', block: 'Block' };
 
-        if (withLinks > 0) document.getElementById('pages-table').style.display = '';
-        document.getElementById('pages-status').textContent  = 'Done.';
-        document.getElementById('pages-export-btn').disabled = pagesResults.length === 0;
-        this.disabled = false;
+        let html = '<p><strong>' + res.data.length + '</strong> page(s) contain IDX content.</p>' +
+            '<table class="widefat striped"><thead><tr>' +
+            '<th style="width:28%">Page</th><th style="width:14%">Type</th><th>IDX Element</th>' +
+            '</tr></thead><tbody>';
+
+        res.data.forEach(p => {
+            p.elements.forEach((el, i) => {
+                const pageCell = i === 0
+                    ? '<td rowspan="' + p.elements.length + '" style="vertical-align:top;font-weight:600;">' +
+                      '<a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>'
+                    : '';
+                const color = typeColor[el.type] || '#888';
+                const label = typeLabel[el.type] || el.type;
+                html += '<tr>' + pageCell +
+                    '<td><span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">' + h(label) + '</span></td>' +
+                    '<td style="font-family:monospace;font-size:11px;word-break:break-all;">' + h(el.value) + '</td></tr>';
+                pagesResults.push({ page: p.title, page_url: p.url, type: el.type, element: el.value });
+            });
+        });
+
+        html += '</tbody></table>';
+        div.innerHTML = html;
+        document.getElementById('pages-export-btn').disabled = false;
     });
 
     document.getElementById('pages-export-btn').addEventListener('click', function () {
         exportCSV(
-            pagesResults.map(r => [r.page, r.page_url, r.link_url, r.link_text]),
-            ['Page', 'Page URL', 'IDX Link', 'Link Text'],
+            pagesResults.map(r => [r.page, r.page_url, r.type, r.element]),
+            ['Page', 'Page URL', 'Type', 'IDX Element'],
             'idx-pages.csv'
         );
     });
@@ -1805,16 +1803,17 @@ function idx_scanner_page() {
         // Build one row per page+widget combination
         const rows = [];
         idxWidgets.forEach(w => {
-            const pages  = w.pages && w.pages.length ? w.pages : [];
-            const source = w.pages_source || 'none';
+            const pages    = w.pages && w.pages.length ? w.pages : [];
+            const source   = w.pages_source || 'none';
+            const position = widgetPosition(w.sidebar_name || w.sidebar_id, w.sidebar_id);
 
             if (pages.length) {
                 pages.forEach(pg => rows.push({
                     page_title: pg.title, page_url: pg.url || '',
-                    widget: w.title, type: w.type, source,
+                    widget: w.title, type: w.type, source, position,
                 }));
             } else {
-                rows.push({ page_title: '', page_url: '', widget: w.title, type: w.type, source: 'none' });
+                rows.push({ page_title: '', page_url: '', widget: w.title, type: w.type, source: 'none', position });
             }
         });
         rows.sort((a, b) => (a.page_title || '').localeCompare(b.page_title || ''));
