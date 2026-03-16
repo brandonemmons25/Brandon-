@@ -186,18 +186,40 @@ function ihfme_normalise_list( array $data ): array {
 }
 
 /**
- * Scrape <a href> links from an HTML string, filtering out nav/utility links.
+ * Scrape <a href> links from an HTML string, keeping only client-site market links.
  */
 function ihfme_scrape_links( string $html ): array {
+    // Domains that are iHF infrastructure — never market pages
+    $excluded_hosts = [
+        'ihomefinder.com',
+        'idxhome.com',
+        'account.idxhome.com',
+        'www.ihomefinder.com',
+    ];
+
+    $site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+
     $dom = new DOMDocument();
     @$dom->loadHTML( '<?xml encoding="utf-8">' . $html, LIBXML_NOERROR );
     $markets = [];
     foreach ( $dom->getElementsByTagName( 'a' ) as $a ) {
         $href = trim( $a->getAttribute( 'href' ) );
         $text = trim( $a->textContent );
-        // Skip empty, anchor-only, or obvious utility links
+
         if ( ! $text || ! $href || $href === '#' ) continue;
+
+        // Skip obvious utility label text
         if ( in_array( strtolower( $text ), [ 'login', 'register', 'home', 'back', 'next', 'prev', 'previous' ], true ) ) continue;
+
+        // Resolve host for the link
+        $link_host = wp_parse_url( $href, PHP_URL_HOST );
+
+        // Skip iHF infrastructure links
+        if ( $link_host && in_array( strtolower( $link_host ), $excluded_hosts, true ) ) continue;
+
+        // Only keep relative URLs or links on the client's own domain
+        if ( $link_host && strtolower( $link_host ) !== strtolower( $site_host ) ) continue;
+
         $markets[] = [ 'name' => $text, 'url' => $href ];
     }
     return $markets;
