@@ -41,45 +41,58 @@ add_action( 'wp_ajax_ihfme_fetch', function () {
         wp_send_json_error( [ 'message' => 'No registration key saved.', 'debug' => [] ] );
     }
 
+    $basic = base64_encode( $key . ':' );
+
     // Candidate endpoints — ordered most-likely first.
-    // The correct one will succeed with HTTP 200 + JSON array of markets.
+    // idxhome.com is live (returned 404s, not connection errors).
+    // api.ihomefinder.com has SSL cert mismatch — probed with sslverify=false.
     $candidates = [
-        [
-            'url'     => 'https://www.idxhome.com/api/v1/market.json',
-            'method'  => 'GET',
-            'headers' => [ 'Accept' => 'application/json' ],
-            'params'  => [ 'registrationKey' => $key ],
-        ],
-        [
-            'url'     => 'https://www.idxhome.com/api/v1/savedSearch.json',
-            'method'  => 'GET',
-            'headers' => [ 'Accept' => 'application/json' ],
-            'params'  => [ 'registrationKey' => $key ],
-        ],
-        [
-            'url'     => 'https://api.ihomefinder.com/v1/market',
-            'method'  => 'GET',
-            'headers' => [
-                'Authorization' => 'Basic ' . base64_encode( $key . ':' ),
-                'Accept'        => 'application/json',
-            ],
-            'params'  => [],
-        ],
-        [
-            'url'     => 'https://api.ihomefinder.com/v1/savedSearch',
-            'method'  => 'GET',
-            'headers' => [
-                'Authorization' => 'Basic ' . base64_encode( $key . ':' ),
-                'Accept'        => 'application/json',
-            ],
-            'params'  => [],
-        ],
-        [
-            'url'     => 'https://www.idxhome.com/api/v1/client/market.json',
-            'method'  => 'GET',
-            'headers' => [ 'Accept' => 'application/json' ],
-            'params'  => [ 'registrationKey' => $key ],
-        ],
+        // ── idxhome.com paths ─────────────────────────────────────────────────
+        [ 'url' => 'https://www.idxhome.com/api/v1/markets.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v1/account/market.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v1/partner/market.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v1/listing/market.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v1/search.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v1/savedSearch.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key, 'type' => 'market' ] ],
+
+        [ 'url' => 'https://www.idxhome.com/api/v2/market.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        // Try Basic auth instead of query param on idxhome.com
+        [ 'url' => 'https://www.idxhome.com/api/v1/market.json',
+          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
+          'params'  => [] ],
+
+        // ── api.ihomefinder.com (SSL cert mismatch — try sslverify=false) ─────
+        [ 'url' => 'https://api.ihomefinder.com/v1/market',
+          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
+          'params'  => [], 'sslverify' => false ],
+
+        [ 'url' => 'https://api.ihomefinder.com/v1/savedSearch',
+          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
+          'params'  => [], 'sslverify' => false ],
+
+        [ 'url' => 'https://api.ihomefinder.com/v1/market',
+          'headers' => [ 'x-ihf-access-key' => $key, 'Accept' => 'application/json' ],
+          'params'  => [], 'sslverify' => false ],
     ];
 
     $debug   = [];
@@ -92,8 +105,9 @@ add_action( 'wp_ajax_ihfme_fetch', function () {
         }
 
         $resp = wp_remote_get( $full_url, [
-            'headers' => $c['headers'],
-            'timeout' => 15,
+            'headers'   => $c['headers'],
+            'timeout'   => 15,
+            'sslverify' => $c['sslverify'] ?? true,
         ] );
 
         $entry = [ 'url' => $full_url, 'error' => null, 'status' => null, 'body_preview' => null ];
