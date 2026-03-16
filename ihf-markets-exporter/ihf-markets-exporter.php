@@ -1,12 +1,15 @@
 <?php
 /**
  * Plugin Name: iHomefinder Markets Exporter
- * Description: Fetch iHomefinder markets (saved searches) via the iHF API and export to CSV.
- * Version:     2.0
+ * Description: Fetch iHomefinder markets (hotsheets/saved searches) and export to CSV.
+ * Version:     3.0
  * Author:      Brandon Emmons
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
+
+// Base URL used by Optima Express for all service requests
+define( 'IHFME_SERVICE_URL', 'https://www.idxhome.com/service/wordpress' );
 
 // ── Admin menu ────────────────────────────────────────────────────────────────
 
@@ -36,168 +39,168 @@ add_action( 'admin_post_ihfme_save_key', function () {
 add_action( 'wp_ajax_ihfme_fetch', function () {
     check_ajax_referer( 'ihfme_fetch' );
 
-    $key = get_option( 'ihfme_reg_key', '' );
-    if ( ! $key ) {
-        wp_send_json_error( [ 'message' => 'No registration key saved.', 'debug' => [] ] );
+    // Step 1: get authentication token.
+    // Optima Express stores it in wp_options after plugin activation.
+    $auth_token = get_option( 'ihf_authentication_token', '' );
+
+    // Fallback: some versions use the activation token directly.
+    if ( ! $auth_token ) {
+        $auth_token = get_option( 'ihf_activation_token', '' );
     }
 
-    $basic = base64_encode( $key . ':' );
+    // Last resort: exchange the saved registration key for a fresh token.
+    if ( ! $auth_token ) {
+        $reg_key = get_option( 'ihfme_reg_key', '' );
+        if ( ! $reg_key ) {
+            wp_send_json_error( 'No authentication token found and no registration key saved. ' .
+                'Make sure Optima Express is activated, or enter your registration key.' );
+        }
+        $auth_token = ihfme_exchange_reg_key( $reg_key );
+        if ( ! $auth_token ) {
+            wp_send_json_error( 'Could not obtain authentication token from registration key. ' .
+                'Verify the key is correct.' );
+        }
+    }
 
-    // account.idxhome.com is the iHF account portal (confirmed from UI URL).
-    // Trying likely API paths with registrationKey as query param and Basic auth.
-    $candidates = [
-        [ 'url' => 'https://account.idxhome.com/api/markets',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
+    // Step 2: fetch hotsheet (market) list.
+    $resp = wp_remote_get( add_query_arg( [
+        'method'              => 'handleRequest',
+        'requestType'         => 'hotsheet-list',
+        'viewType'            => 'json',
+        'phpStyle'            => 'true',
+        'authenticationToken' => $auth_token,
+    ], IHFME_SERVICE_URL ), [
+        'timeout'   => 20,
+        'sslverify' => true,
+    ] );
 
-        [ 'url' => 'https://account.idxhome.com/api/markets',
-          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
-          'params'  => [] ],
+    if ( is_wp_error( $resp ) ) {
+        wp_send_json_error( 'Request error: ' . $resp->get_error_message() );
+    }
 
-        [ 'url' => 'https://account.idxhome.com/api/v1/markets',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
+    $code = wp_remote_retrieve_response_code( $resp );
+    $body = wp_remote_retrieve_body( $resp );
 
-        [ 'url' => 'https://account.idxhome.com/api/v1/markets',
-          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
-          'params'  => [] ],
+    if ( $code !== 200 ) {
+        wp_send_json_error( "Service returned HTTP $code. Body preview: " . mb_substr( $body, 0, 300 ) );
+    }
 
-        [ 'url' => 'https://account.idxhome.com/markets.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
+    $data = json_decode( $body, true );
+    if ( $data === null ) {
+        // iHomefinder sometimes returns PHP-serialized data; try unserializing
+        $data = @unserialize( $body );
+    }
+    if ( ! is_array( $data ) ) {
+        wp_send_json_error( 'Unexpected response format. Preview: ' . mb_substr( $body, 0, 300 ) );
+    }
 
-        [ 'url' => 'https://account.idxhome.com/api/savedSearches',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
+    // Normalise various response shapes
+    $list = $data['hotsheets']    ??
+            $data['markets']      ??
+            $data['savedSearches'] ??
+            $data['data']         ??
+            $data;
 
-        [ 'url' => 'https://account.idxhome.com/api/savedSearches',
-          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
-          'params'  => [] ],
-
-        [ 'url' => 'https://account.idxhome.com/api/account/markets',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-    ];
-
-    $debug   = [];
     $markets = [];
-
-    foreach ( $candidates as $c ) {
-        $full_url = $c['url'];
-        if ( ! empty( $c['params'] ) ) {
-            $full_url .= '?' . http_build_query( $c['params'] );
+    foreach ( (array) $list as $item ) {
+        if ( ! is_array( $item ) ) continue;
+        $name = $item['name']        ?? $item['title']      ??
+                $item['hotsheetName'] ?? $item['linkName']   ?? '';
+        $url  = $item['url']         ?? $item['link']        ??
+                $item['pageUrl']     ?? $item['permalink']   ?? '';
+        if ( $name ) {
+            $markets[] = [ 'name' => trim( $name ), 'url' => trim( $url ) ];
         }
-
-        $resp = wp_remote_get( $full_url, [
-            'headers'   => $c['headers'],
-            'timeout'   => 15,
-            'sslverify' => $c['sslverify'] ?? true,
-        ] );
-
-        $entry = [ 'url' => $full_url, 'error' => null, 'status' => null, 'body_preview' => null ];
-
-        if ( is_wp_error( $resp ) ) {
-            $entry['error'] = $resp->get_error_message();
-            $debug[] = $entry;
-            continue;
-        }
-
-        $code = wp_remote_retrieve_response_code( $resp );
-        $body = wp_remote_retrieve_body( $resp );
-        $entry['status']       = $code;
-        $entry['body_preview'] = mb_substr( $body, 0, 300 );
-        $debug[] = $entry;
-
-        if ( $code !== 200 ) continue;
-
-        $data = json_decode( $body, true );
-        if ( ! is_array( $data ) ) continue;
-
-        // Normalise: some APIs wrap in {data:[...]}, some return a flat array
-        $list = $data['data'] ?? $data['markets'] ?? $data['savedSearches'] ?? $data;
-        if ( ! is_array( $list ) ) continue;
-
-        foreach ( $list as $m ) {
-            if ( ! is_array( $m ) ) continue;
-            $name = $m['name'] ?? $m['title'] ?? $m['marketName'] ?? $m['linkName'] ?? '';
-            $url  = $m['url']  ?? $m['link']  ?? $m['pageUrl']   ?? $m['permalink'] ?? '';
-            if ( $name ) {
-                $markets[] = [ 'name' => $name, 'url' => $url ];
-            }
-        }
-
-        if ( ! empty( $markets ) ) break; // found a working endpoint
     }
 
     if ( empty( $markets ) ) {
-        wp_send_json_error( [
-            'message' => 'No markets returned from any endpoint. See debug info below.',
-            'debug'   => $debug,
-        ] );
+        wp_send_json_error( 'API returned OK but no markets found in response. Raw: ' . mb_substr( $body, 0, 500 ) );
     }
 
     usort( $markets, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
-    wp_send_json_success( [ 'markets' => $markets, 'debug' => $debug ] );
+    wp_send_json_success( $markets );
 } );
+
+// ── Exchange registration key for authentication token ────────────────────────
+
+function ihfme_exchange_reg_key( string $reg_key ): string {
+    $resp = wp_remote_post( IHFME_SERVICE_URL, [
+        'timeout' => 20,
+        'body'    => [
+            'method'          => 'handleRequest',
+            'requestType'     => 'activate',
+            'viewType'        => 'json',
+            'registrationKey' => $reg_key,
+        ],
+    ] );
+
+    if ( is_wp_error( $resp ) || wp_remote_retrieve_response_code( $resp ) !== 200 ) {
+        return '';
+    }
+
+    $data = json_decode( wp_remote_retrieve_body( $resp ), true );
+    return $data['authenticationToken'] ?? $data['activationToken'] ?? '';
+}
 
 // ── Page HTML ─────────────────────────────────────────────────────────────────
 
 function ihfme_render_page() {
-    $reg_key = get_option( 'ihfme_reg_key', '' );
-    $saved   = isset( $_GET['saved'] );
+    $reg_key    = get_option( 'ihfme_reg_key', '' );
+    $auth_token = get_option( 'ihf_authentication_token', '' ) ?: get_option( 'ihf_activation_token', '' );
+    $saved      = isset( $_GET['saved'] );
     ?>
     <div class="wrap">
         <h1>iHomefinder Markets Exporter</h1>
+
         <?php if ( $saved ) : ?>
             <div class="notice notice-success is-dismissible"><p>Registration key saved.</p></div>
         <?php endif; ?>
 
-        <form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>" style="margin-bottom:20px;">
-            <?php wp_nonce_field( 'ihfme_save_key' ); ?>
-            <input type="hidden" name="action" value="ihfme_save_key">
-            <table class="form-table" style="max-width:560px">
-                <tr>
-                    <th><label for="reg_key">iHomefinder Registration Key</label></th>
-                    <td>
-                        <input type="text" id="reg_key" name="reg_key"
-                               value="<?php echo esc_attr( $reg_key ); ?>"
-                               class="regular-text"
-                               placeholder="e.g. 715e2142-b3bb-4d57-be1d-58374920b849">
-                        <p class="description">Found in <strong>Optima Express → Settings → Registration</strong></p>
-                    </td>
-                </tr>
-            </table>
-            <p><button type="submit" class="button button-secondary">Save Key</button></p>
-        </form>
-
-        <?php if ( $reg_key ) : ?>
-            <p>
-                <button id="ihfme-fetch" class="button button-primary">Fetch Markets</button>
-                <button id="ihfme-csv" class="button" style="display:none;margin-left:8px;">Download CSV</button>
-                <span id="ihfme-status" style="margin-left:12px;color:#666;"></span>
-            </p>
-            <div id="ihfme-results"></div>
-            <div id="ihfme-debug" style="display:none;margin-top:20px;">
-                <h3>API Debug Info</h3>
-                <p style="color:#888;font-size:.85rem">
-                    Shown when the fetch fails — share this to help identify the correct endpoint.
+        <?php if ( $auth_token ) : ?>
+            <div class="notice notice-info inline" style="max-width:700px">
+                <p>
+                    Optima Express authentication token found in the database — no key entry needed.
+                    Click <strong>Fetch Markets</strong> to proceed.
                 </p>
-                <pre id="ihfme-debug-pre" style="background:#f6f7f7;padding:12px;font-size:.8rem;overflow:auto;max-height:400px;border:1px solid #ddd;border-radius:4px;"></pre>
             </div>
         <?php else : ?>
-            <p style="color:#888;">Enter and save your registration key above to get started.</p>
+            <p style="color:#996800;max-width:700px">
+                ⚠ No Optima Express token found in this WordPress installation.
+                Enter your registration key below as a fallback.
+            </p>
+            <form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>" style="margin-bottom:20px;">
+                <?php wp_nonce_field( 'ihfme_save_key' ); ?>
+                <input type="hidden" name="action" value="ihfme_save_key">
+                <table class="form-table" style="max-width:560px">
+                    <tr>
+                        <th><label for="reg_key">iHomefinder Registration Key</label></th>
+                        <td>
+                            <input type="text" id="reg_key" name="reg_key"
+                                   value="<?php echo esc_attr( $reg_key ); ?>"
+                                   class="regular-text"
+                                   placeholder="e.g. 715e2142-b3bb-4d57-be1d-58374920b849">
+                            <p class="description">Found in <strong>Optima Express → Settings → Registration</strong></p>
+                        </td>
+                    </tr>
+                </table>
+                <p><button type="submit" class="button button-secondary">Save Key</button></p>
+            </form>
         <?php endif; ?>
+
+        <p>
+            <button id="ihfme-fetch" class="button button-primary">Fetch Markets</button>
+            <button id="ihfme-csv" class="button" style="display:none;margin-left:8px;">Download CSV</button>
+            <span id="ihfme-status" style="margin-left:12px;color:#666;"></span>
+        </p>
+        <div id="ihfme-results"></div>
     </div>
 
     <script>
     (function(){
-        const fetchBtn  = document.getElementById('ihfme-fetch');
-        const csvBtn    = document.getElementById('ihfme-csv');
-        const status    = document.getElementById('ihfme-status');
-        const results   = document.getElementById('ihfme-results');
-        const debugBox  = document.getElementById('ihfme-debug');
-        const debugPre  = document.getElementById('ihfme-debug-pre');
-        if (!fetchBtn) return;
+        const fetchBtn = document.getElementById('ihfme-fetch');
+        const csvBtn   = document.getElementById('ihfme-csv');
+        const status   = document.getElementById('ihfme-status');
+        const results  = document.getElementById('ihfme-results');
 
         let allRows = [];
 
@@ -207,7 +210,6 @@ function ihfme_render_page() {
             status.style.color = '#666';
             results.innerHTML  = '';
             csvBtn.style.display = 'none';
-            debugBox.style.display = 'none';
 
             fetch(ajaxurl, {
                 method: 'POST',
@@ -220,21 +222,12 @@ function ihfme_render_page() {
             .then(r => r.json())
             .then(json => {
                 fetchBtn.disabled = false;
-
-                // Show debug in both success and error cases
-                const dbg = json.success ? json.data.debug : json.data?.debug;
-                if (dbg && dbg.length) {
-                    debugPre.textContent = JSON.stringify(dbg, null, 2);
-                    debugBox.style.display = '';
-                }
-
                 if (!json.success) {
-                    status.textContent = 'Error: ' + (json.data?.message || json.data);
+                    status.textContent = 'Error: ' + json.data;
                     status.style.color = '#c00';
                     return;
                 }
-
-                allRows = json.data.markets;
+                allRows = json.data;
                 status.textContent = allRows.length + ' markets found.';
                 status.style.color = '#060';
                 renderTable(allRows);
