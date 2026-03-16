@@ -2,7 +2,7 @@
 /**
  * Plugin Name: iHomefinder Markets Exporter
  * Description: Fetch iHomefinder markets (hotsheets/saved searches) and export to CSV.
- * Version:     3.1
+ * Version:     3.2
  * Author:      Brandon Emmons
  */
 
