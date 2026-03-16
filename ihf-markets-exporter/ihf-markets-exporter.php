@@ -43,56 +43,40 @@ add_action( 'wp_ajax_ihfme_fetch', function () {
 
     $basic = base64_encode( $key . ':' );
 
-    // Candidate endpoints — ordered most-likely first.
-    // idxhome.com is live (returned 404s, not connection errors).
-    // api.ihomefinder.com has SSL cert mismatch — probed with sslverify=false.
+    // account.idxhome.com is the iHF account portal (confirmed from UI URL).
+    // Trying likely API paths with registrationKey as query param and Basic auth.
     $candidates = [
-        // ── idxhome.com paths ─────────────────────────────────────────────────
-        [ 'url' => 'https://www.idxhome.com/api/v1/markets.json',
+        [ 'url' => 'https://account.idxhome.com/api/markets',
           'headers' => [ 'Accept' => 'application/json' ],
           'params'  => [ 'registrationKey' => $key ] ],
 
-        [ 'url' => 'https://www.idxhome.com/api/v1/account/market.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-
-        [ 'url' => 'https://www.idxhome.com/api/v1/partner/market.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-
-        [ 'url' => 'https://www.idxhome.com/api/v1/listing/market.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-
-        [ 'url' => 'https://www.idxhome.com/api/v1/search.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-
-        [ 'url' => 'https://www.idxhome.com/api/v1/savedSearch.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key, 'type' => 'market' ] ],
-
-        [ 'url' => 'https://www.idxhome.com/api/v2/market.json',
-          'headers' => [ 'Accept' => 'application/json' ],
-          'params'  => [ 'registrationKey' => $key ] ],
-
-        // Try Basic auth instead of query param on idxhome.com
-        [ 'url' => 'https://www.idxhome.com/api/v1/market.json',
+        [ 'url' => 'https://account.idxhome.com/api/markets',
           'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
           'params'  => [] ],
 
-        // ── api.ihomefinder.com (SSL cert mismatch — try sslverify=false) ─────
-        [ 'url' => 'https://api.ihomefinder.com/v1/market',
-          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
-          'params'  => [], 'sslverify' => false ],
+        [ 'url' => 'https://account.idxhome.com/api/v1/markets',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
 
-        [ 'url' => 'https://api.ihomefinder.com/v1/savedSearch',
+        [ 'url' => 'https://account.idxhome.com/api/v1/markets',
           'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
-          'params'  => [], 'sslverify' => false ],
+          'params'  => [] ],
 
-        [ 'url' => 'https://api.ihomefinder.com/v1/market',
-          'headers' => [ 'x-ihf-access-key' => $key, 'Accept' => 'application/json' ],
-          'params'  => [], 'sslverify' => false ],
+        [ 'url' => 'https://account.idxhome.com/markets.json',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://account.idxhome.com/api/savedSearches',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
+
+        [ 'url' => 'https://account.idxhome.com/api/savedSearches',
+          'headers' => [ 'Authorization' => 'Basic ' . $basic, 'Accept' => 'application/json' ],
+          'params'  => [] ],
+
+        [ 'url' => 'https://account.idxhome.com/api/account/markets',
+          'headers' => [ 'Accept' => 'application/json' ],
+          'params'  => [ 'registrationKey' => $key ] ],
     ];
 
     $debug   = [];
