@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.2
+ * Version: 5.3
  * Author: You
  */
 
@@ -93,49 +93,42 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
     foreach ($rows as $row) {
         $id      = (int) $row['ID'];
         $content = $row['post_content'];
-        $elements = [];
-        $seen_k   = [];
-
-        $add = function ($type, $value) use (&$elements, &$seen_k) {
-            $k = $type . ':' . $value;
-            if (isset($seen_k[$k])) return;
-            $seen_k[$k] = true;
-            $elements[] = ['type' => $type, 'value' => $value];
-        };
+        $links   = [];
 
         // Known IDX platform domain URLs
         if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
-            foreach ($m[0] as $u) $add('link', $u);
+            foreach ($m[0] as $u) $links[] = $u;
 
         // Site's own custom IDX search subdomain (e.g. search.collegestationhomes.com)
         if ($search_domain) {
             $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
             if (preg_match_all($pat, $content, $m))
-                foreach ($m[0] as $u) $add('link', $u);
+                foreach ($m[0] as $u) $links[] = $u;
         }
 
         // Internal /idx/ path links
         if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
-            foreach ($m[1] as $u) $add('link', $u);
+            foreach ($m[1] as $u) $links[] = $u;
 
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
         if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
-            foreach ($m[0] as $sc) $add('shortcode', $sc);
+            foreach ($m[0] as $sc) $links[] = $sc;
 
         // Gutenberg block types
         if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
-            foreach ($m[1] as $blk) $add('block', $blk);
+            foreach ($m[1] as $blk) $links[] = $blk;
 
         // Gutenberg block widget IDs {"id":"909-42343"}
         if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
-            foreach ($m[2] as $xid) $add('block', 'IDX Widget ' . $xid);
+            foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
-        if (!empty($elements)) {
+        $links = array_values(array_unique($links));
+        if (!empty($links)) {
             $found[] = [
-                'id'       => $id,
-                'title'    => $row['post_title'],
-                'url'      => get_permalink($id),
-                'elements' => $elements,
+                'id'    => $id,
+                'title' => $row['post_title'],
+                'url'   => get_permalink($id),
+                'links' => $links,
             ];
         }
     }
@@ -1673,27 +1666,19 @@ function idx_scanner_page() {
             return;
         }
 
-        const typeColor = { link: '#d63638', shortcode: '#0073aa', block: '#46b450' };
-        const typeLabel = { link: 'IDX Link', shortcode: 'Shortcode', block: 'Block' };
-
         let html = '<p><strong>' + res.data.length + '</strong> page(s) contain IDX content.</p>' +
             '<table class="widefat striped"><thead><tr>' +
-            '<th style="width:28%">Page</th><th style="width:14%">Type</th><th>IDX Element</th>' +
+            '<th>Page</th><th>IDX Content Found</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(p => {
-            p.elements.forEach((el, i) => {
-                const pageCell = i === 0
-                    ? '<td rowspan="' + p.elements.length + '" style="vertical-align:top;font-weight:600;">' +
-                      '<a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>'
-                    : '';
-                const color = typeColor[el.type] || '#888';
-                const label = typeLabel[el.type] || el.type;
-                html += '<tr>' + pageCell +
-                    '<td><span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">' + h(label) + '</span></td>' +
-                    '<td style="font-family:monospace;font-size:11px;word-break:break-all;">' + h(el.value) + '</td></tr>';
-                pagesResults.push({ page: p.title, page_url: p.url, type: el.type, element: el.value });
-            });
+            const linksHtml = p.links.map(l => '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(l) + '</div>').join('');
+            p.links.forEach(l => pagesResults.push({ page: p.title, page_url: p.url, element: l }));
+            html +=
+                '<tr>' +
+                '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
+                '<td>' + linksHtml + '</td>' +
+                '</tr>';
         });
 
         html += '</tbody></table>';
@@ -1703,8 +1688,8 @@ function idx_scanner_page() {
 
     document.getElementById('pages-export-btn').addEventListener('click', function () {
         exportCSV(
-            pagesResults.map(r => [r.page, r.page_url, r.type, r.element]),
-            ['Page', 'Page URL', 'Type', 'IDX Element'],
+            pagesResults.map(r => [r.page, r.page_url, r.element]),
+            ['Page', 'Page URL', 'IDX Element'],
             'idx-pages.csv'
         );
     });
