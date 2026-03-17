@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.1
+ * Version:     1.2
  * Author:      Brandon Emmons
  */
 
@@ -23,6 +23,7 @@ add_action( 'admin_menu', function () {
 add_action( 'admin_post_isse_save_key', function () {
     check_admin_referer( 'isse_save_key' );
     update_option( 'isse_api_key', sanitize_text_field( $_POST['api_key'] ?? '' ) );
+    update_option( 'isse_base_url', esc_url_raw( rtrim( $_POST['base_url'] ?? '', '/' ) ) );
     wp_redirect( admin_url( 'admin.php?page=idx-saved-searches&saved=1' ) );
     exit;
 } );
@@ -32,6 +33,8 @@ add_action( 'wp_ajax_isse_fetch', function () {
 
     $key = get_option( 'isse_api_key', '' );
     if ( ! $key ) wp_send_json_error( 'No API key saved.' );
+
+    $base_url = get_option( 'isse_base_url', '' ) ?: rtrim( home_url(), '/' );
 
     $response = wp_remote_get( 'https://api.idxbroker.com/clients/savedlinks', [
         'headers' => [ 'accesskey' => $key ],
@@ -51,7 +54,7 @@ add_action( 'wp_ajax_isse_fetch', function () {
         $rows[] = [
             'id'   => $id,
             'name' => $info['linkName'] ?? '',
-            'url'  => home_url( '/i/' . ( $info['linkURL'] ?? '' ) ),
+            'url'  => $base_url . '/i/' . ( $info['linkURL'] ?? '' ),
         ];
     }
     usort( $rows, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
@@ -60,19 +63,20 @@ add_action( 'wp_ajax_isse_fetch', function () {
 } );
 
 function isse_render_page() {
-    $api_key = get_option( 'isse_api_key', '' );
-    $saved   = isset( $_GET['saved'] );
+    $api_key  = get_option( 'isse_api_key', '' );
+    $base_url = get_option( 'isse_base_url', '' ) ?: rtrim( home_url(), '/' );
+    $saved    = isset( $_GET['saved'] );
     ?>
     <div class="wrap">
         <h1>IDX Saved Searches Exporter</h1>
         <?php if ( $saved ) : ?>
-            <div class="notice notice-success is-dismissible"><p>API key saved.</p></div>
+            <div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>
         <?php endif; ?>
 
         <form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>" style="margin-bottom:20px;">
             <?php wp_nonce_field( 'isse_save_key' ); ?>
             <input type="hidden" name="action" value="isse_save_key">
-            <table class="form-table" style="max-width:500px">
+            <table class="form-table" style="max-width:560px">
                 <tr>
                     <th><label for="api_key">IDX Broker API Key</label></th>
                     <td>
@@ -81,8 +85,17 @@ function isse_render_page() {
                                class="regular-text" placeholder="Paste your IDX Broker API key">
                     </td>
                 </tr>
+                <tr>
+                    <th><label for="base_url">Base URL</label></th>
+                    <td>
+                        <input type="text" id="base_url" name="base_url"
+                               value="<?php echo esc_attr( $base_url ); ?>"
+                               class="regular-text" placeholder="https://search.example.com">
+                        <p class="description">URLs will be built as <code>{Base URL}/i/{linkURL}</code>. Override this when running on a staging site.</p>
+                    </td>
+                </tr>
             </table>
-            <p><button type="submit" class="button button-secondary">Save API Key</button></p>
+            <p><button type="submit" class="button button-secondary">Save Settings</button></p>
         </form>
 
         <?php if ( $api_key ) : ?>
