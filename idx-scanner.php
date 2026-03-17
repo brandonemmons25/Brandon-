@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.3
+ * Version: 5.4
  * Author: You
  */
 
@@ -32,6 +32,14 @@ function idx_scanner_get_search_domain() {
             if (is_array($val) && !empty($val['domain']))    { $domain = trim($val['domain']);    break; }
         }
     }
+
+    // Fallback: IDX Saved Searches Exporter plugin stores the search subdomain in isse_subdomain
+    // e.g. "search.collegestationhomes.com" — covers /i/ saved search URLs in content
+    if (!$domain) {
+        $isse = trim(get_option('isse_subdomain', ''));
+        if ($isse && strpos($isse, '.') !== false) $domain = $isse;
+    }
+
     return $domain;
 }
 
