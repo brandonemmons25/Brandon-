@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.4
+ * Version: 5.5
  * Author: You
  */
 
@@ -33,12 +33,21 @@ function idx_scanner_get_search_domain() {
         }
     }
 
-    // Fallback: IDX Saved Searches Exporter plugin stores the search subdomain in isse_subdomain
-    // e.g. "search.collegestationhomes.com" — covers /i/ saved search URLs in content
+    // Fallback: IDX Saved Searches Exporter plugin stores the search subdomain in isse_subdomain.
+    // It may be stored as a full URL ("https://search.collegestationhomes.com") or bare hostname.
     if (!$domain) {
         $isse = trim(get_option('isse_subdomain', ''));
+        if ($isse && strpos($isse, '://') !== false) {
+            $isse = parse_url($isse, PHP_URL_HOST) ?: '';
+        }
         if ($isse && strpos($isse, '.') !== false) $domain = $isse;
     }
+
+    // Final cleanup: strip protocol/slashes from any source (idxforza-info may also store full URLs)
+    if ($domain && strpos($domain, '://') !== false) {
+        $domain = parse_url($domain, PHP_URL_HOST) ?: $domain;
+    }
+    $domain = rtrim(trim($domain), '/');
 
     return $domain;
 }
@@ -131,14 +140,15 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        if (!empty($links)) {
-            $found[] = [
-                'id'    => $id,
-                'title' => $row['post_title'],
-                'url'   => get_permalink($id),
-                'links' => $links,
-            ];
-        }
+        // Always include the page — if SQL matched but regex extracted nothing,
+        // show a generic note so the page isn't silently dropped from results.
+        if (empty($links)) $links = ['[IDX content detected — inspect page for details]'];
+        $found[] = [
+            'id'    => $id,
+            'title' => $row['post_title'],
+            'url'   => get_permalink($id),
+            'links' => $links,
+        ];
     }
 
     wp_send_json_success($found);
@@ -211,7 +221,8 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        if (empty($links)) continue;
+        // Always include the post — never silently drop items SQL matched.
+        if (empty($links)) $links = ['[IDX content detected — inspect post for details]'];
 
         $parent_info = null;
         if (!empty($row['post_parent'])) {
