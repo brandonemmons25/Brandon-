@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.4
+ * Version:     1.5
  * Author:      Brandon Emmons
  */
 
@@ -23,21 +23,22 @@ add_action( 'admin_menu', function () {
 add_action( 'admin_post_isse_save_key', function () {
     check_admin_referer( 'isse_save_key' );
     update_option( 'isse_api_key', sanitize_text_field( $_POST['api_key'] ?? '' ) );
-    update_option( 'isse_subdomain', sanitize_text_field( trim( $_POST['subdomain'] ?? 'search', ". \t\n\r" ) ) );
+    // Strip protocol and trailing slashes so we store just the hostname
+    $subdomain = sanitize_text_field( $_POST['subdomain'] ?? '' );
+    $subdomain = preg_replace( '#^https?://#', '', $subdomain );
+    $subdomain = rtrim( $subdomain, '/' );
+    update_option( 'isse_subdomain', $subdomain );
     wp_redirect( admin_url( 'admin.php?page=idx-saved-searches&saved=1' ) );
     exit;
 } );
 
 /**
- * Build the base URL using the saved subdomain + the site's root domain.
- * e.g. subdomain=search, site=staging.collegestationhomes.com → https://search.collegestationhomes.com
+ * Build the base URL from the saved subdomain hostname.
+ * e.g. search.collegestationhomes.com → https://search.collegestationhomes.com
  */
 function isse_search_base_url(): string {
-    $subdomain = get_option( 'isse_subdomain', 'search' ) ?: 'search';
-    $host      = wp_parse_url( home_url(), PHP_URL_HOST );
-    $parts     = explode( '.', $host );
-    $root      = implode( '.', array_slice( $parts, -2 ) );
-    return 'https://' . $subdomain . '.' . $root;
+    $host = get_option( 'isse_subdomain', '' );
+    return $host ? 'https://' . $host : '';
 }
 
 add_action( 'wp_ajax_isse_fetch', function () {
@@ -47,6 +48,7 @@ add_action( 'wp_ajax_isse_fetch', function () {
     if ( ! $key ) wp_send_json_error( 'No API key saved.' );
 
     $base_url = isse_search_base_url();
+    if ( ! $base_url ) wp_send_json_error( 'No search subdomain saved. Enter it in the settings above.' );
 
     $response = wp_remote_get( 'https://api.idxbroker.com/clients/savedlinks', [
         'headers' => [ 'accesskey' => $key ],
@@ -76,7 +78,7 @@ add_action( 'wp_ajax_isse_fetch', function () {
 
 function isse_render_page() {
     $api_key   = get_option( 'isse_api_key', '' );
-    $subdomain = get_option( 'isse_subdomain', 'search' ) ?: 'search';
+    $subdomain = get_option( 'isse_subdomain', '' );
     $saved     = isset( $_GET['saved'] );
     ?>
     <div class="wrap">
@@ -102,8 +104,12 @@ function isse_render_page() {
                     <td>
                         <input type="text" id="subdomain" name="subdomain"
                                value="<?php echo esc_attr( $subdomain ); ?>"
-                               class="regular-text" placeholder="search">
+                               class="regular-text" placeholder="search.yourdomain.com">
+                        <?php if ( isse_search_base_url() ) : ?>
                         <p class="description">URLs will be exported as <code><?php echo esc_html( isse_search_base_url() ); ?>/i/…</code></p>
+                        <?php else : ?>
+                        <p class="description">Enter the full search subdomain, e.g. <code>search.yourdomain.com</code></p>
+                        <?php endif; ?>
                     </td>
                 </tr>
             </table>
