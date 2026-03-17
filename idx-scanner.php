@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.11
+ * Version: 5.12
  * Author: You
  */
 
@@ -140,7 +140,22 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        if (empty($links)) continue;
+
+        if (empty($links)) {
+            // SQL matched but no pattern extracted — find a short context snippet.
+            $terms = ['idxbroker', 'idxre.com', 'mlsfinder', '/idx/', '[IDX', '[idx', '[ihf',
+                      '[impress', 'idx-broker-platinum', 'impress-carousel-block', 'impress-showcase-block'];
+            if ($search_domain) $terms[] = $search_domain;
+            foreach ($terms as $term) {
+                $pos = stripos($content, $term);
+                if ($pos !== false) {
+                    $snippet = substr($content, max(0, $pos - 40), 160);
+                    $links[] = '[snippet] ' . preg_replace('/\s+/', ' ', $snippet);
+                    break;
+                }
+            }
+            if (empty($links)) $links = ['[IDX content detected]'];
+        }
 
         $found[] = [
             'id'    => $id,
@@ -225,7 +240,21 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        if (empty($links)) continue;
+
+        if (empty($links)) {
+            $terms = ['idxbroker', 'idxre.com', 'mlsfinder', '/idx/', '/i/', '[IDX', '[idx',
+                      '[ihf', '[impress', 'idx-broker-platinum'];
+            if ($search_domain) $terms[] = $search_domain;
+            foreach ($terms as $term) {
+                $pos = stripos($content, $term);
+                if ($pos !== false) {
+                    $snippet = substr($content, max(0, $pos - 40), 160);
+                    $links[] = '[snippet] ' . preg_replace('/\s+/', ' ', $snippet);
+                    break;
+                }
+            }
+            if (empty($links)) $links = ['[IDX content detected]'];
+        }
 
         $parent_info = null;
         if (!empty($row['post_parent'])) {
