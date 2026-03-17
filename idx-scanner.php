@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.5
+ * Version: 5.6
  * Author: You
  */
 
@@ -140,9 +140,25 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        // Always include the page — if SQL matched but regex extracted nothing,
-        // show a generic note so the page isn't silently dropped from results.
-        if (empty($links)) $links = ['[IDX content detected — inspect page for details]'];
+
+        // Fallback: SQL matched but no regex extracted anything.
+        // Find the first matching keyword in content and show a context snippet.
+        if (empty($links)) {
+            $terms = ['idxbroker', 'idxre.com', 'mlsfinder', '/idx/', '[IDX', '[idx', '[ihf', '[impress',
+                      'idx-broker-platinum', 'impress-carousel-block', 'impress-showcase-block'];
+            if ($search_domain) $terms[] = $search_domain;
+            foreach ($terms as $term) {
+                $pos = stripos($content, $term);
+                if ($pos !== false) {
+                    $start   = max(0, $pos - 60);
+                    $snippet = substr($content, $start, 200);
+                    $links[] = '[snippet] …' . preg_replace('/\s+/', ' ', $snippet) . '…';
+                    break;
+                }
+            }
+            if (empty($links)) $links = ['[IDX content detected — could not extract snippet]'];
+        }
+
         $found[] = [
             'id'    => $id,
             'title' => $row['post_title'],
@@ -221,8 +237,7 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
-        // Always include the post — never silently drop items SQL matched.
-        if (empty($links)) $links = ['[IDX content detected — inspect post for details]'];
+        if (empty($links)) continue;
 
         $parent_info = null;
         if (!empty($row['post_parent'])) {
