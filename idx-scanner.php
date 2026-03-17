@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.8
+ * Version: 5.9
  * Author: You
  */
 
@@ -204,7 +204,6 @@ add_action('wp_ajax_idx_scan_post_links', function () {
                OR post_content LIKE '%idxre.com%'
                OR post_content LIKE '%mlsfinder%'
                OR post_content LIKE '%/idx/%'
-               OR post_content LIKE '%/i/%'
                OR post_content LIKE '%[IDX%'
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%ihf%'
@@ -219,40 +218,32 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         $content = $row['post_content'];
         $links   = [];
 
-        $extract = function ( $src ) use ( &$links, $search_domain ) {
-            // Known IDX platform domain URLs
-            if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $src, $m))
+        // Known IDX platform domain URLs
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
+            foreach ($m[0] as $u) $links[] = $u;
+
+        // Site's own custom IDX search subdomain (e.g. search.collegestationhomes.com)
+        if ($search_domain) {
+            $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
+            if (preg_match_all($pat, $content, $m))
                 foreach ($m[0] as $u) $links[] = $u;
+        }
 
-            // Site's own custom IDX search subdomain
-            if ($search_domain) {
-                $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
-                if (preg_match_all($pat, $src, $m))
-                    foreach ($m[0] as $u) $links[] = $u;
-            }
+        // Internal /idx/ path links
+        if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
+            foreach ($m[1] as $u) $links[] = $u;
 
-            // Internal /idx/ path links
-            if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $src, $m))
-                foreach ($m[1] as $u) $links[] = $u;
+        // IDX / IMPress shortcodes
+        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
+            foreach ($m[0] as $u) $links[] = $u;
 
-            // Saved-search /i/ path links — href attribute or JSON "url" value
-            if (preg_match_all('#(?:href=["\']|"url"\s*:\s*["\'])([^"\']*?/i/[a-zA-Z0-9][a-zA-Z0-9\-]*[^"\']*)["\']#', $src, $m))
-                foreach ($m[1] as $u) $links[] = $u;
+        // Gutenberg IDX block names
+        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
+            foreach ($m[1] as $u) $links[] = $u;
 
-            // IDX / IMPress shortcodes
-            if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $src, $m))
-                foreach ($m[0] as $u) $links[] = $u;
-
-            // Gutenberg IDX block names
-            if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $src, $m))
-                foreach ($m[1] as $u) $links[] = $u;
-
-            // Gutenberg block widget IDs {"id":"909-42343"}
-            if (preg_match_all('/"id":"(\d+)-(\d+)"/', $src, $m))
-                foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
-        };
-
-        $extract($content);
+        // Gutenberg block widget IDs {"id":"909-42343"}
+        if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
+            foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
         if (empty($links)) continue;
