@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.0
+ * Version:     1.1
  * Author:      Brandon Emmons
  */
 
@@ -49,11 +49,9 @@ add_action( 'wp_ajax_isse_fetch', function () {
     $rows = [];
     foreach ( $data as $id => $info ) {
         $rows[] = [
-            'id'       => $id,
-            'name'     => $info['linkName']  ?? '',
-            'url'      => '/i/' . ( $info['linkURL'] ?? '' ),
-            'category' => $info['category']  ?? '',
-            'created'  => $info['created']   ?? '',
+            'id'   => $id,
+            'name' => $info['linkName'] ?? '',
+            'url'  => home_url( '/i/' . ( $info['linkURL'] ?? '' ) ),
         ];
     }
     usort( $rows, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
@@ -145,9 +143,9 @@ function isse_render_page() {
         });
 
         csvBtn.addEventListener('click', function(){
-            const lines = ['"Name","IDX URL","Category","Created"'];
+            const lines = ['"Name","IDX URL"'];
             allRows.forEach(r => {
-                lines.push([r.name, r.url, r.category, r.created]
+                lines.push([r.name, r.url]
                     .map(v => '"' + String(v).replace(/"/g,'""') + '"').join(','));
             });
             const blob = new Blob([lines.join('\n')], {type:'text/csv'});
@@ -157,9 +155,9 @@ function isse_render_page() {
 
         function renderTable(rows) {
             let html = '<table class="widefat striped" style="margin-top:16px;max-width:800px">'
-                     + '<thead><tr><th>Name</th><th>URL</th><th>Category</th><th>Created</th></tr></thead><tbody>';
+                     + '<thead><tr><th>Name</th><th>URL</th></tr></thead><tbody>';
             rows.forEach(r => {
-                html += `<tr><td>${esc(r.name)}</td><td><code>${esc(r.url)}</code></td><td>${esc(r.category)}</td><td>${esc(r.created)}</td></tr>`;
+                html += `<tr><td>${esc(r.name)}</td><td><code>${esc(r.url)}</code></td></tr>`;
             });
             html += '</tbody></table>';
             results.innerHTML = html;
