@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.7
+ * Version: 5.8
  * Author: You
  */
 
@@ -149,29 +149,20 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
 
         $extract($content);
 
-        // Also scan Elementor post meta — Elementor stores widget content (including IDX
-        // URLs and shortcodes) in _elementor_data JSON, not in post_content.
-        $el_data = get_post_meta($id, '_elementor_data', true);
-        if ($el_data) $extract($el_data);
-
         $links = array_values(array_unique($links));
 
-        // Fallback: SQL matched but no regex extracted anything.
-        // Search post_content then Elementor data for the first keyword hit and show a snippet.
+        // Fallback: SQL matched but no regex extracted anything — show a context snippet.
         if (empty($links)) {
             $terms = ['idxbroker', 'idxre.com', 'mlsfinder', '/idx/', '/i/', '[IDX', '[idx', '[ihf', '[impress',
                       'idx-broker-platinum', 'impress-carousel-block', 'impress-showcase-block'];
             if ($search_domain) $terms[] = $search_domain;
-            $sources = array_filter([$content, $el_data ?: '']);
-            foreach ($sources as $src) {
-                foreach ($terms as $term) {
-                    $pos = stripos($src, $term);
-                    if ($pos !== false) {
-                        $start   = max(0, $pos - 60);
-                        $snippet = substr($src, $start, 200);
-                        $links[] = '[snippet] …' . preg_replace('/\s+/', ' ', $snippet) . '…';
-                        break 2;
-                    }
+            foreach ($terms as $term) {
+                $pos = stripos($content, $term);
+                if ($pos !== false) {
+                    $start   = max(0, $pos - 60);
+                    $snippet = substr($content, $start, 200);
+                    $links[] = '[snippet] …' . preg_replace('/\s+/', ' ', $snippet) . '…';
+                    break;
                 }
             }
             if (empty($links)) $links = ['[IDX content detected — could not extract snippet]'];
@@ -262,8 +253,6 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         };
 
         $extract($content);
-        $el_data = get_post_meta((int) $row['ID'], '_elementor_data', true);
-        if ($el_data) $extract($el_data);
 
         $links = array_values(array_unique($links));
         if (empty($links)) continue;
