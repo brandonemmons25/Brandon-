@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.5
+ * Version:     1.6
  * Author:      Brandon Emmons
  */
 
@@ -65,10 +65,14 @@ add_action( 'wp_ajax_isse_fetch', function () {
 
     $rows = [];
     foreach ( $data as $id => $info ) {
+        $name = $info['linkName'] ?? '';
+        $slug = strtolower( trim( $name ) );
+        $slug = preg_replace( '/[^a-z0-9\s-]/', '', $slug );
+        $slug = preg_replace( '/[\s-]+/', '-', $slug );
         $rows[] = [
             'id'   => $id,
-            'name' => $info['linkName'] ?? '',
-            'url'  => $base_url . '/i/' . ( $info['linkURL'] ?? '' ),
+            'name' => $name,
+            'url'  => $base_url . '/i/' . $slug,
         ];
     }
     usort( $rows, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
