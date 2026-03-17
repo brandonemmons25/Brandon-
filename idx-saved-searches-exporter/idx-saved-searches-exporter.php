@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.3
+ * Version:     1.4
  * Author:      Brandon Emmons
  */
 
@@ -23,20 +23,21 @@ add_action( 'admin_menu', function () {
 add_action( 'admin_post_isse_save_key', function () {
     check_admin_referer( 'isse_save_key' );
     update_option( 'isse_api_key', sanitize_text_field( $_POST['api_key'] ?? '' ) );
+    update_option( 'isse_subdomain', sanitize_text_field( trim( $_POST['subdomain'] ?? 'search', ". \t\n\r" ) ) );
     wp_redirect( admin_url( 'admin.php?page=idx-saved-searches&saved=1' ) );
     exit;
 } );
 
 /**
- * Derive the search subdomain base URL from the current site's hostname.
- * e.g. staging.collegestationhomes.com → https://search.collegestationhomes.com
+ * Build the base URL using the saved subdomain + the site's root domain.
+ * e.g. subdomain=search, site=staging.collegestationhomes.com → https://search.collegestationhomes.com
  */
 function isse_search_base_url(): string {
-    $host  = wp_parse_url( home_url(), PHP_URL_HOST );
-    $parts = explode( '.', $host );
-    // Keep only the last two segments (root domain + TLD)
-    $root  = implode( '.', array_slice( $parts, -2 ) );
-    return 'https://search.' . $root;
+    $subdomain = get_option( 'isse_subdomain', 'search' ) ?: 'search';
+    $host      = wp_parse_url( home_url(), PHP_URL_HOST );
+    $parts     = explode( '.', $host );
+    $root      = implode( '.', array_slice( $parts, -2 ) );
+    return 'https://' . $subdomain . '.' . $root;
 }
 
 add_action( 'wp_ajax_isse_fetch', function () {
@@ -74,8 +75,9 @@ add_action( 'wp_ajax_isse_fetch', function () {
 } );
 
 function isse_render_page() {
-    $api_key  = get_option( 'isse_api_key', '' );
-    $saved    = isset( $_GET['saved'] );
+    $api_key   = get_option( 'isse_api_key', '' );
+    $subdomain = get_option( 'isse_subdomain', 'search' ) ?: 'search';
+    $saved     = isset( $_GET['saved'] );
     ?>
     <div class="wrap">
         <h1>IDX Saved Searches Exporter</h1>
@@ -93,6 +95,14 @@ function isse_render_page() {
                         <input type="text" id="api_key" name="api_key"
                                value="<?php echo esc_attr( $api_key ); ?>"
                                class="regular-text" placeholder="Paste your IDX Broker API key">
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="subdomain">Search Subdomain</label></th>
+                    <td>
+                        <input type="text" id="subdomain" name="subdomain"
+                               value="<?php echo esc_attr( $subdomain ); ?>"
+                               class="regular-text" placeholder="search">
                         <p class="description">URLs will be exported as <code><?php echo esc_html( isse_search_base_url() ); ?>/i/…</code></p>
                     </td>
                 </tr>
