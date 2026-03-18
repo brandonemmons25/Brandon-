@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.12
+ * Version: 5.13
  * Author: You
  */
 
@@ -223,8 +223,8 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         if (preg_match_all('#href=["\']([^"\']*?/idx/[^"\']*)["\']#', $content, $m))
             foreach ($m[1] as $u) $links[] = $u;
 
-        // Saved-search /i/ path links — href attribute or JSON "url" value
-        if (preg_match_all('#(?:href=["\']|"url"\s*:\s*["\'])([^"\']*?/i/[a-zA-Z0-9][a-zA-Z0-9\-]*[^"\']*)["\']#', $content, $m))
+        // Saved-search /i/ path links — any quoted attribute value
+        if (preg_match_all('#["\']([^"\'<>\s]*?/i/[a-zA-Z0-9][a-zA-Z0-9\-]*)["\']#', $content, $m))
             foreach ($m[1] as $u) $links[] = $u;
 
         // IDX / IMPress shortcodes
@@ -235,9 +235,9 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
             foreach ($m[1] as $u) $links[] = $u;
 
-        // Gutenberg block widget IDs {"id":"909-42343"}
-        if (preg_match_all('/"id":"(\d+)-(\d+)"/', $content, $m))
-            foreach ($m[2] as $xid) $links[] = 'IDX Widget ' . $xid;
+        // Gutenberg block widget IDs — "id":"909-42343" or "id":"42343"
+        if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m))
+            foreach ($m[1] as $xid) $links[] = 'IDX Widget ' . $xid;
 
         $links = array_values(array_unique($links));
 
