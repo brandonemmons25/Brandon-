@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.19
+ * Version: 5.20
  * Author: You
  */
 
@@ -303,6 +303,34 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         }
     }
 
+    // Also find CPT posts where IDX content is in postmeta (IDX Broker Platinum
+    // stores listing detail URLs in meta keys like _idx_listing_url, idx_link, etc.).
+    $pm_conds = [
+        "pm.meta_value LIKE '%idxbroker.com%'",
+        "pm.meta_value LIKE '%idxhome.com%'",
+        "pm.meta_value LIKE '%/idx/details/%'",
+        "pm.meta_value LIKE '%/idx/results/%'",
+    ];
+    if ( $search_domain ) {
+        $pm_conds[] = 'pm.meta_value LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($search_domain) . '%');
+    }
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $pm_rows = $wpdb->get_results(
+        "SELECT DISTINCT p.ID, p.post_title, p.post_type, p.post_parent, p.post_content
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+         WHERE p.post_type NOT IN ({$excluded_types})
+           AND p.post_status IN ('publish','inherit')
+           AND (" . implode(' OR ', $pm_conds) . ")",
+        ARRAY_A
+    );
+    foreach ( $pm_rows as $row ) {
+        if ( ! in_array( (int) $row['ID'], $already_ids, true ) ) {
+            $rows[]        = $row;
+            $already_ids[] = (int) $row['ID'];
+        }
+    }
+
     $found = [];
     foreach ($rows as $row) {
         // Expand any <!-- wp:block {"ref":N} --> references.
@@ -330,6 +358,30 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         // Gutenberg block widget IDs
         if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m))
             foreach ($m[1] as $xid) $links[] = 'IDX Widget ' . $xid;
+
+        // Postmeta: IDX Broker Platinum stores listing detail URLs in meta fields.
+        // Pull any meta value that looks like an IDX URL (covers _idx_listing_url,
+        // idx_link, _listing_url, _idx_link, and any other key the plugin uses).
+        $meta_pat_parts = [ 'idxbroker\\.com', 'idxhome\\.com', '/idx/details/', '/idx/results/' ];
+        if ( $search_domain ) $meta_pat_parts[] = preg_quote( $search_domain, '#' );
+        $meta_pat = '#(' . implode('|', $meta_pat_parts) . ')#i';
+        $meta_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta}
+             WHERE post_id = %d
+               AND meta_value != ''
+               AND CHAR_LENGTH(meta_value) < 2000",
+            (int) $row['ID']
+        ), ARRAY_A );
+        foreach ( $meta_rows as $mr ) {
+            $mv = $mr['meta_value'];
+            if ( ! preg_match( $meta_pat, $mv ) ) continue;
+            // Extract bare URLs from the meta value (handles plain URL or HTML/JSON blob).
+            if ( preg_match_all( '#https?://[^\s"\'<>\\\\]+#i', $mv, $um ) ) {
+                foreach ( $um[0] as $mu ) {
+                    if ( preg_match( $meta_pat, $mu ) ) $links[] = $mu;
+                }
+            }
+        }
 
         $links = array_values(array_unique($links));
         if (empty($links)) continue;
