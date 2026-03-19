@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.17
+ * Version: 5.18
  * Author: You
  */
 
@@ -403,6 +403,56 @@ add_action('wp_ajax_idx_debug_page_content', function () {
         'regex_matches'  => $regex_matches,
         'missed_snippets'=> $missed,
     ]);
+});
+
+// ── AJAX: Fetch rendered page HTML and extract all visible IDX links ─────────────
+// Fetches the live front-end URL so widget-rendered saved link groups (property
+// type, bedrooms, city menus) are captured alongside post_content shortcodes.
+add_action('wp_ajax_idx_fetch_page_links', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+    if ( ! current_user_can('manage_options') ) wp_send_json_error('Forbidden');
+
+    $page_id = (int) ( $_POST['page_id'] ?? 0 );
+    if ( ! $page_id ) wp_send_json_error('Missing page_id');
+
+    $url  = get_permalink( $page_id );
+    $args = [ 'timeout' => 20, 'sslverify' => false, 'redirection' => 5 ];
+
+    // Pass HTTP Basic Auth if the current admin request carries it (staging sites).
+    if ( ! empty( $_SERVER['PHP_AUTH_USER'] ) ) {
+        $args['headers']['Authorization'] = 'Basic ' . base64_encode(
+            sanitize_text_field( $_SERVER['PHP_AUTH_USER'] ) . ':' . sanitize_text_field( $_SERVER['PHP_AUTH_PW'] ?? '' )
+        );
+    }
+
+    $response = wp_remote_get( $url, $args );
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
+
+    $code = wp_remote_retrieve_response_code( $response );
+    if ( $code !== 200 ) wp_send_json_error( "HTTP {$code} returned for {$url}" );
+
+    $html          = wp_remote_retrieve_body( $response );
+    $search_domain = idx_scanner_get_search_domain();
+    $links         = [];
+
+    // Extract every <a href> from the rendered HTML and keep IDX ones.
+    if ( preg_match_all( '/<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is', $html, $m ) ) {
+        foreach ( $m[1] as $i => $href ) {
+            $is_idx = false;
+            if ( $search_domain && stripos( $href, $search_domain ) !== false ) $is_idx = true;
+            if ( stripos( $href, 'idxhome.com' ) !== false )  $is_idx = true;
+            if ( preg_match( '#/idx/(results|details|featured|sold|new|search|listing)#i', $href ) ) $is_idx = true;
+            if ( ! $is_idx ) continue;
+            $text    = trim( strip_tags( $m[2][$i] ) );
+            $links[] = [ 'href' => $href, 'text' => $text ?: $href ];
+        }
+    }
+
+    // Deduplicate by href.
+    $seen = []; $unique = [];
+    foreach ( $links as $l ) { if ( ! isset( $seen[$l['href']] ) ) { $seen[$l['href']] = true; $unique[] = $l; } }
+
+    wp_send_json_success( [ 'url' => $url, 'http_status' => $code, 'links' => $unique ] );
 });
 
 // ── AJAX: Scan all post types for IDX shortcodes (DB) ──────────────────────────
@@ -1854,7 +1904,9 @@ function idx_scanner_page() {
                 '<tr>' +
                 '<td>' +
                   '<a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a><br>' +
-                  '<button class="button button-small inspect-page-btn" data-id="' + h(String(p.id)) + '" style="margin-top:4px;font-size:10px;">Inspect raw content</button>' +
+                  '<button class="button button-small fetch-rendered-btn" data-id="' + h(String(p.id)) + '" data-url="' + h(p.url) + '" style="margin-top:4px;">Fetch rendered links</button> ' +
+                  '<button class="button button-small inspect-page-btn" data-id="' + h(String(p.id)) + '" style="margin-top:4px;font-size:10px;color:#777;">Inspect raw DB content</button>' +
+                  '<div class="fetch-result" id="fetch-' + h(String(p.id)) + '" style="margin-top:6px;display:none;"></div>' +
                   '<div class="inspect-result" id="inspect-' + h(String(p.id)) + '" style="font-size:11px;font-family:monospace;margin-top:4px;white-space:pre-wrap;display:none;"></div>' +
                 '</td>' +
                 '<td>' + linksHtml + '</td>' +
@@ -1863,6 +1915,29 @@ function idx_scanner_page() {
 
         html += '</tbody></table>';
         div.innerHTML = html;
+
+        div.querySelectorAll('.fetch-rendered-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const pid = this.dataset.id;
+                const out = document.getElementById('fetch-' + pid);
+                out.style.display = 'block';
+                out.innerHTML = '<em>Fetching page…</em>';
+                const r = await ajax('idx_fetch_page_links', { page_id: pid });
+                if (!r.success) { out.innerHTML = '<span style="color:#d63638">Error: ' + h(r.data) + '</span>'; return; }
+                const d = r.data;
+                if (!d.links.length) {
+                    out.innerHTML = '<span style="color:#666;font-size:11px;">No IDX links found in rendered HTML (HTTP ' + d.http_status + ').</span>';
+                    return;
+                }
+                // Export rendered links to CSV alongside page results.
+                d.links.forEach(l => pagesResults.push({ page: btn.closest('tr').querySelector('a').textContent, page_url: d.url, element: l.text + ' → ' + l.href }));
+                let tbl = '<div style="font-size:11px;color:#0073aa;margin-bottom:2px;"><strong>' + d.links.length + ' rendered IDX link(s) found:</strong></div>';
+                tbl += '<table style="font-size:11px;border-collapse:collapse;width:100%"><thead><tr><th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ddd;">Link text</th><th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ddd;">URL</th></tr></thead><tbody>';
+                d.links.forEach(l => { tbl += '<tr><td style="padding:2px 6px;">' + h(l.text) + '</td><td style="padding:2px 6px;font-family:monospace;word-break:break-all;">' + h(l.href) + '</td></tr>'; });
+                tbl += '</tbody></table>';
+                out.innerHTML = tbl;
+            });
+        });
 
         div.querySelectorAll('.inspect-page-btn').forEach(btn => {
             btn.addEventListener('click', async function () {
