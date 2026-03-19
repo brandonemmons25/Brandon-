@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.22
+ * Version: 5.23
  * Author: You
  */
 
@@ -68,6 +68,58 @@ function idx_scanner_expand_block_refs( $content ) {
         if ( $block_content ) $content .= "\n" . $block_content;
     }
     return $content;
+}
+
+// ── Helper: identify the page section containing a content match ─────────────────
+// Given the full post_content string and the character offset of an IDX match,
+// looks backward to find the nearest meaningful section label via:
+//   1. Gutenberg <!-- wp:heading --> block text immediately before the match
+//   2. Plain HTML <h1>–<h6> tags (classic editor or raw HTML)
+//   3. Gutenberg parent block "className" or "anchor" attribute (e.g. "hero-section")
+//   4. Elementor section label in JSON (sectionInnerWidth, custom_id, etc.)
+//   5. Falls back to "Main Content" when nothing identifiable is found
+function idx_scanner_nearest_section( $content, $pos ) {
+    $before = substr( $content, 0, $pos );
+
+    // 1. Gutenberg heading block — e.g. <!-- wp:heading --><h2>Featured Listings</h2><!-- /wp:heading -->
+    if ( preg_match_all(
+        '/<!--\s*wp:heading[^-]*-->\s*<h[1-6][^>]*>(.*?)<\/h[1-6]>/is',
+        $before, $hm
+    ) ) {
+        $text = trim( strip_tags( end( $hm[1] ) ) );
+        if ( $text !== '' && strlen( $text ) <= 120 ) return $text;
+    }
+
+    // 2. Plain HTML heading (classic editor)
+    if ( preg_match_all( '/<h[1-6][^>]*>(.*?)<\/h[1-6]>/is', $before, $hm2 ) ) {
+        $text = trim( strip_tags( end( $hm2[1] ) ) );
+        if ( $text !== '' && strlen( $text ) <= 120 ) return $text;
+    }
+
+    // 3. Gutenberg parent group/cover/columns block with an anchor or className
+    //    e.g. <!-- wp:group {"anchor":"property-search","className":"search-area"} -->
+    if ( preg_match_all(
+        '/<!--\s*wp:(?:group|cover|columns?|template-part)\s*(\{[^}]*\})/i',
+        $before, $gm
+    ) ) {
+        $last_attrs = end( $gm[1] );
+        $decoded    = json_decode( $last_attrs, true );
+        foreach ( [ 'anchor', 'className', 'slug', 'area' ] as $key ) {
+            if ( ! empty( $decoded[ $key ] ) ) {
+                // Convert slug-style to Title Case for readability
+                $label = ucwords( str_replace( [ '-', '_' ], ' ', $decoded[ $key ] ) );
+                return $label;
+            }
+        }
+    }
+
+    // 4. Elementor JSON context — look for the nearest section label / ID before match
+    if ( preg_match_all( '/"custom_id"\s*:\s*"([^"]{3,40})"/i', $before, $em ) ) {
+        $label = ucwords( str_replace( [ '-', '_' ], ' ', end( $em[1] ) ) );
+        if ( $label !== '' ) return $label;
+    }
+
+    return 'Main Content';
 }
 
 // ── Admin Menu ──────────────────────────────────────────────────────────────────
@@ -183,26 +235,39 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
         if ( $el_data ) $content .= "\n" . $el_data;
         $links   = [];
 
+        // Each match is stored as {match, section} so the UI can show which
+        // section of the page the IDX element lives in.
+        $add = function ( $match_str, $pos ) use ( &$links, $content ) {
+            $links[] = [
+                'match'   => $match_str,
+                'section' => idx_scanner_nearest_section( $content, $pos ),
+            ];
+        };
+
         // Custom IDX search subdomain
         if ($search_domain) {
             $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
-            if (preg_match_all($pat, $content, $m))
-                foreach ($m[0] as $u) $links[] = $u;
+            if (preg_match_all($pat, $content, $m, PREG_OFFSET_CAPTURE))
+                foreach ($m[0] as [$u, $pos]) $add($u, $pos);
         }
 
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
-        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
-            foreach ($m[0] as $sc) $links[] = $sc;
+        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$sc, $pos]) $add($sc, $pos);
 
         // Gutenberg IDX block names
-        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
-            foreach ($m[1] as $blk) $links[] = $blk;
+        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$blk, $pos]) $add($m[1][array_search([$blk,$pos],$m[0])][0] ?? $blk, $pos);
 
         // Gutenberg block widget IDs
-        if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m))
-            foreach ($m[1] as $xid) $links[] = 'IDX Widget ' . $xid;
+        if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as $i => [$full, $pos]) $add('IDX Widget ' . $m[1][$i][0], $pos);
 
-        $links = array_values(array_unique($links));
+        // Deduplicate by match string
+        $seen = []; $links = array_values(array_filter($links, function($l) use (&$seen) {
+            if (isset($seen[$l['match']])) return false;
+            $seen[$l['match']] = true; return true;
+        }));
         if (empty($links)) continue;
 
         $found[] = [
@@ -340,28 +405,36 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         if ( $el_data ) $content .= "\n" . $el_data;
         $links   = [];
 
+        // Each match captured as {match, section} using PREG_OFFSET_CAPTURE so we
+        // can look backward in the content for the nearest heading / section label.
+        $add = function ( $match_str, $pos ) use ( &$links, $content ) {
+            $links[] = [
+                'match'   => $match_str,
+                'section' => idx_scanner_nearest_section( $content, $pos ),
+            ];
+        };
+
         // Custom IDX search subdomain
         if ($search_domain) {
             $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
-            if (preg_match_all($pat, $content, $m))
-                foreach ($m[0] as $u) $links[] = $u;
+            if (preg_match_all($pat, $content, $m, PREG_OFFSET_CAPTURE))
+                foreach ($m[0] as [$u, $pos]) $add($u, $pos);
         }
 
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
-        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m))
-            foreach ($m[0] as $u) $links[] = $u;
+        if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$u, $pos]) $add($u, $pos);
 
         // Gutenberg IDX block names
-        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m))
-            foreach ($m[1] as $u) $links[] = $u;
+        if (preg_match_all('#<!-- wp:(idx-broker-platinum/[a-z-]+|impress-[a-z-]+-block)#', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as $i => [$full, $pos]) $add($m[1][$i][0], $pos);
 
         // Gutenberg block widget IDs
-        if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m))
-            foreach ($m[1] as $xid) $links[] = 'IDX Widget ' . $xid;
+        if (preg_match_all('/"id":"(\d+(?:-\d+)?)"/', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as $i => [$full, $pos]) $add('IDX Widget ' . $m[1][$i][0], $pos);
 
         // Postmeta: IDX Broker Platinum stores listing detail URLs in meta fields.
-        // Pull any meta value that looks like an IDX URL (covers _idx_listing_url,
-        // idx_link, _listing_url, _idx_link, and any other key the plugin uses).
+        // Postmeta has no positional context — label these as "Listing Meta".
         $meta_pat_parts = [ 'idxbroker\\.com', 'idxhome\\.com', '/idx/details/', '/idx/results/' ];
         if ( $search_domain ) $meta_pat_parts[] = preg_quote( $search_domain, '#' );
         $meta_pat = '#(' . implode('|', $meta_pat_parts) . ')#i';
@@ -375,22 +448,25 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         foreach ( $meta_rows as $mr ) {
             $mv = $mr['meta_value'];
             if ( ! preg_match( $meta_pat, $mv ) ) continue;
-            // Extract bare URLs from the meta value (handles plain URL or HTML/JSON blob).
             if ( preg_match_all( '#https?://[^\s"\'<>\\\\]+#i', $mv, $um ) ) {
                 foreach ( $um[0] as $mu ) {
-                    if ( preg_match( $meta_pat, $mu ) ) $links[] = $mu;
+                    if ( preg_match( $meta_pat, $mu ) ) {
+                        $links[] = [ 'match' => $mu, 'section' => 'Listing Meta' ];
+                    }
                 }
             }
         }
 
-        $links = array_values(array_unique($links));
+        // Deduplicate by match string
+        $seen = []; $links = array_values( array_filter( $links, function ( $l ) use ( &$seen ) {
+            if ( isset( $seen[ $l['match'] ] ) ) return false;
+            $seen[ $l['match'] ] = true; return true;
+        } ) );
 
-        // Separate full IDX URLs (search subdomain / idxbroker.com) from
-        // shortcodes, block names, and widget labels so they can be shown
-        // and exported in dedicated columns.
+        // Separate full IDX URLs from shortcodes / block names for dedicated columns.
         $idx_url_pat = '#^https?://#i';
-        $idx_urls    = array_values(array_filter($links, fn($l) => preg_match($idx_url_pat, $l)));
-        $elements    = array_values(array_filter($links, fn($l) => !preg_match($idx_url_pat, $l)));
+        $idx_urls    = array_values( array_filter( $links, fn($l) => preg_match( $idx_url_pat, $l['match'] ) ) );
+        $elements    = array_values( array_filter( $links, fn($l) => ! preg_match( $idx_url_pat, $l['match'] ) ) );
 
         if (empty($links)) continue;
 
@@ -410,9 +486,9 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             'type'     => $row['post_type'],
             'url'      => get_permalink((int) $row['ID']),
             'parent'   => $parent_info,
-            'links'    => $links,
-            'idx_urls' => $idx_urls,
-            'elements' => $elements,
+            'links'    => $links,    // [{match, section}, …]
+            'idx_urls' => $idx_urls, // URL-only subset
+            'elements' => $elements, // shortcode/block subset
         ];
     }
     wp_send_json_success($found);
@@ -1960,8 +2036,13 @@ function idx_scanner_page() {
             '</tr></thead><tbody>';
 
         res.data.forEach(p => {
-            const linksHtml = p.links.map(l => '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(l) + '</div>').join('');
-            p.links.forEach(l => pagesResults.push({ page: p.title, page_url: p.url, element: l }));
+            const linksHtml = p.links.map(l => {
+                const sec = l.section && l.section !== 'Main Content'
+                    ? '<span style="font-size:10px;background:#e5f0fb;color:#0073aa;padding:1px 5px;border-radius:3px;margin-right:4px;">' + h(l.section) + '</span>'
+                    : '';
+                return '<div style="font-size:11px;font-family:monospace;word-break:break-all;margin-bottom:2px;">' + sec + h(l.match) + '</div>';
+            }).join('');
+            p.links.forEach(l => pagesResults.push({ page: p.title, page_url: p.url, section: l.section, element: l.match }));
             html +=
                 '<tr>' +
                 '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
@@ -2013,8 +2094,8 @@ function idx_scanner_page() {
 
     document.getElementById('pages-export-btn').addEventListener('click', function () {
         exportCSV(
-            pagesResults.map(r => [r.page, r.page_url, r.element]),
-            ['Page', 'Page URL', 'IDX Element'],
+            pagesResults.map(r => [r.page, r.page_url, r.section || '', r.element]),
+            ['Page', 'Page URL', 'Section', 'IDX Element'],
             'idx-pages.csv'
         );
     });
@@ -2046,23 +2127,28 @@ function idx_scanner_page() {
             const parentCell = p.parent
                 ? '<a href="' + h(p.parent.url) + '" target="_blank">' + h(p.parent.title) + '</a>'
                 : '—';
+            const secBadge = sec => (sec && sec !== 'Main Content' && sec !== 'Listing Meta')
+                ? '<span style="font-size:10px;background:#e5f0fb;color:#0073aa;padding:1px 5px;border-radius:3px;margin-right:4px;">' + h(sec) + '</span>'
+                : '';
             const idxUrlsHtml = (p.idx_urls || []).map(u =>
-                '<div style="font-size:11px;font-family:monospace;word-break:break-all;">'
-                + '<a href="' + h(u) + '" target="_blank">' + h(u) + '</a></div>'
+                '<div style="font-size:11px;font-family:monospace;word-break:break-all;margin-bottom:2px;">'
+                + secBadge(u.section)
+                + '<a href="' + h(u.match) + '" target="_blank">' + h(u.match) + '</a></div>'
             ).join('') || '<span style="color:#aaa;font-size:11px;">—</span>';
-            const elementsHtml = (p.elements || p.links || []).map(l =>
-                '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(l) + '</div>'
+            const elementsHtml = (p.elements || []).map(l =>
+                '<div style="font-size:11px;font-family:monospace;word-break:break-all;margin-bottom:2px;">' + secBadge(l.section) + h(l.match) + '</div>'
             ).join('') || '<span style="color:#aaa;font-size:11px;">—</span>';
 
-            // One CSV row per IDX URL found; fall back to one row with just elements.
-            const csvUrls = p.idx_urls && p.idx_urls.length ? p.idx_urls : [''];
+            // One CSV row per IDX URL; fall back to one row with just elements.
+            const csvUrls = p.idx_urls && p.idx_urls.length ? p.idx_urls : [{ match: '', section: '' }];
             csvUrls.forEach(u => postsResults.push({
                 title:   p.title,
                 type:    p.type,
                 wp_url:  p.url,
                 parent:  p.parent ? p.parent.title : '',
-                idx_url: u,
-                element: (p.elements || []).join(' | '),
+                idx_url: u.match || '',
+                section: u.section || (p.elements && p.elements[0] ? p.elements[0].section : ''),
+                element: (p.elements || []).map(e => e.match).join(' | '),
             }));
 
             html +=
@@ -2082,8 +2168,8 @@ function idx_scanner_page() {
 
     document.getElementById('posts-export-btn').addEventListener('click', function () {
         exportCSV(
-            postsResults.map(r => [r.title, r.type, r.wp_url, r.parent, r.idx_url, r.element]),
-            ['Post / Item', 'Type', 'WP URL', 'Parent Page', 'IDX Broker URL', 'Shortcodes / Elements'],
+            postsResults.map(r => [r.title, r.type, r.wp_url, r.parent, r.section, r.idx_url, r.element]),
+            ['Post / Item', 'Type', 'WP URL', 'Parent Page', 'Section', 'IDX Broker URL', 'Shortcodes / Elements'],
             'idx-posts.csv'
         );
     });
