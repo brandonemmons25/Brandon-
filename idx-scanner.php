@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.18
+ * Version: 5.19
  * Author: You
  */
 
@@ -1902,13 +1902,7 @@ function idx_scanner_page() {
             p.links.forEach(l => pagesResults.push({ page: p.title, page_url: p.url, element: l }));
             html +=
                 '<tr>' +
-                '<td>' +
-                  '<a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a><br>' +
-                  '<button class="button button-small fetch-rendered-btn" data-id="' + h(String(p.id)) + '" data-url="' + h(p.url) + '" style="margin-top:4px;">Fetch rendered links</button> ' +
-                  '<button class="button button-small inspect-page-btn" data-id="' + h(String(p.id)) + '" style="margin-top:4px;font-size:10px;color:#777;">Inspect raw DB content</button>' +
-                  '<div class="fetch-result" id="fetch-' + h(String(p.id)) + '" style="margin-top:6px;display:none;"></div>' +
-                  '<div class="inspect-result" id="inspect-' + h(String(p.id)) + '" style="font-size:11px;font-family:monospace;margin-top:4px;white-space:pre-wrap;display:none;"></div>' +
-                '</td>' +
+                '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
                 '<td>' + linksHtml + '</td>' +
                 '</tr>';
         });
@@ -1916,51 +1910,42 @@ function idx_scanner_page() {
         html += '</tbody></table>';
         div.innerHTML = html;
 
-        div.querySelectorAll('.fetch-rendered-btn').forEach(btn => {
-            btn.addEventListener('click', async function () {
-                const pid = this.dataset.id;
-                const out = document.getElementById('fetch-' + pid);
-                out.style.display = 'block';
-                out.innerHTML = '<em>Fetching page…</em>';
-                const r = await ajax('idx_fetch_page_links', { page_id: pid });
-                if (!r.success) { out.innerHTML = '<span style="color:#d63638">Error: ' + h(r.data) + '</span>'; return; }
-                const d = r.data;
-                if (!d.links.length) {
-                    out.innerHTML = '<span style="color:#666;font-size:11px;">No IDX links found in rendered HTML (HTTP ' + d.http_status + ').</span>';
-                    return;
-                }
-                // Export rendered links to CSV alongside page results.
-                d.links.forEach(l => pagesResults.push({ page: btn.closest('tr').querySelector('a').textContent, page_url: d.url, element: l.text + ' → ' + l.href }));
-                let tbl = '<div style="font-size:11px;color:#0073aa;margin-bottom:2px;"><strong>' + d.links.length + ' rendered IDX link(s) found:</strong></div>';
-                tbl += '<table style="font-size:11px;border-collapse:collapse;width:100%"><thead><tr><th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ddd;">Link text</th><th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ddd;">URL</th></tr></thead><tbody>';
-                d.links.forEach(l => { tbl += '<tr><td style="padding:2px 6px;">' + h(l.text) + '</td><td style="padding:2px 6px;font-family:monospace;word-break:break-all;">' + h(l.href) + '</td></tr>'; });
-                tbl += '</tbody></table>';
-                out.innerHTML = tbl;
-            });
-        });
+        // ── Auto-run widget scan and append results inline (no button needed) ──
+        div.innerHTML += '<h3 style="margin-top:24px;">Active IDX Widgets in Sidebars</h3><em>Scanning widgets…</em>';
+        const wres = await ajax('idx_scan_widgets');
+        // Remove the "Scanning…" placeholder
+        const scanningNote = div.querySelector('em');
+        if (scanningNote) scanningNote.remove();
 
-        div.querySelectorAll('.inspect-page-btn').forEach(btn => {
-            btn.addEventListener('click', async function () {
-                const pid = this.dataset.id;
-                const out = document.getElementById('inspect-' + pid);
-                out.style.display = 'block';
-                out.textContent = 'Loading…';
-                const r = await ajax('idx_debug_page_content', { page_id: pid });
-                if (!r.success) { out.textContent = 'Error: ' + r.data; return; }
-                const d = r.data;
-                let txt = 'Content length: ' + d.content_length + ' bytes\n'
-                    + '[idx occurrences in raw content: ' + d.raw_idx_count + '\n'
-                    + 'Regex matched: ' + d.regex_found + '\n';
-                if (d.missed_snippets.length) {
-                    txt += '\n--- Shortcodes regex MISSED (' + d.missed_snippets.length + ') ---\n';
-                    d.missed_snippets.forEach((s,i) => { txt += '\n[' + (i+1) + '] …' + s + '…'; });
-                } else {
-                    txt += '\n✓ Regex matched all [idx occurrences.\n';
-                }
-                txt += '\n\n--- All regex matches ---\n' + d.regex_matches.join('\n');
-                out.textContent = txt;
-            });
-        });
+        if (!wres.success) {
+            div.innerHTML += '<p style="color:#d63638">Widget scan error: ' + h(wres.data) + '</p>';
+        } else {
+            const active = (wres.data.widgets || []).filter(w => w.active);
+            if (!active.length) {
+                div.innerHTML += '<p style="color:#00a32a;">No active IDX widgets found in any sidebar.</p>';
+            } else {
+                let whtml = '<p style="color:#555;font-size:13px;">These IDX widgets appear on front-end pages via their sidebar. '
+                    + 'The specific pages depend on the active theme template.</p>'
+                    + '<table class="widefat striped"><thead><tr>'
+                    + '<th>Widget</th><th>Sidebar</th><th>Title / Config</th><th>IDX Links / Type</th>'
+                    + '</tr></thead><tbody>';
+                active.forEach(w => {
+                    pagesResults.push({ page: '(widget) ' + w.sidebar_name, page_url: '', element: w.type + ' — ' + w.title });
+                    const linksCell = w.links.length
+                        ? w.links.map(u => '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(u) + '</div>').join('')
+                        : '<span style="color:#888;font-size:11px;">' + h(w.matched || w.type) + '</span>';
+                    whtml += '<tr>'
+                        + '<td style="font-family:monospace;font-size:12px;">' + h(w.widget_key) + '</td>'
+                        + '<td>' + h(w.sidebar_name) + '</td>'
+                        + '<td>' + h(w.title || '—') + '</td>'
+                        + '<td>' + linksCell + '</td>'
+                        + '</tr>';
+                });
+                whtml += '</tbody></table>';
+                div.innerHTML += whtml;
+            }
+        }
+
         document.getElementById('pages-export-btn').disabled = false;
     });
 
