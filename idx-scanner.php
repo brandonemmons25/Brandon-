@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.16
+ * Version: 5.17
  * Author: You
  */
 
@@ -354,6 +354,55 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         ];
     }
     wp_send_json_success($found);
+});
+
+// ── AJAX: Diagnostic – raw content inspection for a single page ─────────────────
+add_action('wp_ajax_idx_debug_page_content', function () {
+    check_ajax_referer('idx_scanner_nonce', 'nonce');
+    if ( ! current_user_can('manage_options') ) wp_send_json_error('Forbidden');
+
+    $page_id = (int) ( $_POST['page_id'] ?? 0 );
+    if ( ! $page_id ) wp_send_json_error('Missing page_id');
+
+    global $wpdb;
+    $post = $wpdb->get_row( $wpdb->prepare(
+        "SELECT post_title, post_content FROM {$wpdb->posts} WHERE ID = %d", $page_id
+    ) );
+    if ( ! $post ) wp_send_json_error('Post not found');
+
+    $raw     = $post->post_content;
+    $raw_len = strlen( $raw );
+
+    // Count raw occurrences of [idx (any case)
+    $raw_idx_count = substr_count( strtolower($raw), '[idx' );
+
+    // Run the same regex the scanner uses
+    preg_match_all( '/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $raw, $m );
+    $regex_matches = $m[0];
+
+    // Show a snippet around every [idx occurrence that the regex MISSED
+    $missed = [];
+    $offset = 0;
+    $lower  = strtolower( $raw );
+    while ( ( $pos = strpos( $lower, '[idx', $offset ) ) !== false ) {
+        $snippet = substr( $raw, max(0,$pos-20), 200 );
+        // check if this position was covered by a regex match
+        $covered = false;
+        foreach ( $regex_matches as $match ) {
+            if ( strpos( $raw, $match ) === $pos ) { $covered = true; break; }
+        }
+        if ( ! $covered ) $missed[] = $snippet;
+        $offset = $pos + 1;
+    }
+
+    wp_send_json_success([
+        'title'          => $post->post_title,
+        'content_length' => $raw_len,
+        'raw_idx_count'  => $raw_idx_count,
+        'regex_found'    => count( $regex_matches ),
+        'regex_matches'  => $regex_matches,
+        'missed_snippets'=> $missed,
+    ]);
 });
 
 // ── AJAX: Scan all post types for IDX shortcodes (DB) ──────────────────────────
@@ -1803,13 +1852,40 @@ function idx_scanner_page() {
             p.links.forEach(l => pagesResults.push({ page: p.title, page_url: p.url, element: l }));
             html +=
                 '<tr>' +
-                '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
+                '<td>' +
+                  '<a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a><br>' +
+                  '<button class="button button-small inspect-page-btn" data-id="' + h(String(p.id)) + '" style="margin-top:4px;font-size:10px;">Inspect raw content</button>' +
+                  '<div class="inspect-result" id="inspect-' + h(String(p.id)) + '" style="font-size:11px;font-family:monospace;margin-top:4px;white-space:pre-wrap;display:none;"></div>' +
+                '</td>' +
                 '<td>' + linksHtml + '</td>' +
                 '</tr>';
         });
 
         html += '</tbody></table>';
         div.innerHTML = html;
+
+        div.querySelectorAll('.inspect-page-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const pid = this.dataset.id;
+                const out = document.getElementById('inspect-' + pid);
+                out.style.display = 'block';
+                out.textContent = 'Loading…';
+                const r = await ajax('idx_debug_page_content', { page_id: pid });
+                if (!r.success) { out.textContent = 'Error: ' + r.data; return; }
+                const d = r.data;
+                let txt = 'Content length: ' + d.content_length + ' bytes\n'
+                    + '[idx occurrences in raw content: ' + d.raw_idx_count + '\n'
+                    + 'Regex matched: ' + d.regex_found + '\n';
+                if (d.missed_snippets.length) {
+                    txt += '\n--- Shortcodes regex MISSED (' + d.missed_snippets.length + ') ---\n';
+                    d.missed_snippets.forEach((s,i) => { txt += '\n[' + (i+1) + '] …' + s + '…'; });
+                } else {
+                    txt += '\n✓ Regex matched all [idx occurrences.\n';
+                }
+                txt += '\n\n--- All regex matches ---\n' + d.regex_matches.join('\n');
+                out.textContent = txt;
+            });
+        });
         document.getElementById('pages-export-btn').disabled = false;
     });
 
