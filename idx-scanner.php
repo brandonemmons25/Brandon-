@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.21
+ * Version: 5.22
  * Author: You
  */
 
@@ -2195,14 +2195,20 @@ function idx_scanner_page() {
             const pages    = w.pages && w.pages.length ? w.pages : [];
             const source   = w.pages_source || 'none';
             const position = widgetPosition(w.sidebar_name || w.sidebar_id, w.sidebar_id);
+            const matched  = (w.matched || []).filter(m => !m.startsWith('widget-type:')).join(', ') || w.type;
 
             if (pages.length) {
                 pages.forEach(pg => rows.push({
                     page_title: pg.title, page_url: pg.url || '',
-                    widget: w.title, type: w.type, source, position,
+                    widget: w.title || w.type, type: w.type,
+                    source, position, sidebar_id: w.sidebar_id, matched,
                 }));
             } else {
-                rows.push({ page_title: '', page_url: '', widget: w.title, type: w.type, source: 'none', position });
+                rows.push({
+                    page_title: '', page_url: '',
+                    widget: w.title || w.type, type: w.type,
+                    source: 'none', position, sidebar_id: w.sidebar_id, matched,
+                });
             }
         });
         rows.sort((a, b) => (a.page_title || '').localeCompare(b.page_title || ''));
@@ -2221,9 +2227,10 @@ function idx_scanner_page() {
         };
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th style="width:35%">Page</th>' +
-            '<th style="width:35%">Widget</th>' +
-            '<th>Found via</th>' +
+            '<th style="width:30%">Page</th>' +
+            '<th style="width:25%">Widget</th>' +
+            '<th style="width:25%">Where on Page</th>' +
+            '<th>IDX Content</th>' +
             '</tr></thead><tbody>';
 
         rows.forEach(r => {
@@ -2231,12 +2238,13 @@ function idx_scanner_page() {
                 ? '<a href="' + h(r.page_url) + '" target="_blank"><strong>' + h(r.page_title) + '</strong></a>'
                 : r.page_title
                     ? h(r.page_title)
-                    : '<em style="color:#aaa;">Not found in page content — check Pages/Shortcodes tab</em>';
+                    : '<em style="color:#aaa;">Unknown — check Debug panel below</em>';
             html +=
                 '<tr>' +
-                '<td>' + pageCell + '</td>' +
-                '<td><strong>' + h(r.widget) + '</strong><br><code style="font-size:10px;color:#888;">' + h(r.type) + '</code></td>' +
-                '<td>' + sourceBadge(r.source) + '</td>' +
+                '<td>' + pageCell + '<br>' + sourceBadge(r.source) + '</td>' +
+                '<td><strong>' + h(r.widget || '—') + '</strong><br><code style="font-size:10px;color:#888;">' + h(r.type) + '</code></td>' +
+                '<td>' + h(r.position) + '<br><code style="font-size:10px;color:#aaa;">' + h(r.sidebar_id || '') + '</code></td>' +
+                '<td>' + h(r.matched || '—') + '</td>' +
                 '</tr>';
         });
         html += '</tbody></table>';
@@ -2286,8 +2294,8 @@ function idx_scanner_page() {
 
     document.getElementById('widgets-export-btn').addEventListener('click', function () {
         exportCSV(
-            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.position]),
-            ['Page', 'Page URL', 'Widget', 'Where on Page'],
+            widgetsResults.map(r => [r.page_title, r.page_url, r.widget, r.type, r.position, r.matched]),
+            ['Page', 'Page URL', 'Widget Title', 'Widget Type', 'Where on Page', 'IDX Content'],
             'idx-widgets.csv'
         );
     });
