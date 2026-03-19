@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.20
+ * Version: 5.21
  * Author: You
  */
 
@@ -384,6 +384,14 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         }
 
         $links = array_values(array_unique($links));
+
+        // Separate full IDX URLs (search subdomain / idxbroker.com) from
+        // shortcodes, block names, and widget labels so they can be shown
+        // and exported in dedicated columns.
+        $idx_url_pat = '#^https?://#i';
+        $idx_urls    = array_values(array_filter($links, fn($l) => preg_match($idx_url_pat, $l)));
+        $elements    = array_values(array_filter($links, fn($l) => !preg_match($idx_url_pat, $l)));
+
         if (empty($links)) continue;
 
         $parent_info = null;
@@ -397,12 +405,14 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         }
 
         $found[] = [
-            'id'     => (int) $row['ID'],
-            'title'  => $row['post_title'],
-            'type'   => $row['post_type'],
-            'url'    => get_permalink((int) $row['ID']),
-            'parent' => $parent_info,
-            'links'  => $links,
+            'id'       => (int) $row['ID'],
+            'title'    => $row['post_title'],
+            'type'     => $row['post_type'],
+            'url'      => get_permalink((int) $row['ID']),
+            'parent'   => $parent_info,
+            'links'    => $links,
+            'idx_urls' => $idx_urls,
+            'elements' => $elements,
         ];
     }
     wp_send_json_success($found);
@@ -2029,21 +2039,39 @@ function idx_scanner_page() {
         }
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Post / Item</th><th>Type</th><th>Parent Page</th><th>IDX Links Found</th>' +
+            '<th>Post / Item</th><th>Type</th><th>Parent Page</th><th>IDX Broker URL</th><th>Shortcodes / Elements</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(p => {
             const parentCell = p.parent
                 ? '<a href="' + h(p.parent.url) + '" target="_blank">' + h(p.parent.title) + '</a>'
                 : '—';
-            const linksHtml = p.links.map(l => '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(l) + '</div>').join('');
-            p.links.forEach(l => postsResults.push({ title: p.title, type: p.type, url: p.url, parent: p.parent ? p.parent.title : '', link: l }));
+            const idxUrlsHtml = (p.idx_urls || []).map(u =>
+                '<div style="font-size:11px;font-family:monospace;word-break:break-all;">'
+                + '<a href="' + h(u) + '" target="_blank">' + h(u) + '</a></div>'
+            ).join('') || '<span style="color:#aaa;font-size:11px;">—</span>';
+            const elementsHtml = (p.elements || p.links || []).map(l =>
+                '<div style="font-size:11px;font-family:monospace;word-break:break-all;">' + h(l) + '</div>'
+            ).join('') || '<span style="color:#aaa;font-size:11px;">—</span>';
+
+            // One CSV row per IDX URL found; fall back to one row with just elements.
+            const csvUrls = p.idx_urls && p.idx_urls.length ? p.idx_urls : [''];
+            csvUrls.forEach(u => postsResults.push({
+                title:   p.title,
+                type:    p.type,
+                wp_url:  p.url,
+                parent:  p.parent ? p.parent.title : '',
+                idx_url: u,
+                element: (p.elements || []).join(' | '),
+            }));
+
             html +=
                 '<tr>' +
                 '<td><a href="' + h(p.url) + '" target="_blank">' + h(p.title) + '</a></td>' +
                 '<td><code>' + h(p.type) + '</code></td>' +
                 '<td>' + parentCell + '</td>' +
-                '<td>' + linksHtml + '</td>' +
+                '<td>' + idxUrlsHtml + '</td>' +
+                '<td>' + elementsHtml + '</td>' +
                 '</tr>';
         });
 
@@ -2054,8 +2082,8 @@ function idx_scanner_page() {
 
     document.getElementById('posts-export-btn').addEventListener('click', function () {
         exportCSV(
-            postsResults.map(r => [r.title, r.type, r.url, r.parent, r.link]),
-            ['Post / Item', 'Type', 'URL', 'Parent Page', 'IDX Link'],
+            postsResults.map(r => [r.title, r.type, r.wp_url, r.parent, r.idx_url, r.element]),
+            ['Post / Item', 'Type', 'WP URL', 'Parent Page', 'IDX Broker URL', 'Shortcodes / Elements'],
             'idx-posts.csv'
         );
     });
