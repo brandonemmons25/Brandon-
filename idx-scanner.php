@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.23
+ * Version: 5.24
  * Author: You
  */
 
@@ -450,7 +450,11 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             if ( ! preg_match( $meta_pat, $mv ) ) continue;
             if ( preg_match_all( '#https?://[^\s"\'<>\\\\]+#i', $mv, $um ) ) {
                 foreach ( $um[0] as $mu ) {
-                    if ( preg_match( $meta_pat, $mu ) ) {
+                    // Only capture actual listing detail / results URLs.
+                    // IDX Broker also stores its saved-link and system-link
+                    // directory in postmeta — exclude those entirely so the
+                    // Posts tab doesn't flood with /i/* and /idx/search/* entries.
+                    if ( preg_match( '#/idx/(?:details|results)/#i', $mu ) ) {
                         $links[] = [ 'match' => $mu, 'section' => 'Listing Meta' ];
                     }
                 }
