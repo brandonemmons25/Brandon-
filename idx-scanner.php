@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.15
+ * Version: 5.16
  * Author: You
  */
 
@@ -150,12 +150,37 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
         }
     }
 
+    // Also find pages where IDX shortcodes live in _elementor_data postmeta
+    // (Elementor stores widget content in JSON meta, not post_content).
+    $el_terms = ['idx-platinum-saved-link', 'idx-broker-platinum', '[IDX', '[idx', '[ihf', '[impress'];
+    if ( $search_domain ) $el_terms[] = $search_domain;
+    $el_cond = []; $el_vals = [];
+    foreach ( $el_terms as $t ) { $el_cond[] = 'pm.meta_value LIKE %s'; $el_vals[] = '%' . $wpdb->esc_like($t) . '%'; }
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $el_rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT DISTINCT p.ID, p.post_title, p.post_content
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_elementor_data'
+         WHERE p.post_type = 'page' AND p.post_status = 'publish'
+           AND (" . implode( ' OR ', $el_cond ) . ")",
+        ...$el_vals
+    ), ARRAY_A );
+    foreach ( $el_rows as $row ) {
+        if ( ! in_array( (int) $row['ID'], $already_ids, true ) ) {
+            $rows[]        = $row;
+            $already_ids[] = (int) $row['ID'];
+        }
+    }
+
     $found = [];
     foreach ($rows as $row) {
         $id      = (int) $row['ID'];
         // Expand any <!-- wp:block {"ref":N} --> references so shortcodes
         // stored in Reusable Blocks / Synced Patterns are included.
         $content = idx_scanner_expand_block_refs( $row['post_content'] );
+        // Also include Elementor widget data (shortcodes live in JSON meta).
+        $el_data = get_post_meta( $id, '_elementor_data', true );
+        if ( $el_data ) $content .= "\n" . $el_data;
         $links   = [];
 
         // Custom IDX search subdomain
@@ -256,10 +281,35 @@ add_action('wp_ajax_idx_scan_post_links', function () {
         }
     }
 
+    // Also find CPT posts where IDX shortcodes are in _elementor_data postmeta.
+    $el_terms = ['idx-platinum-saved-link', 'idx-broker-platinum', '[IDX', '[idx', '[ihf', '[impress'];
+    if ( $search_domain ) $el_terms[] = $search_domain;
+    $el_cond = []; $el_vals = [];
+    foreach ( $el_terms as $t ) { $el_cond[] = 'pm.meta_value LIKE %s'; $el_vals[] = '%' . $wpdb->esc_like($t) . '%'; }
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $el_rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT DISTINCT p.ID, p.post_title, p.post_type, p.post_parent, p.post_content
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_elementor_data'
+         WHERE p.post_type NOT IN ({$excluded_types})
+           AND p.post_status IN ('publish','inherit')
+           AND (" . implode( ' OR ', $el_cond ) . ")",
+        ...$el_vals
+    ), ARRAY_A );
+    foreach ( $el_rows as $row ) {
+        if ( ! in_array( (int) $row['ID'], $already_ids, true ) ) {
+            $rows[]        = $row;
+            $already_ids[] = (int) $row['ID'];
+        }
+    }
+
     $found = [];
     foreach ($rows as $row) {
         // Expand any <!-- wp:block {"ref":N} --> references.
         $content = idx_scanner_expand_block_refs( $row['post_content'] );
+        // Also include Elementor widget data.
+        $el_data = get_post_meta( (int) $row['ID'], '_elementor_data', true );
+        if ( $el_data ) $content .= "\n" . $el_data;
         $links   = [];
 
         // Custom IDX search subdomain
