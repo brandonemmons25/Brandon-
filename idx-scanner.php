@@ -52,6 +52,24 @@ function idx_scanner_get_search_domain() {
     return $domain;
 }
 
+// ── Helper: resolve <!-- wp:block {"ref":N} --> reusable block references ────────
+// Pages/posts may contain only a reference to a Synced Pattern (wp_block) that
+// itself holds all the IDX shortcodes. Without expanding these refs we only see
+// the shortcodes that are directly in the post_content.
+function idx_scanner_expand_block_refs( $content ) {
+    global $wpdb;
+    if ( strpos( $content, '"ref":' ) === false ) return $content;
+    if ( ! preg_match_all( '/"ref":(\d+)/', $content, $m ) ) return $content;
+    foreach ( array_unique( $m[1] ) as $ref_id ) {
+        $block_content = $wpdb->get_var( $wpdb->prepare(
+            "SELECT post_content FROM {$wpdb->posts} WHERE ID = %d AND post_type = 'wp_block'",
+            (int) $ref_id
+        ) );
+        if ( $block_content ) $content .= "\n" . $block_content;
+    }
+    return $content;
+}
+
 // ── Admin Menu ──────────────────────────────────────────────────────────────────
 add_action('admin_menu', function () {
     add_management_page('AiDX Scanner', 'AiDX Scanner', 'manage_options', 'idx-scanner', 'idx_scanner_page');
@@ -96,14 +114,48 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%[ihf%'
                OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%\"ref\":%'
                {$domain_clause} )",
         ARRAY_A
     );
 
+    // Also pick up pages that only reference IDX content via Reusable Blocks.
+    // Find all wp_block (Synced Pattern) posts that contain IDX content, then
+    // collect any pages that embed those blocks via <!-- wp:block {"ref":N} -->.
+    $idx_block_ids = $wpdb->get_col(
+        "SELECT ID FROM {$wpdb->posts}
+         WHERE post_type = 'wp_block'
+           AND post_status = 'publish'
+           AND (  post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%[ihf%'
+               OR post_content LIKE '%[impress%')"
+    );
+    $already_ids = array_column($rows, 'ID');
+    foreach ( $idx_block_ids as $block_id ) {
+        $extra = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_title, post_content
+             FROM {$wpdb->posts}
+             WHERE post_type = 'page'
+               AND post_status = 'publish'
+               AND post_content LIKE %s",
+            '%"ref":' . (int) $block_id . '%'
+        ), ARRAY_A );
+        foreach ( $extra as $row ) {
+            if ( ! in_array( $row['ID'], $already_ids, true ) ) {
+                $rows[]        = $row;
+                $already_ids[] = $row['ID'];
+            }
+        }
+    }
+
     $found = [];
     foreach ($rows as $row) {
         $id      = (int) $row['ID'];
-        $content = $row['post_content'];
+        // Expand any <!-- wp:block {"ref":N} --> references so shortcodes
+        // stored in Reusable Blocks / Synced Patterns are included.
+        $content = idx_scanner_expand_block_refs( $row['post_content'] );
         $links   = [];
 
         // Custom IDX search subdomain
@@ -165,13 +217,49 @@ add_action('wp_ajax_idx_scan_post_links', function () {
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%[ihf%'
                OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%\"ref\":%'
                {$domain_clause} )",
         ARRAY_A
     );
 
+    // Also pick up CPT posts that only reference IDX content via Reusable Blocks.
+    $idx_block_ids = $wpdb->get_col(
+        "SELECT ID FROM {$wpdb->posts}
+         WHERE post_type = 'wp_block'
+           AND post_status = 'publish'
+           AND (  post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%[ihf%'
+               OR post_content LIKE '%[impress%')"
+    );
+    $already_ids = array_column($rows, 'ID');
+    $excluded_types = "'page','attachment','revision','nav_menu_item','custom_css',"
+        . "'customize_changeset','oembed_cache','user_request','wp_block',"
+        . "'wp_template','wp_template_part','wp_global_styles',"
+        . "'wp_navigation','wp_font_face','wp_font_family'";
+    foreach ( $idx_block_ids as $block_id ) {
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $extra = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_title, post_type, post_parent, post_content
+             FROM {$wpdb->posts}
+             WHERE post_type NOT IN ({$excluded_types})
+               AND post_status IN ('publish','inherit')
+               AND post_content LIKE %s",
+            '%"ref":' . (int) $block_id . '%'
+        ), ARRAY_A );
+        foreach ( $extra as $row ) {
+            if ( ! in_array( $row['ID'], $already_ids, true ) ) {
+                $rows[]        = $row;
+                $already_ids[] = $row['ID'];
+            }
+        }
+    }
+
     $found = [];
     foreach ($rows as $row) {
-        $content = $row['post_content'];
+        // Expand any <!-- wp:block {"ref":N} --> references.
+        $content = idx_scanner_expand_block_refs( $row['post_content'] );
         $links   = [];
 
         // Custom IDX search subdomain
