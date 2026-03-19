@@ -91,10 +91,7 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
          FROM {$wpdb->posts}
          WHERE post_type = 'page'
            AND post_status = 'publish'
-           AND (  post_content LIKE '%idxbroker.com%'
-               OR post_content LIKE '%idxre.com%'
-               OR post_content LIKE '%mlsfinder.com%'
-               OR post_content LIKE '%idx-broker-platinum%'
+           AND (  post_content LIKE '%idx-broker-platinum%'
                OR post_content LIKE '%[IDX%'
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%[ihf%'
@@ -108,10 +105,6 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
         $id      = (int) $row['ID'];
         $content = $row['post_content'];
         $links   = [];
-
-        // IDX platform domain URLs (idxbroker.com, idxre.com, mlsfinder.com)
-        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
-            foreach ($m[0] as $u) $links[] = $u;
 
         // Custom IDX search subdomain
         if ($search_domain) {
@@ -167,10 +160,7 @@ add_action('wp_ajax_idx_scan_post_links', function () {
                  'wp_navigation','wp_font_face','wp_font_family'
                )
            AND post_status IN ('publish','inherit')
-           AND (  post_content LIKE '%idxbroker.com%'
-               OR post_content LIKE '%idxre.com%'
-               OR post_content LIKE '%mlsfinder.com%'
-               OR post_content LIKE '%idx-broker-platinum%'
+           AND (  post_content LIKE '%idx-broker-platinum%'
                OR post_content LIKE '%[IDX%'
                OR post_content LIKE '%[idx%'
                OR post_content LIKE '%[ihf%'
@@ -183,10 +173,6 @@ add_action('wp_ajax_idx_scan_post_links', function () {
     foreach ($rows as $row) {
         $content = $row['post_content'];
         $links   = [];
-
-        // IDX platform domain URLs (idxbroker.com, idxre.com, mlsfinder.com)
-        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m))
-            foreach ($m[0] as $u) $links[] = $u;
 
         // Custom IDX search subdomain
         if ($search_domain) {
@@ -755,9 +741,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     // When IMPress embeds content via iframe / JS (not shortcodes), the page
     // post_content contains idxbroker.com, idxforza.com, etc. URLs.
     $url_cond = []; $url_vals = [];
-    foreach (['idxbroker', 'idxforza', 'mlssearch.', 'mlsfinder', 'idxre.com',
-              'data-idx', 'idx-broker', 'ihf_idx', 'imforza',
-              'customshowcasejs', 'idx-broker-platinum'] as $pat) {
+    foreach (['data-idx', 'idx-broker', 'ihf_idx', 'idx-broker-platinum'] as $pat) {
         $url_cond[] = "post_content LIKE %s"; $url_vals[] = '%' . $wpdb->esc_like($pat) . '%';
     }
     // Add the site's own IDX Broker search domain (e.g. search.collegestationhomes.com)
