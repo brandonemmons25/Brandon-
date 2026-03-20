@@ -606,6 +606,12 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
         "SELECT ID, post_title, post_type, post_parent
          FROM {$wpdb->posts}
          WHERE post_status IN ('publish','inherit','private')
+           AND post_type NOT IN (
+                 'revision','nav_menu_item','attachment','custom_css',
+                 'customize_changeset','oembed_cache','user_request',
+                 'wp_template','wp_template_part','wp_global_styles',
+                 'wp_navigation','wp_font_face','wp_font_family'
+               )
            AND (post_content LIKE '%[IDX%' OR post_content LIKE '%[idx%')",
         ARRAY_A
     );
