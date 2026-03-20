@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.31
+ * Version: 5.32
  * Author: You
  */
 
@@ -647,6 +647,21 @@ add_action('wp_ajax_idx_scan_shortcodes', function () {
 add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb, $wp_registered_sidebars, $wp_widget_factory;
+
+    // ── Block / FSE theme detection ───────────────────────────────────────────
+    // Block themes (Full Site Editor) do not render classic widget areas.
+    // Any data in sidebars_widgets is stale from a previous classic theme.
+    $is_block_theme = function_exists('wp_is_block_theme') && wp_is_block_theme();
+    if ($is_block_theme) {
+        wp_send_json_success([
+            'block_theme'  => true,
+            'theme_name'   => wp_get_theme()->get('Name'),
+            'idx_widgets'  => [],
+            'sidebars'     => [],
+            'debug'        => [],
+        ]);
+        return;
+    }
 
     // Terms that flag IDX content inside text / HTML / block widgets.
     // Intentionally excludes bare /idx/ — iHF Optima Express also uses /idx/ paths
@@ -2324,6 +2339,20 @@ function idx_scanner_page() {
 
         if (!res.success) { div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>'; return; }
 
+        // Block / Full Site Editor theme — widget areas are not rendered
+        if (res.data.block_theme) {
+            div.innerHTML =
+                '<div style="background:#fff8e1;border-left:4px solid #f0a500;padding:12px 16px;margin-top:8px;">' +
+                '<strong>Block theme detected: ' + h(res.data.theme_name || 'Unknown') + '</strong><br>' +
+                'This theme uses the Full Site Editor and does not render classic widget areas. ' +
+                'Any IDX widgets stored in the database are <strong>stale leftovers from a previous theme</strong> ' +
+                'and are not displaying on the site. No action is needed here — ' +
+                'check the <em>Pages / Posts</em> and <em>Blocks</em> tabs instead.' +
+                '</div>';
+            document.getElementById('widgets-export-btn').disabled = true;
+            return;
+        }
+
         const idxWidgets = res.data.idx_widgets || [];
         const sidebars   = res.data.sidebars    || [];
         const sbPages    = {};
@@ -2478,6 +2507,15 @@ function idx_scanner_page() {
         this.disabled = false;
 
         if (!res.success) { div.innerHTML = '<p style="color:#d63638">Error: ' + h(res.data) + '</p>'; return; }
+
+        if (res.data.block_theme) {
+            div.innerHTML =
+                '<div style="background:#fff8e1;border-left:4px solid #f0a500;padding:12px 16px;margin-top:8px;">' +
+                '<strong>Block theme detected: ' + h(res.data.theme_name || 'Unknown') + '</strong><br>' +
+                'Classic sidebar areas are not rendered by this theme.' +
+                '</div>';
+            return;
+        }
 
         const sidebars   = res.data.sidebars    || [];
         const idxWidgets = res.data.idx_widgets  || [];
