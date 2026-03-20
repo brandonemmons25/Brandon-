@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.30
+ * Version: 5.31
  * Author: You
  */
 
@@ -1732,7 +1732,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         // If theme scan found nothing useful, fall back to heuristics
         if (empty($pages)) {
             $name_lc = strtolower($sidebar_names[$sid] ?? $sid);
-            if (preg_match('/footer/', $name_lc)) {
+            $sid_lc  = strtolower($sid);
+            // Common front-page widget area naming (Genesis, Divi, etc.)
+            if (preg_match('/^(front[-_]?page|home[-_]?page?|homepage)[-_]?\d*$/i', $sid_lc)
+                || preg_match('/front.?page/i', $name_lc)) {
+                $fp_id = (int) get_option('page_on_front');
+                $pages['front'] = $fp_id
+                    ? ['title' => get_the_title($fp_id), 'url' => get_permalink($fp_id)]
+                    : ['title' => 'Front page', 'url' => home_url('/')];
+                $pages_specific = true;
+            } elseif (preg_match('/footer/', $name_lc)) {
                 $pages['sitewide'] = ['title' => 'Sitewide (footer)', 'url' => ''];
             } elseif (preg_match('/header/', $name_lc)) {
                 $pages['sitewide'] = ['title' => 'Sitewide (header)', 'url' => ''];
