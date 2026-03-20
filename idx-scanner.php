@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.25
+ * Version: 5.26
  * Author: You
  */
 
@@ -648,10 +648,12 @@ add_action('wp_ajax_idx_scan_widgets', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
     global $wpdb, $wp_registered_sidebars, $wp_widget_factory;
 
-    // Terms that flag IDX content inside text / HTML / block widgets
+    // Terms that flag IDX content inside text / HTML / block widgets.
+    // Intentionally excludes bare /idx/ — iHF Optima Express also uses /idx/ paths
+    // on the main site after migration, so it causes false positives.
     $idx_terms = [
         'idxbroker', 'idx-broker', 'idxre.com', 'mlsfinder.com',
-        '[IDX', '[idx', 'IDX-', 'data-idx', '/idx/',
+        '[IDX', '[idx', 'IDX-', 'data-idx',
         'impress/', 'wp:impress', '[impress-', 'ihf-idx', '[ihf-',
     ];
 
@@ -1855,15 +1857,17 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
 
     $search_domain = idx_scanner_get_search_domain();
 
-    // Build pattern: known IDX domains + /idx/ path + custom search subdomain (if set)
-    $parts = ['idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '\/idx\/'];
+    // Build pattern: known IDX Broker external domains + custom search subdomain + idxID= param.
+    // Intentionally excludes bare /idx/ paths — iHF Optima Express also uses /idx/ on the
+    // main site domain, so matching it causes false positives after migration.
+    $parts = ['idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '[?&]idxID='];
     if ( $search_domain ) {
         $parts[] = preg_quote( $search_domain, '/' );
     }
     $pattern = '/' . implode( '|', $parts ) . '/i';
 
     // Build LIKE conditions for the DB query so we only pull rows that could match.
-    $like_terms = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', '/idx/'];
+    $like_terms = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', 'idxID='];
     if ( $search_domain ) $like_terms[] = $search_domain;
     $like_parts = array_map( fn($t) => 'pm.meta_value LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($t) . '%'), $like_terms );
 
