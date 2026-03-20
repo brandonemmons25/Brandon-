@@ -1851,6 +1851,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 // ── AJAX: Scan nav menus for IDX broker URLs ─────────────────────────────────────
 add_action('wp_ajax_idx_scan_navmenus', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
+    global $wpdb;
 
     $search_domain = idx_scanner_get_search_domain();
 
@@ -1861,19 +1862,40 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
     }
     $pattern = '/' . implode( '|', $parts ) . '/i';
 
-    $menus = wp_get_nav_menus();
-    $found = [];
+    // Build LIKE conditions for the DB query so we only pull rows that could match.
+    $like_terms = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', '/idx/'];
+    if ( $search_domain ) $like_terms[] = $search_domain;
+    $like_parts = array_map( fn($t) => 'pm.meta_value LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($t) . '%'), $like_terms );
 
-    foreach ($menus as $menu) {
-        $items = wp_get_nav_menu_items($menu->term_id);
-        if (!$items) continue;
-        foreach ($items as $item) {
-            $url = $item->url ?? '';
-            if ( $url && preg_match( $pattern, $url ) ) {
-                $found[] = ['menu' => $menu->name, 'item' => $item->title, 'url' => $url];
-            }
+    // Query directly against _menu_item_url postmeta — bypasses wp_get_nav_menu_items()
+    // status/filter restrictions so no items are silently dropped.
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $rows = $wpdb->get_results(
+        "SELECT p.ID, p.post_title, pm.meta_value AS url,
+                t.name AS menu_name
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm      ON pm.post_id   = p.ID AND pm.meta_key = '_menu_item_url'
+         JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+         JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+         JOIN {$wpdb->terms} t          ON t.term_id = tt.term_id
+         WHERE p.post_type   = 'nav_menu_item'
+           AND p.post_status != 'trash'
+           AND pm.meta_value != ''
+           AND (" . implode( ' OR ', $like_parts ) . ")",
+        ARRAY_A
+    );
+
+    $found = [];
+    foreach ( $rows as $row ) {
+        if ( preg_match( $pattern, $row['url'] ) ) {
+            $found[] = [
+                'menu' => $row['menu_name'],
+                'item' => $row['post_title'],
+                'url'  => $row['url'],
+            ];
         }
     }
+
     wp_send_json_success($found);
 });
 
