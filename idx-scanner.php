@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.27
+ * Version: 5.28
  * Author: You
  */
 
@@ -1893,9 +1893,10 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
     foreach ( $rows as $row ) {
         if ( preg_match( $pattern, $row['url'] ) ) {
             $found[] = [
-                'menu' => $row['menu_name'],
-                'item' => $row['post_title'],
-                'url'  => $row['url'],
+                'menu'    => $row['menu_name'],
+                'item'    => $row['post_title'],
+                'url'     => $row['url'],
+                'post_id' => (int) $row['ID'],
             ];
         }
     }
@@ -2537,16 +2538,17 @@ function idx_scanner_page() {
         }
 
         let html = '<table class="widefat striped"><thead><tr>' +
-            '<th>Menu Name</th><th>Item Label</th><th>URL</th>' +
+            '<th>Menu Name</th><th>Item Label</th><th>URL</th><th>Post ID</th>' +
             '</tr></thead><tbody>';
 
         res.data.forEach(m => {
-            navmenusResults.push({ menu: m.menu, item: m.item, url: m.url });
+            navmenusResults.push({ menu: m.menu, item: m.item, url: m.url, post_id: m.post_id });
             html +=
                 '<tr>' +
                 '<td>' + h(m.menu) + '</td>' +
                 '<td>' + h(m.item) + '</td>' +
                 '<td><code style="word-break:break-all;">' + h(m.url) + '</code></td>' +
+                '<td><small style="color:#888">#' + h(m.post_id) + '</small></td>' +
                 '</tr>';
         });
 
