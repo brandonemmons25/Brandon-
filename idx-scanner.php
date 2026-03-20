@@ -1852,6 +1852,15 @@ add_action('wp_ajax_idx_scan_widgets', function () {
 add_action('wp_ajax_idx_scan_navmenus', function () {
     check_ajax_referer('idx_scanner_nonce', 'nonce');
 
+    $search_domain = idx_scanner_get_search_domain();
+
+    // Build pattern: known IDX domains + /idx/ path + custom search subdomain (if set)
+    $parts = ['idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '\/idx\/'];
+    if ( $search_domain ) {
+        $parts[] = preg_quote( $search_domain, '/' );
+    }
+    $pattern = '/' . implode( '|', $parts ) . '/i';
+
     $menus = wp_get_nav_menus();
     $found = [];
 
@@ -1860,7 +1869,7 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
         if (!$items) continue;
         foreach ($items as $item) {
             $url = $item->url ?? '';
-            if (preg_match('/idxbroker\.com|idxre\.com|mlsfinder\.com|\/idx\//i', $url)) {
+            if ( $url && preg_match( $pattern, $url ) ) {
                 $found[] = ['menu' => $menu->name, 'item' => $item->title, 'url' => $url];
             }
         }
