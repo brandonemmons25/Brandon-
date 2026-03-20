@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.26
+ * Version: 5.27
  * Author: You
  */
 
@@ -1883,7 +1883,7 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
          JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
          JOIN {$wpdb->terms} t          ON t.term_id = tt.term_id
          WHERE p.post_type   = 'nav_menu_item'
-           AND p.post_status != 'trash'
+           AND p.post_status  = 'publish'
            AND pm.meta_value != ''
            AND (" . implode( ' OR ', $like_parts ) . ")",
         ARRAY_A
