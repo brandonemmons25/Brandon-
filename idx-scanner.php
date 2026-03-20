@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.28
+ * Version: 5.29
  * Author: You
  */
 
@@ -1783,12 +1783,17 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         ];
     }
 
+    // Build sidebar → pages map from already-computed $sidebars_out
+    $sidebar_pages_map = [];
+    foreach ($sidebars_out as $sb) {
+        $sidebar_pages_map[$sb['id']] = $sb['pages'] ?? [];
+    }
+
     // Inject pages into every widget entry. Priority:
     //   1. Post-content / page-builder / postmeta scan (specific slug or page ID match)
     //   2. Per-instance title match (widget display title ↔ WP page title)
-    //   3. Empty → widget exists in DB but couldn't be located on any page
-    // Sidebar-based lookup is intentionally skipped: sidebar bucket contents
-    // are often stale/empty and produce incorrect "All pages (sitewide)" results.
+    //   3. Sidebar-level pages (already computed per sidebar from theme template scan)
+    //   4. Empty → widget exists in DB but couldn't be located on any page
     foreach ($idx_widgets as &$iw) {
         $from_content = $type_content_pages[$iw['type']] ?? [];
 
@@ -1822,12 +1827,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     ], $t_rows);
                     $iw['pages_source'] = 'title-match';
                 } else {
-                    $iw['pages']        = [];
-                    $iw['pages_source'] = 'none';
+                    // Fall back to sidebar-level pages
+                    $sb_pages = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                    $iw['pages']        = $sb_pages;
+                    $iw['pages_source'] = !empty($sb_pages) ? 'sidebar' : 'none';
                 }
             } else {
-                $iw['pages']        = [];
-                $iw['pages_source'] = 'none';
+                // No usable title — fall back to sidebar-level pages
+                $sb_pages = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                $iw['pages']        = $sb_pages;
+                $iw['pages_source'] = !empty($sb_pages) ? 'sidebar' : 'none';
             }
         }
     }
@@ -2323,22 +2332,28 @@ function idx_scanner_page() {
 
         // Build one row per page+widget combination
         const rows = [];
+        // Format a raw widget type slug into a human-readable label
+        const fmtType = t => t.replace(/^(widget_|idx_|impress_)/i, '')
+                               .replace(/_/g, ' ')
+                               .replace(/\b\w/g, c => c.toUpperCase());
+
         idxWidgets.forEach(w => {
             const pages    = w.pages && w.pages.length ? w.pages : [];
             const source   = w.pages_source || 'none';
             const position = widgetPosition(w.sidebar_name || w.sidebar_id, w.sidebar_id);
             const matched  = (w.matched || []).filter(m => !m.startsWith('widget-type:')).join(', ') || w.type;
+            const label    = w.title || fmtType(w.type);
 
             if (pages.length) {
                 pages.forEach(pg => rows.push({
                     page_title: pg.title, page_url: pg.url || '',
-                    widget: w.title || w.type, type: w.type,
+                    widget: label, type: w.type,
                     source, position, sidebar_id: w.sidebar_id, matched,
                 }));
             } else {
                 rows.push({
                     page_title: '', page_url: '',
-                    widget: w.title || w.type, type: w.type,
+                    widget: label, type: w.type,
                     source: 'none', position, sidebar_id: w.sidebar_id, matched,
                 });
             }
@@ -2348,7 +2363,7 @@ function idx_scanner_page() {
 
         const sourceBadge = s => {
             const map = {
-                sidebar:      ['#0073aa', 'sidebar'],
+                sidebar:      ['#0073aa', 'sidebar area'],
                 shortcode:    ['#46b450', 'shortcode / block'],
                 wrapper:      ['#9b59b6', 'IDX wrapper page'],
                 'title-match':['#e6a817', 'title match'],
