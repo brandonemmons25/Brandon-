@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.29
+ * Version: 5.30
  * Author: You
  */
 
@@ -785,7 +785,7 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         if (!is_array($data)) continue;
         $type_slug = substr($row['option_name'], 7); // strip 'widget_'
         foreach ($data as $instance_id => $inst) {
-            if ($instance_id === '_multiwidget' || !is_array($inst)) continue;
+            if ($instance_id === '_multiwidget' || !is_array($inst) || empty($inst)) continue;
             $wkey = $type_slug . '-' . $instance_id;
             if (isset($seen_wkeys[$wkey])) continue; // already found in pass 1
             $sid   = $widget_sidebar_map[$wkey] ?? 'unassigned';
@@ -1719,11 +1719,13 @@ add_action('wp_ajax_idx_scan_widgets', function () {
             }
         }
 
-        $templates = $sidebar_templates[$sid] ?? [];
-        $pages     = [];
+        $templates      = $sidebar_templates[$sid] ?? [];
+        $pages          = [];
+        $pages_specific = false; // true only when template scan yields real page URLs
         foreach ($templates as $tpl) {
             foreach ($tpl_to_pages($tpl) as $pg) {
                 $pages[$pg['url'] ?: $pg['title']] = $pg;
+                if (!empty($pg['url'])) $pages_specific = true;
             }
         }
 
@@ -1776,17 +1778,23 @@ add_action('wp_ajax_idx_scan_widgets', function () {
         }
 
         $sidebars_out[] = [
-            'id'      => $sid,
-            'name'    => $sidebar_names[$sid] ?? $sid,
-            'widgets' => $widgets_here,
-            'pages'   => array_values($pages),
+            'id'             => $sid,
+            'name'           => $sidebar_names[$sid] ?? $sid,
+            'widgets'        => $widgets_here,
+            'pages'          => array_values($pages),
+            'pages_specific' => $pages_specific,
         ];
     }
 
-    // Build sidebar → pages map from already-computed $sidebars_out
+    // Build sidebar → pages map from already-computed $sidebars_out.
+    // Only sidebars whose pages came from a specific template scan (real URLs)
+    // are eligible as a widget page fallback; generic "all pages" sidebars are excluded.
     $sidebar_pages_map = [];
     foreach ($sidebars_out as $sb) {
-        $sidebar_pages_map[$sb['id']] = $sb['pages'] ?? [];
+        $sidebar_pages_map[$sb['id']] = [
+            'pages'    => $sb['pages'] ?? [],
+            'specific' => $sb['pages_specific'] ?? false,
+        ];
     }
 
     // Inject pages into every widget entry. Priority:
@@ -1827,14 +1835,16 @@ add_action('wp_ajax_idx_scan_widgets', function () {
                     ], $t_rows);
                     $iw['pages_source'] = 'title-match';
                 } else {
-                    // Fall back to sidebar-level pages
-                    $sb_pages = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                    // Fall back to sidebar-level pages — only when the mapping is specific
+                    $sb_data  = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                    $sb_pages = (!empty($sb_data['specific'])) ? ($sb_data['pages'] ?? []) : [];
                     $iw['pages']        = $sb_pages;
                     $iw['pages_source'] = !empty($sb_pages) ? 'sidebar' : 'none';
                 }
             } else {
-                // No usable title — fall back to sidebar-level pages
-                $sb_pages = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                // No usable title — fall back to sidebar-level pages — only when specific
+                $sb_data  = $sidebar_pages_map[$iw['sidebar_id']] ?? [];
+                $sb_pages = (!empty($sb_data['specific'])) ? ($sb_data['pages'] ?? []) : [];
                 $iw['pages']        = $sb_pages;
                 $iw['pages_source'] = !empty($sb_pages) ? 'sidebar' : 'none';
             }
