@@ -10,7 +10,6 @@ Examples:
 
 import csv, sys, os, re
 
-REDIRECTS_FILE = os.path.join(os.path.dirname(__file__), "redirects.csv")
 FIELDNAMES = ["Source URL", "Destination URL"]
 
 STANDARD_PATHS = [
@@ -40,20 +39,23 @@ STANDARD_PATHS = [
 
 
 def bare_domain(url):
-    """Strip scheme and trailing slash from a URL or domain string."""
-    url = re.sub(r'^https?://', '', url).rstrip('/')
-    return url
+    return re.sub(r'^https?://', '', url).rstrip('/')
 
 
-def load_redirects():
-    if not os.path.exists(REDIRECTS_FILE):
+def csv_path(domain):
+    return os.path.join(os.path.dirname(__file__), f"{domain}-redirects.csv")
+
+
+def load(domain):
+    path = csv_path(domain)
+    if not os.path.exists(path):
         return {}
-    with open(REDIRECTS_FILE, newline='', encoding='utf-8') as f:
+    with open(path, newline='', encoding='utf-8') as f:
         return {r['Source URL'].strip(): r['Destination URL'].strip() for r in csv.DictReader(f)}
 
 
-def save_redirects(mapping):
-    with open(REDIRECTS_FILE, 'w', newline='', encoding='utf-8') as f:
+def save(domain, mapping):
+    with open(csv_path(domain), 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=FIELDNAMES)
         w.writeheader()
         for src, dst in mapping.items():
@@ -62,7 +64,7 @@ def save_redirects(mapping):
 
 def add_domain(domain):
     domain = bare_domain(domain)
-    mapping = load_redirects()
+    mapping = load(domain)
     added = 0
     for idx_path, ihf_path in STANDARD_PATHS:
         src = f"https://search.{domain}{idx_path}"
@@ -70,8 +72,8 @@ def add_domain(domain):
         if src not in mapping:
             mapping[src] = dst
             added += 1
-    save_redirects(mapping)
-    print(f"Added {added} redirects for {domain} ({len(mapping)} total in spreadsheet)")
+    save(domain, mapping)
+    print(f"Created {csv_path(domain)} with {added} redirects")
 
 
 def import_csv(domain, csv_file):
@@ -79,7 +81,7 @@ def import_csv(domain, csv_file):
         print(f"File not found: {csv_file}")
         sys.exit(1)
     domain = bare_domain(domain)
-    mapping = load_redirects()
+    mapping = load(domain)
     added = 0
     with open(csv_file, newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
@@ -94,8 +96,8 @@ def import_csv(domain, csv_file):
             if src and dst:
                 mapping[src] = dst
                 added += 1
-    save_redirects(mapping)
-    print(f"Imported {added} redirects from {csv_file} ({len(mapping)} total in spreadsheet)")
+    save(domain, mapping)
+    print(f"Imported {added} rows into {csv_path(domain)} ({len(mapping)} total)")
 
 
 if __name__ == '__main__':
