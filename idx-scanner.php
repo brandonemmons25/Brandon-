@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.33
+ * Version: 5.34
  * Author: You
  */
 
@@ -151,6 +151,7 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
     global $wpdb;
 
     $search_domain = idx_scanner_get_search_domain();
+    $site_host_pages = parse_url( home_url(), PHP_URL_HOST ) ?: '';
     $domain_clause = $search_domain
         ? ' OR post_content LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($search_domain) . '%')
         : '';
@@ -167,6 +168,11 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
                OR post_content LIKE '%[ihf%'
                OR post_content LIKE '%[impress%'
                OR post_content LIKE '%\"ref\":%'
+               OR post_content LIKE '%idxbroker.com%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%mlsfinder.com%'
+               OR post_content LIKE '%idxID=%'
+               OR post_content LIKE '%/idx/%'
                {$domain_clause} )",
         ARRAY_A
     );
@@ -251,6 +257,23 @@ add_action('wp_ajax_idx_scan_pages_db', function () {
                 foreach ($m[0] as [$u, $pos]) $add($u, $pos);
         }
 
+        // Known IDX Broker domain URLs embedded anywhere in content (button blocks, HTML, etc.)
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$u, $pos]) $add($u, $pos);
+
+        // idxID= parameter in any URL
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*[?&]idxID=[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$u, $pos]) $add($u, $pos);
+
+        // External-domain /idx/ paths (IDX Broker custom search subdomains).
+        // Skips own-domain /idx/ to avoid iHF Optima Express false positives.
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]+/idx/[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE)) {
+            foreach ($m[0] as [$u, $pos]) {
+                $uh = parse_url($u, PHP_URL_HOST) ?: '';
+                if ($uh && $uh !== $site_host_pages) $add($u, $pos);
+            }
+        }
+
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
         if (preg_match_all('/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m, PREG_OFFSET_CAPTURE))
             foreach ($m[0] as [$sc, $pos]) $add($sc, $pos);
@@ -287,6 +310,7 @@ add_action('wp_ajax_idx_scan_post_links', function () {
     global $wpdb;
 
     $search_domain = idx_scanner_get_search_domain();
+    $site_host_posts = parse_url( home_url(), PHP_URL_HOST ) ?: '';
     $domain_clause = $search_domain
         ? ' OR post_content LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($search_domain) . '%')
         : '';
@@ -308,6 +332,11 @@ add_action('wp_ajax_idx_scan_post_links', function () {
                OR post_content LIKE '%[ihf%'
                OR post_content LIKE '%[impress%'
                OR post_content LIKE '%\"ref\":%'
+               OR post_content LIKE '%idxbroker.com%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%mlsfinder.com%'
+               OR post_content LIKE '%idxID=%'
+               OR post_content LIKE '%/idx/%'
                {$domain_clause} )",
         ARRAY_A
     );
@@ -419,6 +448,23 @@ add_action('wp_ajax_idx_scan_post_links', function () {
             $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote($search_domain, '#') . '[^\s"\'<>\\\\]*#i';
             if (preg_match_all($pat, $content, $m, PREG_OFFSET_CAPTURE))
                 foreach ($m[0] as [$u, $pos]) $add($u, $pos);
+        }
+
+        // Known IDX Broker domain URLs embedded anywhere in content (button blocks, HTML, etc.)
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$u, $pos]) $add($u, $pos);
+
+        // idxID= parameter in any URL
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]*[?&]idxID=[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE))
+            foreach ($m[0] as [$u, $pos]) $add($u, $pos);
+
+        // External-domain /idx/ paths (IDX Broker custom search subdomains).
+        // Skips own-domain /idx/ to avoid iHF Optima Express false positives.
+        if (preg_match_all('#https?://[^\s"\'<>\\\\]+/idx/[^\s"\'<>\\\\]*#i', $content, $m, PREG_OFFSET_CAPTURE)) {
+            foreach ($m[0] as [$u, $pos]) {
+                $uh = parse_url($u, PHP_URL_HOST) ?: '';
+                if ($uh && $uh !== $site_host_posts) $add($u, $pos);
+            }
         }
 
         // Shortcodes: [IDX-*], [idx*], [ihf*], [impress*]
