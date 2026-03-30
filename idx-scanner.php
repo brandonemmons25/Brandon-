@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AiDX Scanner
  * Description: Scans for IDX Broker elements — pages, posts, shortcodes, widgets, sidebar areas, and nav menus.
- * Version: 5.32
+ * Version: 5.33
  * Author: You
  */
 
@@ -1899,18 +1899,20 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
     global $wpdb;
 
     $search_domain = idx_scanner_get_search_domain();
+    $site_host     = parse_url( home_url(), PHP_URL_HOST ) ?: '';
 
     // Build pattern: known IDX Broker external domains + custom search subdomain + idxID= param.
-    // Intentionally excludes bare /idx/ paths — iHF Optima Express also uses /idx/ on the
-    // main site domain, so matching it causes false positives after migration.
+    // /idx/ paths on external domains are handled separately below to avoid false positives
+    // from iHF Optima Express which also uses /idx/ on the site's own domain.
     $parts = ['idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '[?&]idxID='];
     if ( $search_domain ) {
         $parts[] = preg_quote( $search_domain, '/' );
     }
     $pattern = '/' . implode( '|', $parts ) . '/i';
 
-    // Build LIKE conditions for the DB query so we only pull rows that could match.
-    $like_terms = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', 'idxID='];
+    // Build LIKE conditions — also pull rows with /idx/ in the URL so we can
+    // apply the external-domain check in PHP to avoid iHF false positives.
+    $like_terms = ['idxbroker.com', 'idxre.com', 'mlsfinder.com', 'idxID=', '/idx/'];
     if ( $search_domain ) $like_terms[] = $search_domain;
     $like_parts = array_map( fn($t) => 'pm.meta_value LIKE ' . $wpdb->prepare('%s', '%' . $wpdb->esc_like($t) . '%'), $like_terms );
 
@@ -1934,11 +1936,22 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
 
     $found = [];
     foreach ( $rows as $row ) {
-        if ( preg_match( $pattern, $row['url'] ) ) {
+        $url      = $row['url'];
+        $url_host = parse_url( $url, PHP_URL_HOST ) ?: '';
+
+        $is_idx = preg_match( $pattern, $url );
+
+        // Also flag /idx/ paths on external domains (IDX Broker custom search subdomains).
+        // Exclude own-domain /idx/ to avoid iHF false positives.
+        if ( ! $is_idx && $url_host && $url_host !== $site_host && strpos( $url, '/idx/' ) !== false ) {
+            $is_idx = true;
+        }
+
+        if ( $is_idx ) {
             $found[] = [
                 'menu'    => $row['menu_name'],
                 'item'    => $row['post_title'],
-                'url'     => $row['url'],
+                'url'     => $url,
                 'post_id' => (int) $row['ID'],
             ];
         }
