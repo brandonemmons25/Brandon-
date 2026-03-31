@@ -2,7 +2,7 @@
 /**
  * Plugin Name: IDX Saved Searches Exporter
  * Description: Fetch and export IDX Broker saved searches (/i/ URLs) to a CSV spreadsheet.
- * Version:     1.6
+ * Version:     1.7
  * Author:      Brandon Emmons
  */
 
@@ -58,7 +58,9 @@ add_action( 'wp_ajax_isse_fetch', function () {
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message() );
 
     $code = wp_remote_retrieve_response_code( $response );
-    if ( $code !== 200 ) wp_send_json_error( "IDX API returned HTTP $code — check your API key." );
+    if ( $code === 204 ) wp_send_json_success( [] ); // Valid key, no saved links on this account
+    if ( $code === 401 || $code === 403 ) wp_send_json_error( "IDX API returned HTTP $code — API key is invalid or lacks permission." );
+    if ( $code !== 200 ) wp_send_json_error( "IDX API returned HTTP $code." );
 
     $data = json_decode( wp_remote_retrieve_body( $response ), true );
     if ( ! is_array( $data ) ) wp_send_json_error( 'Unexpected response from IDX Broker.' );
@@ -165,6 +167,11 @@ function isse_render_page() {
                     return;
                 }
                 allRows = json.data;
+                if (allRows.length === 0) {
+                    status.textContent = 'API key is valid but no saved links found on this account.';
+                    status.style.color = '#888';
+                    return;
+                }
                 status.textContent = allRows.length + ' saved searches found.';
                 status.style.color = '#060';
                 renderTable(allRows);
