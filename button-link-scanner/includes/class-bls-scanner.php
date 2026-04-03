@@ -35,6 +35,51 @@ class BLS_Scanner {
         'et_pb_button',
     ];
 
+    /**
+     * Class fragments that mark a button as a UI/system control — not
+     * an authored CTA. Nodes matching any of these are skipped entirely.
+     */
+    const SKIP_CLASS_PATTERNS = [
+        // Gravity Forms submit / navigation buttons.
+        'gform_button',
+        'gform_next_button',
+        'gform_previous_button',
+        'gform_save_link',
+        // Generic nav-toggle patterns used by most themes.
+        'menu-toggle',
+        'nav-toggle',
+        'navbar-toggle',
+        'hamburger',
+        'mobile-menu-toggle',
+        // Search toggles.
+        'search-toggle',
+        'search-submit',
+    ];
+
+    /**
+     * aria-label substrings (lowercase) that identify nav/UI-only buttons.
+     * These are never authored CTA buttons and should not appear in results.
+     */
+    const SKIP_ARIA_PATTERNS = [
+        'open menu',
+        'close menu',
+        'toggle menu',
+        'toggle navigation',
+        'toggle nav',
+        'mobile menu',
+        'main menu',
+        'primary menu',
+        'site navigation',
+        'submenu',
+        'sub-menu',
+        'search form',
+        'search site',
+        'open search',
+        'close search',
+        'scroll to top',
+        'back to top',
+    ];
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
@@ -345,11 +390,12 @@ class BLS_Scanner {
         // 1. Gutenberg & styled anchor buttons.
         $anchor_nodes = $xpath->query( '//a' );
         foreach ( $anchor_nodes as $node ) {
+            if ( $this->node_should_skip( $node ) ) continue;
             if ( $this->node_is_button( $node ) ) {
                 $entry = $this->describe_anchor( $node, 'gutenberg_or_styled' );
                 $key   = md5( $entry['html'] );
                 if ( ! isset( $seen[ $key ] ) ) {
-                    $buttons[]   = $entry;
+                    $buttons[]    = $entry;
                     $seen[ $key ] = true;
                 }
             }
@@ -357,20 +403,22 @@ class BLS_Scanner {
 
         // 2. Bare <button> elements.
         foreach ( $xpath->query( '//button' ) as $node ) {
+            if ( $this->node_should_skip( $node ) ) continue;
             $entry = $this->describe_button_element( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
-                $buttons[]   = $entry;
+                $buttons[]    = $entry;
                 $seen[ $key ] = true;
             }
         }
 
         // 3. <input type="button|submit|reset">.
         foreach ( $xpath->query( '//input[@type="button" or @type="submit" or @type="reset"]' ) as $node ) {
+            if ( $this->node_should_skip( $node ) ) continue;
             $entry = $this->describe_input( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
-                $buttons[]   = $entry;
+                $buttons[]    = $entry;
                 $seen[ $key ] = true;
             }
         }
@@ -378,13 +426,12 @@ class BLS_Scanner {
         // 4. Any element with role="button" not already captured.
         foreach ( $xpath->query( '//*[@role="button"]' ) as $node ) {
             $tag = strtolower( $node->nodeName );
-            if ( in_array( $tag, [ 'a', 'button', 'input' ], true ) ) {
-                continue;
-            }
+            if ( in_array( $tag, [ 'a', 'button', 'input' ], true ) ) continue;
+            if ( $this->node_should_skip( $node ) ) continue;
             $entry = $this->describe_role_button( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
-                $buttons[]   = $entry;
+                $buttons[]    = $entry;
                 $seen[ $key ] = true;
             }
         }
@@ -395,6 +442,43 @@ class BLS_Scanner {
     // -------------------------------------------------------------------------
     // Node descriptor helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Return true if this node is a UI/system button that should never
+     * appear in scan results (GF submit buttons, nav toggles, etc.).
+     */
+    private function node_should_skip( DOMElement $node ): bool {
+        $class = strtolower( $node->getAttribute( 'class' ) );
+        foreach ( self::SKIP_CLASS_PATTERNS as $pattern ) {
+            if ( str_contains( $class, $pattern ) ) {
+                return true;
+            }
+        }
+
+        $aria = strtolower( $node->getAttribute( 'aria-label' ) );
+        if ( $aria !== '' ) {
+            foreach ( self::SKIP_ARIA_PATTERNS as $pattern ) {
+                if ( str_contains( $aria, $pattern ) ) {
+                    return true;
+                }
+            }
+        }
+
+        // Skip buttons inside a Gravity Forms form wrapper.
+        $ancestor = $node->parentNode;
+        while ( $ancestor instanceof DOMElement ) {
+            $ancestor_class = strtolower( $ancestor->getAttribute( 'class' ) );
+            $ancestor_id    = strtolower( $ancestor->getAttribute( 'id' ) );
+            if ( str_contains( $ancestor_class, 'gform_wrapper' )
+                 || str_contains( $ancestor_id, 'gform_wrapper' )
+                 || str_contains( $ancestor_id, 'gform_' ) ) {
+                return true;
+            }
+            $ancestor = $ancestor->parentNode;
+        }
+
+        return false;
+    }
 
     private function node_is_button( DOMElement $node ): bool {
         $class = strtolower( $node->getAttribute( 'class' ) );

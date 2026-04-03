@@ -3,7 +3,7 @@
  * Plugin Name: Button Link Scanner
  * Plugin URI:  https://github.com/brandonemmons25/brandon-
  * Description: Scans all WordPress pages, posts, and custom post types for buttons. Checks for missing hyperlinks and SEO title attributes, analyzes link trends, allows bulk link assignment via a Button Map, and verifies Gravity Forms confirmations redirect to child thank-you pages.
- * Version:     1.1.1
+ * Version:     1.1.2
  * Author:      Brandon Emmons
  * License:     GPL-2.0+
  * Text Domain: button-link-scanner
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BLS_VERSION',     '1.1.1' );
+define( 'BLS_VERSION',     '1.1.2' );
 define( 'BLS_PLUGIN_FILE', __FILE__ );
 define( 'BLS_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'BLS_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );

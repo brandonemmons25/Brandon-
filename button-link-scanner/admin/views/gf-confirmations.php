@@ -187,14 +187,23 @@ $gf_active = class_exists( 'GFForms' ) || class_exists( 'GFAPI' );
 
                 <!-- Check: child page -->
                 <td class="bls-center">
-                    <?php if ( ! $row->is_redirect || ! $row->is_thank_you_page ) : ?>
+                    <?php
+                    $child_val = (int) $row->is_child_page; // -1 = unknown, 0 = no, 1 = yes
+                    if ( ! $row->is_redirect || ! $row->is_thank_you_page ) :
+                    ?>
                         <span class="bls-icon bls-icon--na">&#8212;</span>
                     <?php elseif ( $row->confirmation_type === 'redirect' ) : ?>
-                        <span class="bls-icon bls-icon--na" title="<?php esc_attr_e( 'Child-page check only applies to page redirects, not raw URLs', 'button-link-scanner' ); ?>">
+                        <span class="bls-icon bls-icon--na"
+                              title="<?php esc_attr_e( 'Child-page check only applies to Page redirects, not raw URLs', 'button-link-scanner' ); ?>">
                             <?php esc_html_e( 'N/A (URL)', 'button-link-scanner' ); ?>
                         </span>
-                    <?php elseif ( $row->is_child_page ) : ?>
+                    <?php elseif ( $child_val === 1 ) : ?>
                         <span class="bls-icon bls-icon--ok">&#10003;</span>
+                    <?php elseif ( $child_val === -1 ) : ?>
+                        <span class="bls-icon bls-icon--warn"
+                              title="<?php esc_attr_e( 'Host page not found in scan — verify the parent relationship manually', 'button-link-scanner' ); ?>">
+                            <?php esc_html_e( 'Unknown', 'button-link-scanner' ); ?>
+                        </span>
                     <?php else : ?>
                         <span class="bls-icon bls-icon--bad">&#10007;</span>
                     <?php endif; ?>

@@ -142,11 +142,23 @@ class BLS_GF_Scanner {
 
         // ---- Checks ----
 
-        $is_redirect     = in_array( $type, [ 'redirect', 'page' ], true ) ? 1 : 0;
-        $is_thank_you    = $this->slug_is_thank_you( $redirect_page_slug ) || $this->url_is_thank_you( $redirect_url ) ? 1 : 0;
-        $is_child        = $this->page_is_child_of_hosts( $redirect_page_id, $host_pages ) ? 1 : 0;
+        $is_redirect  = in_array( $type, [ 'redirect', 'page' ], true ) ? 1 : 0;
+        $is_thank_you = $this->slug_is_thank_you( $redirect_page_slug ) || $this->url_is_thank_you( $redirect_url ) ? 1 : 0;
 
-        // Collect failure reasons.
+        // Child-page check:
+        //  -1 = inconclusive (host page not found, can't verify)
+        //   0 = host found but thank-you page is NOT a child of it
+        //   1 = host found and thank-you page IS a child of it
+        $host_found = ! empty( $host_pages );
+        if ( ! $host_found || $redirect_page_id <= 0 || $type !== 'page' ) {
+            // Can't determine parent relationship without both sides.
+            $is_child = -1;
+        } else {
+            $is_child = $this->page_is_child_of_hosts( $redirect_page_id, $host_pages ) ? 1 : 0;
+        }
+
+        // Collect failure reasons — child check only fails when we have enough
+        // info to be certain it's wrong (host found, page found, not a child).
         $fails = [];
         if ( ! $is_redirect ) {
             $fails[] = 'Confirmation shows an inline message instead of redirecting';
@@ -154,8 +166,12 @@ class BLS_GF_Scanner {
         if ( $is_redirect && ! $is_thank_you ) {
             $fails[] = 'Redirect target does not appear to be a thank-you page';
         }
-        if ( $is_redirect && $is_thank_you && ! $is_child && $redirect_page_id > 0 ) {
+        if ( $is_redirect && $is_thank_you && $is_child === 0 ) {
             $fails[] = 'Thank-you page is not a child of the form\'s host page';
+        }
+        if ( $is_redirect && $is_thank_you && $is_child === -1 && $host_found ) {
+            // Host was found but page ID is 0 or type isn't 'page' — soft note only.
+            $fails[] = 'Child-page relationship could not be verified (URL redirect type — check manually)';
         }
         if ( $is_redirect && $type === 'redirect' && empty( $redirect_url ) ) {
             $fails[] = 'Redirect type set but no URL configured';
@@ -224,27 +240,48 @@ class BLS_GF_Scanner {
     // -------------------------------------------------------------------------
 
     /**
-     * Find all pages/posts that embed a given form via shortcode or Elementor.
+     * Find all pages/posts that embed a given form via shortcode or Gutenberg block or Elementor.
+     *
+     * Shortcode variants handled:
+     *   [gravityforms id="1"]  [gravityforms id='1']  [gravityforms id=1]
+     *   [gravityform  id="1"]  [gravityform  id='1']  [gravityform  id=1]
+     *
+     * Gutenberg block variant:
+     *   <!-- wp:gravityforms/form {"formId":"1"} /-->
+     *   <!-- wp:gravityforms/form {"formId":1}  /-->
      *
      * @return WP_Post[]
      */
     private function get_host_pages( int $form_id ): array {
         global $wpdb;
 
-        // Shortcode patterns:  [gravityforms id="1"]  [gravityform id='1']
-        $like1 = '%[gravityforms id="'  . $form_id . '"%';
-        $like2 = "%[gravityforms id='{$form_id}'%";
-        $like3 = '%[gravityform id="'   . $form_id . '"%';
-        $like4 = "%[gravityform id='{$form_id}'%";
+        $id = $form_id; // shorthand
 
-        $post_ids = $wpdb->get_col( $wpdb->prepare(
+        // Build all post_content LIKE patterns for this form ID.
+        $patterns = [
+            // Quoted shortcodes (double or single quote).
+            '%[gravityforms id="'  . $id . '"%',
+            "%[gravityforms id='{$id}'%",
+            '%[gravityform id="'   . $id . '"%',
+            "%[gravityform id='{$id}'%",
+            // Unquoted shortcodes.
+            '%[gravityforms id=' . $id . ' %',
+            '%[gravityforms id=' . $id . ']%',
+            '%[gravityform id='  . $id . ' %',
+            '%[gravityform id='  . $id . ']%',
+            // Gutenberg block (formId as string or integer).
+            '%"formId":"' . $id . '"%',
+            '%"formId":' . $id . ',%',
+            '%"formId":' . $id . '}%',
+        ];
+
+        // Build the WHERE clause dynamically.
+        $placeholders = implode( ' OR post_content LIKE ', array_fill( 0, count( $patterns ), '%s' ) );
+        $post_ids     = $wpdb->get_col( $wpdb->prepare(
             "SELECT DISTINCT ID FROM {$wpdb->posts}
              WHERE post_status = 'publish'
-               AND ( post_content LIKE %s
-                  OR post_content LIKE %s
-                  OR post_content LIKE %s
-                  OR post_content LIKE %s )",
-            $like1, $like2, $like3, $like4
+               AND ( post_content LIKE {$placeholders} )",
+            $patterns
         ) );
 
         // Also search Elementor meta for this form ID.
@@ -252,8 +289,8 @@ class BLS_GF_Scanner {
             "SELECT DISTINCT post_id FROM {$wpdb->postmeta}
              WHERE meta_key = '_elementor_data'
                AND ( meta_value LIKE %s OR meta_value LIKE %s )",
-            '%"form_id":"' . $form_id . '"%',
-            '%"form_id":' . $form_id . '%'
+            '%"form_id":"' . $id . '"%',
+            '%"form_id":' . $id . '%'
         ) );
 
         $all_ids = array_unique( array_merge( array_map( 'intval', $post_ids ), array_map( 'intval', $el_ids ) ) );
