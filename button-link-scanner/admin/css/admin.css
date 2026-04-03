@@ -166,6 +166,15 @@
 }
 @keyframes bls-spin { to { transform: rotate(360deg); } }
 
+/* GF fail reason list */
+.bls-fail-list {
+    margin: 4px 0 0 0;
+    padding-left: 16px;
+    font-size: 0.82em;
+    color: #8a1a1b;
+}
+.bls-fail-list li { margin: 1px 0; }
+
 /* Responsive tweaks */
 @media ( max-width: 782px ) {
     .bls-summary-grid { grid-template-columns: repeat(2, 1fr); }

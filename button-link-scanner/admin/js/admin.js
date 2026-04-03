@@ -276,6 +276,36 @@
     });
 
     // -------------------------------------------------------------------------
+    // GF Confirmations: Run Scan
+    // -------------------------------------------------------------------------
+
+    $('#bls-run-gf-scan').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-gf-scan-status');
+
+        $btn.prop('disabled', true);
+        setStatus($status, BLS.strings.scanning + spinner(), '');
+
+        ajax('bls_run_gf_scan', {}, function (data) {
+            $btn.prop('disabled', false);
+            var msg;
+            if (data.error) {
+                msg = data.error;
+                setStatus($status, msg, 'error');
+            } else {
+                msg = BLS.strings.scan_complete + ' ' +
+                      (data.forms_scanned || 0) + ' forms scanned, ' +
+                      (data.issues_found  || 0) + ' issues found.';
+                setStatus($status, msg, 'ok');
+                setTimeout(function () { location.reload(); }, 1200);
+            }
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // Utility
     // -------------------------------------------------------------------------
 

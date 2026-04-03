@@ -12,12 +12,13 @@ class BLS_Admin {
     public static function init() {
         add_action( 'admin_menu',            [ __CLASS__, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
-        add_action( 'wp_ajax_bls_run_scan',       [ __CLASS__, 'ajax_run_scan' ] );
-        add_action( 'wp_ajax_bls_save_map_entry', [ __CLASS__, 'ajax_save_map_entry' ] );
-        add_action( 'wp_ajax_bls_apply_map',      [ __CLASS__, 'ajax_apply_map' ] );
-        add_action( 'wp_ajax_bls_delete_map',     [ __CLASS__, 'ajax_delete_map' ] );
-        add_action( 'wp_ajax_bls_preview_apply',  [ __CLASS__, 'ajax_preview_apply' ] );
-        add_action( 'wp_ajax_bls_toggle_schedule',[ __CLASS__, 'ajax_toggle_schedule' ] );
+        add_action( 'wp_ajax_bls_run_scan',        [ __CLASS__, 'ajax_run_scan' ] );
+        add_action( 'wp_ajax_bls_save_map_entry',  [ __CLASS__, 'ajax_save_map_entry' ] );
+        add_action( 'wp_ajax_bls_apply_map',       [ __CLASS__, 'ajax_apply_map' ] );
+        add_action( 'wp_ajax_bls_delete_map',      [ __CLASS__, 'ajax_delete_map' ] );
+        add_action( 'wp_ajax_bls_preview_apply',   [ __CLASS__, 'ajax_preview_apply' ] );
+        add_action( 'wp_ajax_bls_toggle_schedule', [ __CLASS__, 'ajax_toggle_schedule' ] );
+        add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
     }
 
     // -------------------------------------------------------------------------
@@ -69,6 +70,15 @@ class BLS_Admin {
             'manage_options',
             self::MENU_SLUG . '-map',
             [ __CLASS__, 'page_button_map' ]
+        );
+
+        add_submenu_page(
+            self::MENU_SLUG,
+            __( 'Form Confirmations', 'button-link-scanner' ),
+            __( 'Form Confirmations', 'button-link-scanner' ),
+            'manage_options',
+            self::MENU_SLUG . '-gf',
+            [ __CLASS__, 'page_gf_confirmations' ]
         );
     }
 
@@ -147,8 +157,36 @@ class BLS_Admin {
     }
 
     // -------------------------------------------------------------------------
+    // Page: GF Confirmations
+    // -------------------------------------------------------------------------
+
+    public static function page_gf_confirmations() {
+        $filters = [
+            'passes' => isset( $_GET['passes'] ) ? sanitize_text_field( $_GET['passes'] ) : '',
+            'search' => isset( $_GET['s'] )      ? sanitize_text_field( $_GET['s'] )      : '',
+        ];
+
+        $rows      = BLS_GF_Database::get_results( $filters );
+        $summary   = BLS_GF_Database::get_summary();
+        $last_scan = BLS_GF_Database::get_last_scan_date();
+
+        include BLS_PLUGIN_DIR . 'admin/views/gf-confirmations.php';
+    }
+
+    // -------------------------------------------------------------------------
     // AJAX handlers
     // -------------------------------------------------------------------------
+
+    public static function ajax_run_gf_scan() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $scanner = new BLS_GF_Scanner();
+        $result  = $scanner->run_full_scan();
+        wp_send_json_success( $result );
+    }
 
     public static function ajax_run_scan() {
         check_ajax_referer( 'bls_ajax', 'nonce' );
