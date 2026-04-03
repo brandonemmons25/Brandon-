@@ -166,6 +166,15 @@
 }
 @keyframes bls-spin { to { transform: rotate(360deg); } }
 
+/* Title attribute value shown inline next to checkmark */
+.bls-title-value {
+    display: block;
+    font-size: 0.82em;
+    color: #646970;
+    margin-top: 2px;
+    word-break: break-word;
+}
+
 /* GF fail reason list */
 .bls-fail-list {
     margin: 4px 0 0 0;

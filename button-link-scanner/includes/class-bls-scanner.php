@@ -47,8 +47,9 @@ class BLS_Scanner {
     public function run_full_scan(): array {
         BLS_Database::clear_results();
 
-        $post_types      = $this->get_scannable_post_types();
-        $total           = 0;
+        $post_types       = $this->get_scannable_post_types();
+        $excluded_ids     = $this->get_excluded_post_ids();
+        $total            = 0;
         $scanned_post_ids = [];
 
         foreach ( $post_types as $post_type ) {
@@ -61,6 +62,7 @@ class BLS_Scanner {
                     'paged'          => $paged,
                     'no_found_rows'  => false,
                     'fields'         => 'all',
+                    'post__not_in'   => $excluded_ids,
                 ] );
 
                 foreach ( $query->posts as $post ) {
@@ -404,6 +406,27 @@ class BLS_Scanner {
         return $node->getAttribute( 'role' ) === 'button';
     }
 
+    /**
+     * Resolve the best visible label for a node.
+     * Priority: textContent → aria-label → title attribute → "(no text)".
+     * Wraps aria-label/title in brackets so origin is clear in the UI.
+     */
+    private function get_node_text( DOMElement $node ): string {
+        $text = trim( $node->textContent );
+        if ( $text !== '' ) {
+            return $text;
+        }
+        $aria = trim( $node->getAttribute( 'aria-label' ) );
+        if ( $aria !== '' ) {
+            return '[aria: ' . $aria . ']';
+        }
+        $attr_title = trim( $node->getAttribute( 'title' ) );
+        if ( $attr_title !== '' ) {
+            return '[title: ' . $attr_title . ']';
+        }
+        return '(no text)';
+    }
+
     private function describe_anchor( DOMElement $node, string $type ): array {
         $href     = trim( $node->getAttribute( 'href' ) );
         $title    = trim( $node->getAttribute( 'title' ) );
@@ -411,7 +434,7 @@ class BLS_Scanner {
         $has_link = ! empty( $href ) && $href !== '#';
 
         return [
-            'text'          => trim( $node->textContent ),
+            'text'          => $this->get_node_text( $node ),
             'html'          => $this->outer_html( $node ),
             'has_link'      => $has_link,
             'link_url'      => $has_link ? $href : '',
@@ -437,7 +460,7 @@ class BLS_Scanner {
         }
 
         return [
-            'text'          => trim( $node->textContent ),
+            'text'          => $this->get_node_text( $node ),
             'html'          => $this->outer_html( $node ),
             'has_link'      => $has_link,
             'link_url'      => $has_link ? $href : '',
@@ -477,7 +500,7 @@ class BLS_Scanner {
 
     private function describe_role_button( DOMElement $node ): array {
         return [
-            'text'          => trim( $node->textContent ),
+            'text'          => $this->get_node_text( $node ),
             'html'          => $this->outer_html( $node ),
             'has_link'      => false,
             'link_url'      => '',
@@ -517,7 +540,47 @@ class BLS_Scanner {
 
     private function get_scannable_post_types(): array {
         $all     = get_post_types( [ 'public' => true ], 'names' );
-        $exclude = apply_filters( 'bls_exclude_post_types', [ 'attachment' ] );
+        $exclude = [ 'attachment' ];
+
+        // WooCommerce internal CPTs have no user-authored button content.
+        if ( class_exists( 'WooCommerce' ) ) {
+            $exclude = array_merge( $exclude, [
+                'shop_order',
+                'shop_order_refund',
+                'shop_coupon',
+                'shop_webhook',
+            ] );
+        }
+
+        $exclude = apply_filters( 'bls_exclude_post_types', $exclude );
         return array_values( array_diff( $all, $exclude ) );
+    }
+
+    /**
+     * Return post IDs that should always be skipped, regardless of type.
+     * Covers WooCommerce utility pages (cart, checkout, my account, etc.)
+     * whose buttons are functional UI, not authored content.
+     */
+    private function get_excluded_post_ids(): array {
+        $ids = [];
+
+        if ( class_exists( 'WooCommerce' ) ) {
+            $wc_options = [
+                'woocommerce_shop_page_id',
+                'woocommerce_cart_page_id',
+                'woocommerce_checkout_page_id',
+                'woocommerce_myaccount_page_id',
+                'woocommerce_terms_page_id',
+                'woocommerce_refund_returns_page_id',
+            ];
+            foreach ( $wc_options as $opt ) {
+                $id = (int) get_option( $opt, 0 );
+                if ( $id > 0 ) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return apply_filters( 'bls_exclude_post_ids', array_unique( $ids ) );
     }
 }

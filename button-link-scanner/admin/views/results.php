@@ -59,7 +59,7 @@
                 <th><?php esc_html_e( 'Button Text', 'button-link-scanner' ); ?></th>
                 <th><?php esc_html_e( 'Link URL', 'button-link-scanner' ); ?></th>
                 <th class="bls-center"><?php esc_html_e( 'Has Link', 'button-link-scanner' ); ?></th>
-                <th class="bls-center"><?php esc_html_e( 'SEO Title', 'button-link-scanner' ); ?></th>
+                <th><?php esc_html_e( 'Title Attribute', 'button-link-scanner' ); ?></th>
                 <th><?php esc_html_e( 'Button Kind', 'button-link-scanner' ); ?></th>
                 <th><?php esc_html_e( 'Actions', 'button-link-scanner' ); ?></th>
             </tr>
@@ -95,11 +95,12 @@
                         ? '<span class="bls-icon bls-icon--ok" title="Has link">&#10003;</span>'
                         : '<span class="bls-icon bls-icon--bad" title="Missing link">&#10007;</span>'; ?>
                 </td>
-                <td class="bls-center">
+                <td>
                     <?php if ( $has_title ) : ?>
-                        <span class="bls-icon bls-icon--ok" title="<?php echo esc_attr( $row->title_text ); ?>">&#10003;</span>
+                        <span class="bls-icon bls-icon--ok">&#10003;</span>
+                        <span class="bls-title-value"><?php echo esc_html( $row->title_text ); ?></span>
                     <?php elseif ( $has_link ) : ?>
-                        <span class="bls-icon bls-icon--warn" title="Link exists but title missing">&#9888;</span>
+                        <span class="bls-badge bls-badge--warning"><?php esc_html_e( 'Missing title', 'button-link-scanner' ); ?></span>
                     <?php else : ?>
                         <span class="bls-icon bls-icon--na">&#8212;</span>
                     <?php endif; ?>
