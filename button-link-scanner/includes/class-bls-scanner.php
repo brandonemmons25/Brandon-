@@ -12,6 +12,14 @@ defined( 'ABSPATH' ) || exit;
  *  - Any <a> whose class contains "btn" or "button"
  *  - Bare <button> and <input type="button|submit|reset"> elements
  *  - Elements with role="button"
+ *
+ * Content sources (tried in order, merged):
+ *  1. apply_filters('the_content', post_content)  – handles shortcodes
+ *  2. Elementor _elementor_data meta              – page-builder widgets
+ *  3. HTTP fetch of the rendered permalink         – final fallback
+ *
+ * The homepage is always scanned explicitly, even when WordPress is
+ * set to display "Latest Posts" (no static front page).
  */
 class BLS_Scanner {
 
@@ -27,16 +35,21 @@ class BLS_Scanner {
         'et_pb_button',
     ];
 
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
     /**
      * Run a full site scan.
      *
      * @return array Summary stats.
      */
-    public function run_full_scan() {
+    public function run_full_scan(): array {
         BLS_Database::clear_results();
 
-        $post_types = $this->get_scannable_post_types();
-        $total      = 0;
+        $post_types      = $this->get_scannable_post_types();
+        $total           = 0;
+        $scanned_post_ids = [];
 
         foreach ( $post_types as $post_type ) {
             $paged = 1;
@@ -53,11 +66,15 @@ class BLS_Scanner {
                 foreach ( $query->posts as $post ) {
                     $found  = $this->scan_post( $post );
                     $total += $found;
+                    $scanned_post_ids[] = $post->ID;
                 }
 
                 $paged++;
             } while ( $paged <= $query->max_num_pages );
         }
+
+        // Always scan the homepage explicitly.
+        $total += $this->scan_homepage( $scanned_post_ids );
 
         update_option( 'bls_last_scan_total', $total );
         update_option( 'bls_last_scan_time',  current_time( 'mysql' ) );
@@ -70,9 +87,8 @@ class BLS_Scanner {
      *
      * @return int Number of buttons found.
      */
-    public function scan_post( WP_Post $post ) {
-        // Render shortcodes so we capture dynamically-generated buttons.
-        $content = do_shortcode( $post->post_content );
+    public function scan_post( WP_Post $post ): int {
+        $content = $this->get_post_content( $post );
 
         if ( empty( trim( $content ) ) ) {
             return 0;
@@ -105,7 +121,206 @@ class BLS_Scanner {
     }
 
     // -------------------------------------------------------------------------
-    // Detection logic
+    // Content gathering
+    // -------------------------------------------------------------------------
+
+    /**
+     * Collect the best-available HTML for a post, merging multiple sources.
+     *
+     * Priority:
+     *  1. apply_filters('the_content') – handles Gutenberg, shortcodes
+     *  2. Elementor JSON meta          – Elementor page builder
+     *  3. HTTP fetch of the permalink  – any other builder / truly empty content
+     */
+    private function get_post_content( WP_Post $post ): string {
+        $parts = [];
+
+        // Source 1: WordPress content pipeline.
+        $wp_content = apply_filters( 'the_content', $post->post_content );
+        if ( ! empty( trim( $wp_content ) ) ) {
+            $parts[] = $wp_content;
+        }
+
+        // Source 2: Elementor – parse _elementor_data JSON.
+        $elementor_html = $this->get_elementor_html( $post->ID );
+        if ( ! empty( $elementor_html ) ) {
+            $parts[] = $elementor_html;
+        }
+
+        // Source 3: HTTP fetch – fires only when the above sources yielded
+        // no useful content (empty post_content AND no Elementor data).
+        if ( empty( $parts ) ) {
+            $url      = get_permalink( $post->ID );
+            $fetched  = $this->fetch_rendered_html( $url );
+            if ( ! empty( $fetched ) ) {
+                $parts[] = $fetched;
+            }
+        }
+
+        return implode( "\n", $parts );
+    }
+
+    /**
+     * Scan the homepage, regardless of whether it is a static page or
+     * the "Latest Posts" index (which has no post_id to query).
+     *
+     * @param int[] $already_scanned Post IDs already processed by run_full_scan.
+     * @return int Number of additional buttons found.
+     */
+    private function scan_homepage( array $already_scanned ): int {
+        $show_on_front = get_option( 'show_on_front', 'posts' );
+        $page_on_front = (int) get_option( 'page_on_front', 0 );
+
+        if ( $show_on_front === 'page' && $page_on_front > 0 ) {
+            // Static front page – only re-scan if it was missed (e.g. content
+            // was empty in the main loop and we can now try HTTP fetch).
+            if ( in_array( $page_on_front, $already_scanned, true ) ) {
+                return 0; // Already handled.
+            }
+            $post = get_post( $page_on_front );
+            if ( $post ) {
+                return $this->scan_post( $post );
+            }
+        }
+
+        // "Latest Posts" homepage – no static page, must fetch via HTTP.
+        $html = $this->fetch_rendered_html( home_url( '/' ) );
+        if ( empty( $html ) ) {
+            return 0;
+        }
+
+        $buttons = $this->extract_buttons( $html );
+        $count   = 0;
+
+        foreach ( $buttons as $btn ) {
+            BLS_Database::insert_result( [
+                'post_id'       => 0,
+                'post_title'    => __( 'Home Page', 'button-link-scanner' ),
+                'post_type'     => 'front_page',
+                'post_status'   => 'publish',
+                'post_url'      => home_url( '/' ),
+                'button_text'   => $btn['text'],
+                'button_html'   => $btn['html'],
+                'has_link'      => (int) $btn['has_link'],
+                'link_url'      => $btn['link_url'],
+                'has_title'     => (int) $btn['has_title'],
+                'title_text'    => $btn['title_text'],
+                'opens_new_tab' => (int) $btn['opens_new_tab'],
+                'button_type'   => $btn['button_type'],
+            ] );
+            $count++;
+        }
+
+        return $count;
+    }
+
+    // -------------------------------------------------------------------------
+    // Elementor support
+    // -------------------------------------------------------------------------
+
+    /**
+     * Extract button HTML from Elementor's _elementor_data meta.
+     * Returns a synthetic HTML string that the standard DOMDocument
+     * parser can then process normally.
+     */
+    private function get_elementor_html( int $post_id ): string {
+        $raw = get_post_meta( $post_id, '_elementor_data', true );
+        if ( empty( $raw ) ) {
+            return '';
+        }
+
+        $elements = json_decode( $raw, true );
+        if ( ! is_array( $elements ) ) {
+            return '';
+        }
+
+        $html = '';
+        $this->walk_elementor_elements( $elements, $html );
+        return $html;
+    }
+
+    /**
+     * Recursively walk Elementor element tree and synthesise button HTML.
+     */
+    private function walk_elementor_elements( array $elements, string &$html ): void {
+        foreach ( $elements as $element ) {
+            $widget_type = $element['widgetType'] ?? '';
+            $settings    = $element['settings']   ?? [];
+
+            switch ( $widget_type ) {
+
+                case 'button':
+                    // Standard Elementor Button widget.
+                    $text   = sanitize_text_field( $settings['text']          ?? 'Button' );
+                    $url    = esc_url_raw(          $settings['link']['url']   ?? '' );
+                    $new_tab = ! empty( $settings['link']['is_external'] ) ? ' target="_blank"' : '';
+                    $class  = 'elementor-button';
+                    $html  .= '<a class="' . $class . '" href="' . esc_attr( $url ?: '#' ) . '"' . $new_tab . '>'
+                            . esc_html( $text ) . '</a>' . "\n";
+                    break;
+
+                case 'icon-box':
+                case 'image-box':
+                    // These widgets often have a CTA link.
+                    $link_url = esc_url_raw( $settings['link']['url'] ?? '' );
+                    $btn_text = sanitize_text_field( $settings['button_text'] ?? $settings['title']['text'] ?? '' );
+                    if ( $link_url && $btn_text ) {
+                        $html .= '<a class="elementor-button" href="' . esc_attr( $link_url ) . '">'
+                               . esc_html( $btn_text ) . '</a>' . "\n";
+                    }
+                    break;
+
+                case 'call-to-action':
+                    $btn_url  = esc_url_raw( $settings['button_url']['url'] ?? '' );
+                    $btn_text = sanitize_text_field( $settings['button_text'] ?? '' );
+                    if ( $btn_text ) {
+                        $html .= '<a class="elementor-button" href="' . esc_attr( $btn_url ?: '#' ) . '">'
+                               . esc_html( $btn_text ) . '</a>' . "\n";
+                    }
+                    break;
+            }
+
+            // Recurse into child elements.
+            if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+                $this->walk_elementor_elements( $element['elements'], $html );
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HTTP fetch fallback
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch the fully-rendered HTML of a URL via wp_remote_get.
+     * Used as a last resort when post_content and meta are both empty
+     * (covers Divi, Beaver Builder, WPBakery, and any unknown builders).
+     */
+    private function fetch_rendered_html( string $url ): string {
+        if ( empty( $url ) ) {
+            return '';
+        }
+
+        $response = wp_remote_get( $url, [
+            'timeout'    => 20,
+            'user-agent' => 'WordPress/BLS-Scanner',
+            'sslverify'  => apply_filters( 'bls_fetch_sslverify', true ),
+            'cookies'    => [], // no auth cookies – public content only
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return '';
+        }
+
+        if ( (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+            return '';
+        }
+
+        return wp_remote_retrieve_body( $response );
+    }
+
+    // -------------------------------------------------------------------------
+    // Button detection (DOM parsing)
     // -------------------------------------------------------------------------
 
     /**
@@ -123,7 +338,7 @@ class BLS_Scanner {
 
         $xpath   = new DOMXPath( $dom );
         $buttons = [];
-        $seen    = []; // deduplicate by outerHTML
+        $seen    = []; // deduplicate by outerHTML hash
 
         // 1. Gutenberg & styled anchor buttons.
         $anchor_nodes = $xpath->query( '//a' );
@@ -139,8 +354,7 @@ class BLS_Scanner {
         }
 
         // 2. Bare <button> elements.
-        $button_nodes = $xpath->query( '//button' );
-        foreach ( $button_nodes as $node ) {
+        foreach ( $xpath->query( '//button' ) as $node ) {
             $entry = $this->describe_button_element( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
@@ -150,8 +364,7 @@ class BLS_Scanner {
         }
 
         // 3. <input type="button|submit|reset">.
-        $input_nodes = $xpath->query( '//input[@type="button" or @type="submit" or @type="reset"]' );
-        foreach ( $input_nodes as $node ) {
+        foreach ( $xpath->query( '//input[@type="button" or @type="submit" or @type="reset"]' ) as $node ) {
             $entry = $this->describe_input( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
@@ -161,11 +374,10 @@ class BLS_Scanner {
         }
 
         // 4. Any element with role="button" not already captured.
-        $role_nodes = $xpath->query( '//*[@role="button"]' );
-        foreach ( $role_nodes as $node ) {
+        foreach ( $xpath->query( '//*[@role="button"]' ) as $node ) {
             $tag = strtolower( $node->nodeName );
             if ( in_array( $tag, [ 'a', 'button', 'input' ], true ) ) {
-                continue; // already handled above
+                continue;
             }
             $entry = $this->describe_role_button( $node );
             $key   = md5( $entry['html'] );
@@ -179,7 +391,7 @@ class BLS_Scanner {
     }
 
     // -------------------------------------------------------------------------
-    // Node helpers
+    // Node descriptor helpers
     // -------------------------------------------------------------------------
 
     private function node_is_button( DOMElement $node ): bool {
@@ -189,18 +401,14 @@ class BLS_Scanner {
                 return true;
             }
         }
-        // Also treat <a role="button"> as a button.
-        if ( $node->getAttribute( 'role' ) === 'button' ) {
-            return true;
-        }
-        return false;
+        return $node->getAttribute( 'role' ) === 'button';
     }
 
     private function describe_anchor( DOMElement $node, string $type ): array {
-        $href      = trim( $node->getAttribute( 'href' ) );
-        $title     = trim( $node->getAttribute( 'title' ) );
-        $target    = $node->getAttribute( 'target' );
-        $has_link  = ! empty( $href ) && $href !== '#';
+        $href     = trim( $node->getAttribute( 'href' ) );
+        $title    = trim( $node->getAttribute( 'title' ) );
+        $target   = $node->getAttribute( 'target' );
+        $has_link = ! empty( $href ) && $href !== '#';
 
         return [
             'text'          => trim( $node->textContent ),
@@ -215,12 +423,11 @@ class BLS_Scanner {
     }
 
     private function describe_button_element( DOMElement $node ): array {
-        // <button> can be wrapped in an <a>; walk up to check.
-        $parent    = $node->parentNode;
-        $href      = '';
-        $title     = '';
-        $has_link  = false;
-        $new_tab   = false;
+        $parent   = $node->parentNode;
+        $href     = '';
+        $title    = '';
+        $has_link = false;
+        $new_tab  = false;
 
         if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
             $href     = trim( $parent->getAttribute( 'href' ) );
@@ -309,8 +516,7 @@ class BLS_Scanner {
     // -------------------------------------------------------------------------
 
     private function get_scannable_post_types(): array {
-        $all = get_post_types( [ 'public' => true ], 'names' );
-        // Remove attachment and similar non-content types.
+        $all     = get_post_types( [ 'public' => true ], 'names' );
         $exclude = apply_filters( 'bls_exclude_post_types', [ 'attachment' ] );
         return array_values( array_diff( $all, $exclude ) );
     }

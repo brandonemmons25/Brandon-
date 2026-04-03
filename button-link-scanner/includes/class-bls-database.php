@@ -18,7 +18,7 @@ class BLS_Database {
 
         $sql_results = "CREATE TABLE {$results_table} (
             id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            post_id       BIGINT(20) UNSIGNED NOT NULL,
+            post_id       BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             post_title    TEXT NOT NULL,
             post_type     VARCHAR(50)  NOT NULL DEFAULT 'post',
             post_status   VARCHAR(20)  NOT NULL DEFAULT 'publish',
