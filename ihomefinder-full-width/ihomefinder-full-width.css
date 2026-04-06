@@ -17,3 +17,20 @@
     float: none !important;
     margin-right: 0 !important;
 }
+
+/* ── Dropdown z-index fix ─────────────────────────────────────
+ * The theme's .c-wrap wave element creates a stacking context
+ * that sits above #quick-search, causing iHomeFinder dropdowns
+ * to render behind it.
+ *
+ * Fix: give #quick-search a stacking context only while a
+ * dropdown is open (:focus-within), so the wave design is
+ * completely unaffected when the search bar is idle.
+ * ─────────────────────────────────────────────────────────── */
+#quick-search {
+    position: relative;
+}
+
+#quick-search:focus-within {
+    z-index: 99999;
+}
