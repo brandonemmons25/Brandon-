@@ -1,39 +1,18 @@
 /*
  * iHomeFinder Full Width
- * Hides the sidebar and expands the content area to full width
- * on all pages that contain iHomeFinder (IDX) shortcodes.
+ * Hides #sidebar and expands #content to full width
+ * inside #content-sidebar on iHomeFinder pages.
  */
 
-/* ── Hide the sidebar column inside #content-sidebar ─────── */
-.ihf-full-width #content-sidebar #sidebar,
-.ihf-full-width #content-sidebar .sidebar,
-.ihf-full-width #content-sidebar #secondary,
-.ihf-full-width #content-sidebar .widget-area,
-.ihf-full-width #content-sidebar aside {
+/* ── Hide the sidebar ─────────────────────────────────────── */
+.ihf-full-width #sidebar {
     display: none !important;
 }
 
-/* ── Expand the main content column to full width ─────────── */
-.ihf-full-width #content-sidebar #main-content,
-.ihf-full-width #content-sidebar .main-content,
-.ihf-full-width #content-sidebar #primary,
-.ihf-full-width #content-sidebar .content-area,
-.ihf-full-width #content-sidebar > * {
+/* ── Expand #content to full width ───────────────────────── */
+.ihf-full-width #content {
     width: 100% !important;
     max-width: 100% !important;
     float: none !important;
-    flex: 0 0 100% !important;
-}
-
-/* ── Remove flex/grid gap left by the missing sidebar ─────── */
-.ihf-full-width #content-sidebar {
-    display: block !important;
-}
-
-/* ── iHomeFinder widget container ─────────────────────────── */
-.ihf-full-width .ihf-container,
-.ihf-full-width #ihf-main-container,
-.ihf-full-width .ihf-main-container {
-    width: 100% !important;
-    max-width: 100% !important;
+    margin-right: 0 !important;
 }
