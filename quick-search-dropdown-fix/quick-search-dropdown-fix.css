@@ -1,19 +1,14 @@
 /*
  * Quick Search Dropdown Fix
  *
- * The theme's .c-wrap wave element has a z-index that sits above
- * #quick-search, causing iHomeFinder dropdown menus to render
- * behind the wave.
- *
- * Fix: establish a stacking context on #quick-search only while
- * a dropdown is open (:focus-within). At rest the z-index is
- * untouched, so the wave design is completely unaffected.
+ * Raises #quick-search above the theme's .c-wrap wave element
+ * only while a dropdown is open (class added by JS).
  */
 
 #quick-search {
     position: relative;
 }
 
-#quick-search:focus-within {
+#quick-search.qs-dropdown-open {
     z-index: 99999;
 }
