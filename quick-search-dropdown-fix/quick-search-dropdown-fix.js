@@ -1,44 +1,36 @@
 (function () {
-    var qs = document.getElementById('quick-search');
-    if (!qs) return;
+    document.addEventListener('DOMContentLoaded', function () {
+        var qs       = document.getElementById('quick-search');
+        var ctTagline = document.querySelector('.ct-tagline');
+        if (!qs || !ctTagline) return;
 
-    // Watch for any descendant element getting/losing a class that
-    // indicates an open dropdown. iHomeFinder adds classes like
-    // "open", "is-open", "active", "is-active" to dropdown triggers
-    // or their containers, and also inserts/removes dropdown panels.
-    var observer = new MutationObserver(function () {
-        var open =
-            // iHomeFinder Kestrel / React-based dropdowns
-            qs.querySelector('[class*="dropdown"][class*="open"]') ||
-            qs.querySelector('[class*="dropdown"][class*="active"]') ||
-            qs.querySelector('[class*="dropdown"][class*="show"]') ||
-            // Visible dropdown list containers
-            qs.querySelector('[class*="menu"][class*="open"]') ||
-            qs.querySelector('[class*="menu"][class*="show"]') ||
-            qs.querySelector('[class*="panel"][class*="open"]') ||
-            // Bootstrap-style dropdowns
-            qs.querySelector('.open > .dropdown-menu') ||
-            qs.querySelector('.dropdown-menu.show') ||
-            // Generic: any absolutely positioned visible child
-            // that appeared after the initial render
-            qs.querySelector('[class*="ihf"][class*="open"]') ||
-            qs.querySelector('[class*="ihf"][class*="active"]') ||
-            qs.querySelector('[aria-expanded="true"]');
+        // While the user is interacting with #quick-search, temporarily
+        // pull .ct-tagline (z-index: 11) out of the way so iHomeFinder
+        // dropdown panels (inside a shadow DOM) can render above the wave.
+        // The wave restores the instant the user clicks outside.
 
-        qs.classList.toggle('qs-dropdown-open', !!open);
-    });
-
-    observer.observe(qs, {
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class', 'aria-expanded'],
-        childList: true,
-    });
-
-    // Also close on outside click
-    document.addEventListener('click', function (e) {
-        if (!qs.contains(e.target)) {
-            qs.classList.remove('qs-dropdown-open');
+        function lowerWave() {
+            ctTagline.style.zIndex = '0';
         }
+
+        function restoreWave() {
+            ctTagline.style.zIndex = '';
+        }
+
+        // Clicks inside #quick-search bubble up from the shadow DOM
+        qs.addEventListener('click', function (e) {
+            lowerWave();
+            e.stopPropagation(); // prevent document handler on this same click
+        });
+
+        // Click anywhere outside #quick-search → restore
+        document.addEventListener('click', restoreWave);
+
+        // Also restore if focus moves away from #quick-search
+        document.addEventListener('focusin', function (e) {
+            if (!qs.contains(e.target)) {
+                restoreWave();
+            }
+        });
     });
 })();

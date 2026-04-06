@@ -1,14 +1,8 @@
 /*
  * Quick Search Dropdown Fix
  *
- * Raises #quick-search above the theme's .c-wrap wave element
- * only while a dropdown is open (class added by JS).
+ * No CSS changes needed — the fix is handled entirely in JS.
+ * .ct-tagline (z-index: 11) is temporarily lowered to z-index: 0
+ * while the user interacts with #quick-search, then restored on
+ * outside click. See quick-search-dropdown-fix.js.
  */
-
-#quick-search {
-    position: relative;
-}
-
-#quick-search.qs-dropdown-open {
-    z-index: 99999;
-}
