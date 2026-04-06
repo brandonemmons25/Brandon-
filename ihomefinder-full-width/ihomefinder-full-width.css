@@ -2,87 +2,38 @@
  * iHomeFinder Full Width
  * Hides the sidebar and expands the content area to full width
  * on all pages that contain iHomeFinder (IDX) shortcodes.
- *
- * Covers the most common WordPress theme patterns including:
- * GeneratePress, Astra, OceanWP, Divi, Twenty-* defaults,
- * and Bootstrap-based themes.
  */
 
-/* ── Hide sidebar ─────────────────────────────────────────── */
-.ihf-full-width #secondary,
-.ihf-full-width .widget-area,
-.ihf-full-width #sidebar,
-.ihf-full-width .sidebar,
-.ihf-full-width .sidebar-container,
-.ihf-full-width .sidebar-area,
-.ihf-full-width aside.sidebar,
-.ihf-full-width #sidebar-primary,
-.ihf-full-width .sidebar-primary,
-.ihf-full-width #right-sidebar,
-.ihf-full-width .right-sidebar,
-.ihf-full-width #left-sidebar,
-.ihf-full-width .left-sidebar,
-/* GeneratePress */
-.ihf-full-width .sidebar-container,
-/* OceanWP */
-.ihf-full-width #sidebar-right,
-.ihf-full-width #sidebar-left,
-/* Astra */
-.ihf-full-width .ast-sidebar-wrap,
-/* Divi */
-.ihf-full-width #left-area,
-/* Kadence */
-.ihf-full-width .wp-block-kadence-column.kadence-column-sidebar,
-/* Bootstrap / generic column sidebars */
-.ihf-full-width .col-sm-4.sidebar,
-.ihf-full-width .col-md-4.sidebar,
-.ihf-full-width .col-lg-4.sidebar {
+/* ── Hide the sidebar column inside #content-sidebar ─────── */
+.ihf-full-width #content-sidebar #sidebar,
+.ihf-full-width #content-sidebar .sidebar,
+.ihf-full-width #content-sidebar #secondary,
+.ihf-full-width #content-sidebar .widget-area,
+.ihf-full-width #content-sidebar aside {
     display: none !important;
 }
 
-/* ── Expand main content area to full width ───────────────── */
-
-/* Generic */
-.ihf-full-width #primary,
-.ihf-full-width .content-area,
-.ihf-full-width #main-content,
-.ihf-full-width .main-content,
-.ihf-full-width #page-content,
-.ihf-full-width .page-content,
-/* GeneratePress */
-.ihf-full-width .content-area,
-/* OceanWP */
-.ihf-full-width #content-wrap .content-area,
-/* Astra */
-.ihf-full-width .ast-container .site-main,
-.ihf-full-width .ast-separate-container .ast-content-layout-wrap,
-/* Twenty Twenty / Twenty Twenty-One / Twenty Twenty-Two */
-.ihf-full-width .site-content,
-.ihf-full-width .wp-block-group.alignfull,
-/* Kadence */
-.ihf-full-width #content.content-area {
+/* ── Expand the main content column to full width ─────────── */
+.ihf-full-width #content-sidebar #main-content,
+.ihf-full-width #content-sidebar .main-content,
+.ihf-full-width #content-sidebar #primary,
+.ihf-full-width #content-sidebar .content-area,
+.ihf-full-width #content-sidebar > * {
     width: 100% !important;
     max-width: 100% !important;
     float: none !important;
     flex: 0 0 100% !important;
 }
 
-/* ── Remove flex/grid gaps that assume a sidebar exists ────── */
-.ihf-full-width #content-area-wrap,
-.ihf-full-width .content-sidebar-wrap,
-.ihf-full-width .site-content .content-sidebar-wrap,
-.ihf-full-width .generate-columns-container,
-.ihf-full-width .ast-container,
-.ihf-full-width #main .container,
-.ihf-full-width .entry-content-wrapper {
+/* ── Remove flex/grid gap left by the missing sidebar ─────── */
+.ihf-full-width #content-sidebar {
     display: block !important;
 }
 
 /* ── iHomeFinder widget container ─────────────────────────── */
 .ihf-full-width .ihf-container,
 .ihf-full-width #ihf-main-container,
-.ihf-full-width .ihf-main-container,
-.ihf-full-width .idx-content-area {
+.ihf-full-width .ihf-main-container {
     width: 100% !important;
     max-width: 100% !important;
 }
