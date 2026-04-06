@@ -2,7 +2,7 @@
 /**
  * Plugin Name: iHomeFinder Full Width
  * Description: Makes all iHomeFinder (IDX) pages display full width by hiding the sidebar.
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -11,6 +11,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Detect if the current page contains an iHomeFinder shortcode.
+ * Supports both classic shortcodes [ihf-*] and the iHomeFinder
+ * block/widget approach where content is stored in post meta.
  */
 function ihf_fw_is_ihomefinder_page() {
     if ( ! is_singular() ) {
@@ -22,9 +24,33 @@ function ihf_fw_is_ihomefinder_page() {
         return false;
     }
 
-    // iHomeFinder shortcodes all begin with [ihf-
-    return has_shortcode( $post->post_content, 'ihf-home' )
-        || strpos( $post->post_content, '[ihf-' ) !== false;
+    $content = $post->post_content;
+
+    // Classic shortcode: [ihf-mortgage-calculator], [ihf-search], etc.
+    if ( strpos( $content, '[ihf-' ) !== false ) {
+        return true;
+    }
+
+    // iHomeFinder v4+ uses a block with class name ihf/widget
+    if ( strpos( $content, '"ihf/' ) !== false ) {
+        return true;
+    }
+
+    // iHomeFinder stores its page type in post meta
+    $ihf_meta = get_post_meta( $post->ID, '_ihf_page_type', true );
+    if ( ! empty( $ihf_meta ) ) {
+        return true;
+    }
+
+    // Fallback: check if any registered iHomeFinder shortcode is present
+    global $shortcode_tags;
+    foreach ( array_keys( (array) $shortcode_tags ) as $tag ) {
+        if ( strpos( $tag, 'ihf' ) === 0 && has_shortcode( $content, $tag ) ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -47,7 +73,7 @@ function ihf_fw_enqueue_styles() {
             'ihf-full-width',
             plugin_dir_url( __FILE__ ) . 'ihomefinder-full-width.css',
             array(),
-            '1.0.0'
+            '1.1.0'
         );
     }
 }
