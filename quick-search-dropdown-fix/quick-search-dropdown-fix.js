@@ -1,34 +1,30 @@
 (function () {
     document.addEventListener('DOMContentLoaded', function () {
-        var qs       = document.getElementById('quick-search');
+        var qs        = document.getElementById('quick-search');
         var ctTagline = document.querySelector('.ct-tagline');
         if (!qs || !ctTagline) return;
 
         // While the user is interacting with #quick-search, temporarily
         // pull .ct-tagline (z-index: 11) out of the way so iHomeFinder
-        // dropdown panels (inside a shadow DOM) can render above the wave.
-        // The wave restores the instant the user clicks outside.
+        // dropdown panels can render above the wave. Restores on outside click.
 
-        function lowerWave() {
-            ctTagline.style.zIndex = '0';
-        }
+        function lowerWave()   { ctTagline.style.zIndex = '0'; }
+        function restoreWave() { ctTagline.style.zIndex = ''; }
 
-        function restoreWave() {
-            ctTagline.style.zIndex = '';
-        }
+        // Use mousedown (fires before click) to flag that the upcoming
+        // click is inside #quick-search. This lets iHomeFinder's own
+        // click handlers receive the event unmodified — no stopPropagation.
+        var clickedInside = false;
 
-        // Clicks inside #quick-search bubble up from the shadow DOM
-        qs.addEventListener('click', function (e) {
-            lowerWave();
-            e.stopPropagation(); // prevent document handler on this same click
+        qs.addEventListener('mousedown', function () {
+            clickedInside = true;
         });
 
-        // Click anywhere outside #quick-search → restore
-        document.addEventListener('click', restoreWave);
-
-        // Also restore if focus moves away from #quick-search
-        document.addEventListener('focusin', function (e) {
-            if (!qs.contains(e.target)) {
+        document.addEventListener('click', function () {
+            if (clickedInside) {
+                lowerWave();
+                clickedInside = false;
+            } else {
                 restoreWave();
             }
         });
