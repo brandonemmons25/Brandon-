@@ -2,6 +2,7 @@
  * iHomeFinder Full Width
  * Hides #sidebar and expands #content to full width
  * inside #content-sidebar on iHomeFinder pages.
+ * Class `ihf-full-width` is added to both <html> and <body> by JS.
  */
 
 /* ── Hide the sidebar ─────────────────────────────────────── */
