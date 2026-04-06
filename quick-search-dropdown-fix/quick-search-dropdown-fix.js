@@ -4,29 +4,48 @@
         var ctTagline = document.querySelector('.ct-tagline');
         if (!qs || !ctTagline) return;
 
-        // While the user is interacting with #quick-search, temporarily
-        // pull .ct-tagline (z-index: 11) out of the way so iHomeFinder
-        // dropdown panels can render above the wave. Restores on outside click.
-
         function lowerWave()   { ctTagline.style.zIndex = '0'; }
         function restoreWave() { ctTagline.style.zIndex = ''; }
 
-        // Use mousedown (fires before click) to flag that the upcoming
-        // click is inside #quick-search. This lets iHomeFinder's own
-        // click handlers receive the event unmodified — no stopPropagation.
-        var clickedInside = false;
-
-        qs.addEventListener('mousedown', function () {
-            clickedInside = true;
-        });
-
-        document.addEventListener('click', function () {
-            if (clickedInside) {
-                lowerWave();
-                clickedInside = false;
-            } else {
-                restoreWave();
+        // Walk #quick-search children to find the iHomeFinder shadow root
+        function findShadowRoot() {
+            var els = qs.querySelectorAll('*');
+            for (var i = 0; i < els.length; i++) {
+                if (els[i].shadowRoot) return els[i].shadowRoot;
             }
-        });
+            return null;
+        }
+
+        function attachObserver(sr) {
+            var observer = new MutationObserver(function () {
+                // iHomeFinder sets aria-expanded="true" on the trigger button
+                // when a dropdown is open
+                var isOpen = !!sr.querySelector('[aria-expanded="true"]');
+                if (isOpen) {
+                    lowerWave();
+                } else {
+                    restoreWave();
+                }
+            });
+
+            observer.observe(sr, {
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['aria-expanded', 'class'],
+                childList: true,
+            });
+        }
+
+        // iHomeFinder renders asynchronously — poll until the shadow root exists
+        function init() {
+            var sr = findShadowRoot();
+            if (sr) {
+                attachObserver(sr);
+            } else {
+                setTimeout(init, 150);
+            }
+        }
+
+        init();
     });
 })();
