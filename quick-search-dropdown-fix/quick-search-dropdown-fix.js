@@ -1,10 +1,22 @@
 (function () {
+    function raiseBodyPortals() {
+        // Raise any direct body children that are positioned —
+        // these are iHomeFinder React portal containers
+        var children = document.body.children;
+        for (var i = 0; i < children.length; i++) {
+            var el = children[i];
+            var pos = window.getComputedStyle(el).position;
+            if (pos === 'fixed' || pos === 'absolute') {
+                el.style.zIndex = '99999';
+            }
+        }
+    }
+
     function init() {
         var qs = document.getElementById('quick-search');
         if (!qs) return;
 
-        // 1. Raise the iHomeFinder shadow host so its stacking context
-        //    sits above .c-wrap (which is inside #slideshow z-index:1)
+        // 1. Raise the iHomeFinder shadow host
         var els = qs.querySelectorAll('*');
         for (var i = 0; i < els.length; i++) {
             if (els[i].shadowRoot) {
@@ -14,19 +26,18 @@
             }
         }
 
-        // 2. Watch document.body for React portal containers —
-        //    the price dropdown renders outside the shadow DOM into body
-        var bodyObserver = new MutationObserver(function (mutations) {
-            mutations.forEach(function (m) {
-                m.addedNodes.forEach(function (node) {
-                    if (node.nodeType === 1) {
-                        node.style.zIndex = '99999';
-                        node.style.position = node.style.position || 'relative';
-                    }
-                });
-            });
+        // 2. Raise any portal containers already in the DOM
+        raiseBodyPortals();
+
+        // 3. Watch for new portal containers added to body
+        //    AND for existing ones getting content (subtree changes)
+        var observer = new MutationObserver(raiseBodyPortals);
+        observer.observe(document.body, {
+            childList:  true,
+            subtree:    true,
+            attributes: true,
+            attributeFilter: ['style', 'class'],
         });
-        bodyObserver.observe(document.body, { childList: true });
     }
 
     if (document.readyState === 'loading') {
