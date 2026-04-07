@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Quick Search Dropdown Fix
- * Description: Fixes iHomeFinder dropdown menus appearing behind the theme's .c-wrap wave. Raises the iHF shadow host and watches for React portal containers via JS. Wave design preserved.
+ * Description: Fixes iHomeFinder dropdown menus appearing behind the theme's .c-wrap wave. Wave design preserved.
  * Version: 4.6.0
  */
 
