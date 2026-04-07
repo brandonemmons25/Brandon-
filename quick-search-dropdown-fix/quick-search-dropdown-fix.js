@@ -10,51 +10,86 @@
         }
         if (!sr) { setTimeout(init, 200); return; }
 
-        // Inject helper class into shadow root
+        // Inject helper style into shadow root
         var style = document.createElement('style');
-        style.textContent = '.qs-fixed { position: fixed !important; z-index: 999999 !important; margin: 0 !important; }';
+        style.textContent = [
+            '.qs-fixed {',
+            '  position: fixed !important;',
+            '  z-index: 2147483647 !important;',
+            '  margin: 0 !important;',
+            '  top: auto;',
+            '  left: auto;',
+            '}'
+        ].join('\n');
         sr.appendChild(style);
 
-        var SELECTOR = '[class*="quick-search-price"] > button,'
-                     + '[class*="quick-search-bed-bath"] > button,'
-                     + '[class*="quick-search-property-type"] > button';
+        var PANEL_SELECTOR = '[class*="quick-search-price"] > [class*="MuiPaper"],'
+                           + '[class*="quick-search-bed-bath"] > [class*="MuiPaper"],'
+                           + '[class*="quick-search-property-type"] > [class*="MuiPaper"]';
 
-        function applyFixed(btn, panel) {
+        var BTN_SELECTOR = '[class*="quick-search-price"] > button,'
+                         + '[class*="quick-search-bed-bath"] > button,'
+                         + '[class*="quick-search-property-type"] > button';
+
+        function positionPanel(panel) {
+            // Find the sibling button
+            var btn = panel.previousElementSibling;
+            if (!btn || btn.tagName.toLowerCase() !== 'button') {
+                // Try parent's button child
+                btn = panel.parentElement && panel.parentElement.querySelector('button');
+            }
+            if (!btn) return;
             var rect = btn.getBoundingClientRect();
             panel.classList.add('qs-fixed');
-            panel.style.top  = rect.bottom + 'px';
-            panel.style.left = rect.left   + 'px';
+            panel.style.top  = (rect.bottom + window.scrollY) + 'px';
+            panel.style.left = rect.left + 'px';
+            panel.style.width = '';
         }
 
         function clearFixed() {
             sr.querySelectorAll('.qs-fixed').forEach(function (el) {
                 el.classList.remove('qs-fixed');
-                el.style.top = el.style.left = '';
+                el.style.top = '';
+                el.style.left = '';
             });
         }
 
-        function refresh() {
-            clearFixed();
-            sr.querySelectorAll(SELECTOR).forEach(function (btn) {
-                var panel = btn.nextElementSibling;
-                if (panel) applyFixed(btn, panel);
+        // Watch the shadow root for panels being added (React conditional render)
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (m) {
+                m.addedNodes.forEach(function (node) {
+                    if (node.nodeType !== 1) return;
+                    // Check if it's a panel or contains a panel
+                    if (node.matches && node.matches('[class*="MuiPaper"]')) {
+                        positionPanel(node);
+                    } else if (node.querySelectorAll) {
+                        node.querySelectorAll('[class*="MuiPaper"]').forEach(positionPanel);
+                    }
+                });
+                m.removedNodes.forEach(function (node) {
+                    if (node.nodeType !== 1) return;
+                    // When a panel is removed, clean up any lingering fixed panels
+                    // (not strictly needed but keeps things tidy)
+                });
             });
-        }
-
-        // shadowHost is a regular light-DOM element — click events
-        // from inside the shadow DOM bubble out to it reliably
-        shadowHost.addEventListener('click', function () {
-            setTimeout(refresh, 80);
         });
 
+        observer.observe(sr, { childList: true, subtree: true });
+
+        // Also apply to any panels already open when the page loads
+        sr.querySelectorAll(PANEL_SELECTOR).forEach(positionPanel);
+
+        // Close dropdowns when clicking outside quick-search
         document.addEventListener('click', function (e) {
-            if (!qs.contains(e.target)) clearFixed();
+            if (!qs.contains(e.target) && !shadowHost.contains(e.target)) {
+                clearFixed();
+            }
         });
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 400); });
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 500); });
     } else {
-        setTimeout(init, 400);
+        setTimeout(init, 500);
     }
 })();
