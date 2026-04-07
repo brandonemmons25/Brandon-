@@ -1,0 +1,27 @@
+name: Build Plugin Zip
+
+on:
+  push:
+    branches:
+      - 'claude/ihomefinder-full-width-f3SfX'
+    paths:
+      - 'quick-search-dropdown-fix/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create zip
+        run: zip -r quick-search-dropdown-fix.zip quick-search-dropdown-fix/
+
+      - name: Commit zip
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add quick-search-dropdown-fix.zip
+          git diff --staged --quiet || git commit -m "Auto-build: update quick-search-dropdown-fix.zip"
+          git push
