@@ -1,8 +1,20 @@
 /*
  * Quick Search Dropdown Fix
  *
- * No CSS changes needed — the fix is handled entirely in JS.
- * .ct-tagline (z-index: 11) is temporarily lowered to z-index: 0
- * while the user interacts with #quick-search, then restored on
- * outside click. See quick-search-dropdown-fix.js.
+ * Problem: .ct-tagline inside .c-wrap has z-index: 11, creating a
+ * stacking context that sits above #quick-search. iHomeFinder dropdown
+ * panels (rendered in a shadow DOM inside #quick-search) appear behind it.
+ *
+ * Fix: Remove .ct-tagline from the stacking race by setting z-index: auto.
+ * It no longer creates a stacking context, so #quick-search (position: relative,
+ * later in the DOM) naturally stacks above it. The wave visual is unaffected
+ * since the wave shape comes from .c-wrap, not .ct-tagline.
  */
+
+.ct-tagline {
+    z-index: auto !important;
+}
+
+#quick-search {
+    position: relative;
+}
