@@ -10,8 +10,6 @@
         }
         if (!sr) { setTimeout(init, 200); return; }
 
-        // Inject z-index into the shadow root so panels beat .c-wrap (z-index:999)
-        // inside #slideshow. We do NOT change position — panels stay where React puts them.
         var style = document.createElement('style');
         style.textContent = [
             '[class*="quick-search-price"] > [class*="MuiPaper"],',
