@@ -1,5 +1,20 @@
 /*
- * Quick Search Dropdown Fix v4.0
- * No z-index overrides — dropdown panels are moved to position:fixed
- * via shadow root injection so they escape all stacking contexts.
+ * Raise #slideshow above its siblings (wave section, sections below).
+ * Dropdowns live inside #slideshow — they can only paint above sibling
+ * sections if #slideshow itself has a higher stacking context.
+ *
+ * overflow:visible ensures the panel isn't clipped at #slideshow's edge.
  */
+#slideshow {
+    z-index: 9999 !important;
+    overflow: visible !important;
+}
+
+/*
+ * Give the quick-search container its own stacking context so its shadow DOM
+ * panels beat the internal .c-wrap (z-index:999) inside #slideshow.
+ */
+#quick-search {
+    position: relative !important;
+    z-index: 10000 !important;
+}
