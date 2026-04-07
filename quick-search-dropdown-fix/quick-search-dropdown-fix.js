@@ -3,7 +3,6 @@
         var qs = document.getElementById('quick-search');
         if (!qs) return;
 
-        // Find the iHomeFinder shadow root
         var sr = null;
         var els = qs.querySelectorAll('*');
         for (var i = 0; i < els.length; i++) {
@@ -11,65 +10,64 @@
         }
         if (!sr) { setTimeout(init, 200); return; }
 
-        // Only the three real dropdown trigger buttons (confirmed by console diagnostics)
-        var SELECTOR = '[class*="quick-search-price"] > button,'
-                     + '[class*="quick-search-bed-bath"] > button,'
-                     + '[class*="quick-search-property-type"] > button';
-
-        var triggers = Array.from(sr.querySelectorAll(SELECTOR));
-        if (!triggers.length) { setTimeout(init, 200); return; }
-
         // Inject helper class into shadow root
         var style = document.createElement('style');
         style.textContent = '.qs-fixed { position: fixed !important; z-index: 999999 !important; margin: 0 !important; }';
         sr.appendChild(style);
 
-        // Track which buttons currently have open panels
-        var openSet = new Set();
-
-        function getPanel(btn) { return btn.nextElementSibling; }
+        var openBtn = null;
 
         function applyFixed(btn) {
-            var panel = getPanel(btn);
+            var panel = btn.nextElementSibling;
             if (!panel) return;
             var rect = btn.getBoundingClientRect();
             panel.classList.add('qs-fixed');
             panel.style.top  = rect.bottom + 'px';
             panel.style.left = rect.left   + 'px';
-            openSet.add(btn);
+            openBtn = btn;
         }
 
-        function removeFixed(btn) {
-            var panel = getPanel(btn);
-            if (!panel) return;
-            panel.classList.remove('qs-fixed');
-            panel.style.top = panel.style.left = '';
-            openSet.delete(btn);
+        function closeFixed() {
+            if (openBtn) {
+                var panel = openBtn.nextElementSibling;
+                if (panel) {
+                    panel.classList.remove('qs-fixed');
+                    panel.style.top = panel.style.left = '';
+                }
+                openBtn = null;
+            }
         }
 
-        triggers.forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var wasOpen = openSet.has(btn);
+        // Is this button one of the three dropdown triggers?
+        function isTrigger(btn) {
+            var c = btn.parentElement ? btn.parentElement.className : '';
+            return c.indexOf('quick-search-price')         !== -1 ||
+                   c.indexOf('quick-search-bed-bath')      !== -1 ||
+                   c.indexOf('quick-search-property-type') !== -1;
+        }
 
-                // iHomeFinder closes other dropdowns when one opens — mirror that
-                triggers.forEach(function (b) { if (b !== btn) removeFixed(b); });
+        // Delegate on the shadow ROOT — survives React re-renders of child buttons
+        sr.addEventListener('click', function (e) {
+            var el = e.target, triggerBtn = null;
+            while (el && el !== sr) {
+                if (el.tagName === 'BUTTON' && isTrigger(el)) { triggerBtn = el; break; }
+                el = el.parentElement;
+            }
+            if (!triggerBtn) return;
 
-                // Wait for iHF to update its own DOM, then sync fixed state
-                setTimeout(function () {
-                    if (wasOpen) {
-                        removeFixed(btn);   // was open → iHF closed it
-                    } else {
-                        applyFixed(btn);    // was closed → iHF opened it
-                    }
-                }, 50);
-            });
+            closeFixed(); // always close current panel first
+
+            // React renders the panel ~1 frame after the click
+            setTimeout(function () {
+                if (triggerBtn.nextElementSibling) {
+                    applyFixed(triggerBtn);
+                }
+            }, 80);
         });
 
-        // Close all when clicking outside the search widget
+        // Close when clicking outside the search widget
         document.addEventListener('click', function (e) {
-            if (!qs.contains(e.target)) {
-                triggers.forEach(removeFixed);
-            }
+            if (!qs.contains(e.target)) closeFixed();
         });
     }
 
