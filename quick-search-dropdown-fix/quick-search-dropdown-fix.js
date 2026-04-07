@@ -12,79 +12,66 @@
 
         // Inject helper style into shadow root
         var style = document.createElement('style');
-        style.textContent = [
-            '.qs-fixed {',
-            '  position: fixed !important;',
-            '  z-index: 2147483647 !important;',
-            '  margin: 0 !important;',
-            '  top: auto;',
-            '  left: auto;',
-            '}'
-        ].join('\n');
+        style.textContent = '.qs-fixed { position: fixed !important; z-index: 2147483647 !important; margin: 0 !important; }';
         sr.appendChild(style);
 
-        var PANEL_SELECTOR = '[class*="quick-search-price"] > [class*="MuiPaper"],'
-                           + '[class*="quick-search-bed-bath"] > [class*="MuiPaper"],'
-                           + '[class*="quick-search-property-type"] > [class*="MuiPaper"]';
+        // Matches a dropdown container class
+        function isDropdownContainer(el) {
+            var cls = el.className || '';
+            return cls.indexOf('quick-search-price')         !== -1 ||
+                   cls.indexOf('quick-search-bed-bath')      !== -1 ||
+                   cls.indexOf('quick-search-property-type') !== -1;
+        }
 
-        var BTN_SELECTOR = '[class*="quick-search-price"] > button,'
-                         + '[class*="quick-search-bed-bath"] > button,'
-                         + '[class*="quick-search-property-type"] > button';
+        // Given a panel (MuiPaper), find its sibling button via the shared parent container
+        function findBtn(panel) {
+            // Walk up to the dropdown container
+            var el = panel;
+            while (el && el !== sr) {
+                if (isDropdownContainer(el)) {
+                    return el.querySelector('button');
+                }
+                el = el.parentElement;
+            }
+            return null;
+        }
 
         function positionPanel(panel) {
-            // Find the sibling button
-            var btn = panel.previousElementSibling;
-            if (!btn || btn.tagName.toLowerCase() !== 'button') {
-                // Try parent's button child
-                btn = panel.parentElement && panel.parentElement.querySelector('button');
-            }
+            var btn = findBtn(panel);
             if (!btn) return;
             var rect = btn.getBoundingClientRect();
+            if (!rect.width) return; // not laid out yet
             panel.classList.add('qs-fixed');
-            panel.style.top  = (rect.bottom + window.scrollY) + 'px';
-            panel.style.left = rect.left + 'px';
-            panel.style.width = '';
+            // position: fixed uses VIEWPORT coords — do NOT add scrollY
+            panel.style.top  = rect.bottom + 'px';
+            panel.style.left = rect.left   + 'px';
         }
 
-        function clearFixed() {
-            sr.querySelectorAll('.qs-fixed').forEach(function (el) {
-                el.classList.remove('qs-fixed');
-                el.style.top = '';
-                el.style.left = '';
+        // Selector for open panels (direct child of dropdown container)
+        var PANEL_SEL = '[class*="quick-search-price"] > [class*="MuiPaper"],'
+                      + '[class*="quick-search-bed-bath"] > [class*="MuiPaper"],'
+                      + '[class*="quick-search-property-type"] > [class*="MuiPaper"]';
+
+        function applyAll() {
+            sr.querySelectorAll(PANEL_SEL).forEach(function (panel) {
+                if (!panel.classList.contains('qs-fixed')) {
+                    positionPanel(panel);
+                }
             });
         }
 
-        // Watch the shadow root for panels being added (React conditional render)
-        var observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (m) {
-                m.addedNodes.forEach(function (node) {
-                    if (node.nodeType !== 1) return;
-                    // Check if it's a panel or contains a panel
-                    if (node.matches && node.matches('[class*="MuiPaper"]')) {
-                        positionPanel(node);
-                    } else if (node.querySelectorAll) {
-                        node.querySelectorAll('[class*="MuiPaper"]').forEach(positionPanel);
-                    }
-                });
-                m.removedNodes.forEach(function (node) {
-                    if (node.nodeType !== 1) return;
-                    // When a panel is removed, clean up any lingering fixed panels
-                    // (not strictly needed but keeps things tidy)
-                });
-            });
+        // MutationObserver: React adds/removes panels (conditional render)
+        var observer = new MutationObserver(function () {
+            // Let React finish its render cycle, then position
+            requestAnimationFrame(applyAll);
         });
-
         observer.observe(sr, { childList: true, subtree: true });
 
-        // Also apply to any panels already open when the page loads
-        sr.querySelectorAll(PANEL_SELECTOR).forEach(positionPanel);
+        // Polling fallback — catches anything the observer misses
+        setInterval(applyAll, 150);
 
-        // Close dropdowns when clicking outside quick-search
-        document.addEventListener('click', function (e) {
-            if (!qs.contains(e.target) && !shadowHost.contains(e.target)) {
-                clearFixed();
-            }
-        });
+        // Apply to any panels already in DOM on load
+        applyAll();
     }
 
     if (document.readyState === 'loading') {
