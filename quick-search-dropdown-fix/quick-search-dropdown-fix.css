@@ -1,20 +1,10 @@
 /*
- * Quick Search Dropdown Fix
- *
- * Problem: .ct-tagline inside .c-wrap has z-index: 11, creating a
- * stacking context that sits above #quick-search. iHomeFinder dropdown
- * panels (rendered in a shadow DOM inside #quick-search) appear behind it.
- *
- * Fix: Remove .ct-tagline from the stacking race by setting z-index: auto.
- * It no longer creates a stacking context, so #quick-search (position: relative,
- * later in the DOM) naturally stacks above it. The wave visual is unaffected
- * since the wave shape comes from .c-wrap, not .ct-tagline.
+ * Quick Search Dropdown Fix v3.0
+ * CSS targets .c-wrap directly since it's z-index:999 inside #slideshow.
+ * JS raises the shadow host element that contains the iHF widget.
  */
 
-.ct-tagline {
-    z-index: auto !important;
-}
-
-#quick-search {
-    position: relative;
+/* Lower .c-wrap so #quick-search (z-index:99) beats it */
+.c-wrap {
+    z-index: 1 !important;
 }
