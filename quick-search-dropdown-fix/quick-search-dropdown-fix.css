@@ -1,5 +1,10 @@
 /*
- * Quick Search Dropdown Fix v3.1
- * CSS only restores nothing — wave fix is handled in JS.
- * (Removed .c-wrap override that was breaking the wave design.)
+ * Quick Search Dropdown Fix v3.3
+ *
+ * #quick-search is already z-index:99 and #slideshow is z-index:1,
+ * so #quick-search should paint above .c-wrap (z-index:999 within slideshow).
+ * Bumping to 99999 ensures no edge-case compositing issue beats it.
  */
+#quick-search {
+    z-index: 99999 !important;
+}
