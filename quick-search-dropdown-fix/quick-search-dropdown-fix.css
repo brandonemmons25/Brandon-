@@ -1,14 +1,5 @@
 /*
- * Quick Search Dropdown Fix v3.3
- *
- * #quick-search is inside #slideshow (z-index:1). The wave (.c-wrap)
- * has z-index:999 within that same stacking context, beating
- * #quick-search (z-index:99) and its shadow DOM dropdown panels.
- *
- * Fix: raise #quick-search to 99999 so it and all its shadow DOM
- * content paint above .c-wrap. Wave design is visually unaffected
- * because #quick-search has no background covering the wave area.
+ * Quick Search Dropdown Fix v4.0
+ * No z-index overrides — dropdown panels are moved to position:fixed
+ * via shadow root injection so they escape all stacking contexts.
  */
-#quick-search {
-    z-index: 99999 !important;
-}
