@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Quick Search Dropdown Fix
- * Description: Fixes iHomeFinder dropdown menus appearing behind the theme's .c-wrap wave (z-index:999). Lowers .c-wrap via CSS and raises the iHF shadow host via JS.
- * Version: 3.0.0
+ * Description: Fixes iHomeFinder dropdown menus appearing behind the theme's .c-wrap wave. Raises the iHF shadow host and watches for React portal containers via JS. Wave design preserved.
+ * Version: 3.1.0
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -14,14 +14,14 @@ function qsdf_enqueue_assets() {
         'quick-search-dropdown-fix',
         plugin_dir_url( __FILE__ ) . 'quick-search-dropdown-fix.css',
         array(),
-        '3.0.0'
+        '3.1.0'
     );
 
     wp_enqueue_script(
         'quick-search-dropdown-fix',
         plugin_dir_url( __FILE__ ) . 'quick-search-dropdown-fix.js',
         array(),
-        '3.0.0',
+        '3.1.0',
         true
     );
 }

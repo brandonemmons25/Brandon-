@@ -1,10 +1,5 @@
 /*
- * Quick Search Dropdown Fix v3.0
- * CSS targets .c-wrap directly since it's z-index:999 inside #slideshow.
- * JS raises the shadow host element that contains the iHF widget.
+ * Quick Search Dropdown Fix v3.1
+ * CSS only restores nothing — wave fix is handled in JS.
+ * (Removed .c-wrap override that was breaking the wave design.)
  */
-
-/* Lower .c-wrap so #quick-search (z-index:99) beats it */
-.c-wrap {
-    z-index: 1 !important;
-}
