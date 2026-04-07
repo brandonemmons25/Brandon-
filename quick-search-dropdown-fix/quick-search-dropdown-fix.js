@@ -3,10 +3,10 @@
         var qs = document.getElementById('quick-search');
         if (!qs) return;
 
-        var sr = null;
+        var shadowHost = null, sr = null;
         var els = qs.querySelectorAll('*');
         for (var i = 0; i < els.length; i++) {
-            if (els[i].shadowRoot) { sr = els[i].shadowRoot; break; }
+            if (els[i].shadowRoot) { shadowHost = els[i]; sr = els[i].shadowRoot; break; }
         }
         if (!sr) { setTimeout(init, 200); return; }
 
@@ -15,59 +15,40 @@
         style.textContent = '.qs-fixed { position: fixed !important; z-index: 999999 !important; margin: 0 !important; }';
         sr.appendChild(style);
 
-        var openBtn = null;
+        var SELECTOR = '[class*="quick-search-price"] > button,'
+                     + '[class*="quick-search-bed-bath"] > button,'
+                     + '[class*="quick-search-property-type"] > button';
 
-        function applyFixed(btn) {
-            var panel = btn.nextElementSibling;
-            if (!panel) return;
+        function applyFixed(btn, panel) {
             var rect = btn.getBoundingClientRect();
             panel.classList.add('qs-fixed');
             panel.style.top  = rect.bottom + 'px';
             panel.style.left = rect.left   + 'px';
-            openBtn = btn;
         }
 
-        function closeFixed() {
-            if (openBtn) {
-                var panel = openBtn.nextElementSibling;
-                if (panel) {
-                    panel.classList.remove('qs-fixed');
-                    panel.style.top = panel.style.left = '';
-                }
-                openBtn = null;
-            }
+        function clearFixed() {
+            sr.querySelectorAll('.qs-fixed').forEach(function (el) {
+                el.classList.remove('qs-fixed');
+                el.style.top = el.style.left = '';
+            });
         }
 
-        // Is this button one of the three dropdown triggers?
-        function isTrigger(btn) {
-            var c = btn.parentElement ? btn.parentElement.className : '';
-            return c.indexOf('quick-search-price')         !== -1 ||
-                   c.indexOf('quick-search-bed-bath')      !== -1 ||
-                   c.indexOf('quick-search-property-type') !== -1;
+        function refresh() {
+            clearFixed();
+            sr.querySelectorAll(SELECTOR).forEach(function (btn) {
+                var panel = btn.nextElementSibling;
+                if (panel) applyFixed(btn, panel);
+            });
         }
 
-        // Delegate on the shadow ROOT — survives React re-renders of child buttons
-        sr.addEventListener('click', function (e) {
-            var el = e.target, triggerBtn = null;
-            while (el && el !== sr) {
-                if (el.tagName === 'BUTTON' && isTrigger(el)) { triggerBtn = el; break; }
-                el = el.parentElement;
-            }
-            if (!triggerBtn) return;
-
-            closeFixed(); // always close current panel first
-
-            // React renders the panel ~1 frame after the click
-            setTimeout(function () {
-                if (triggerBtn.nextElementSibling) {
-                    applyFixed(triggerBtn);
-                }
-            }, 80);
+        // shadowHost is a regular light-DOM element — click events
+        // from inside the shadow DOM bubble out to it reliably
+        shadowHost.addEventListener('click', function () {
+            setTimeout(refresh, 80);
         });
 
-        // Close when clicking outside the search widget
         document.addEventListener('click', function (e) {
-            if (!qs.contains(e.target)) closeFixed();
+            if (!qs.contains(e.target)) clearFixed();
         });
     }
 
