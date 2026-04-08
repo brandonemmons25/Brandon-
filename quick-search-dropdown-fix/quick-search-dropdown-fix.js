@@ -15,8 +15,8 @@
             '[class*="quick-search-price"] > [class*="MuiPaper"],',
             '[class*="quick-search-bed-bath"] > [class*="MuiPaper"],',
             '[class*="quick-search-property-type"] > [class*="MuiPaper"] {',
+            '  position: fixed !important;',
             '  z-index: 2147483647 !important;',
-            '  position: relative !important;',
             '}'
         ].join('\n');
         sr.appendChild(style);

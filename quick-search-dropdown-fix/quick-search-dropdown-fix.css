@@ -1,15 +1,6 @@
 /*
- * Raise #slideshow just enough to beat the sections below it (z-index:11).
- * Do NOT use overflow:visible — that caused the search bar to escape the
- * slideshow bounds and cover the site header.
- */
-#slideshow {
-    z-index: 20 !important;
-}
-
-/*
- * Give #quick-search its own stacking context to beat .c-wrap (z-index:999)
- * which is inside #slideshow.
+ * Give #quick-search its own stacking context so the shadow-DOM panels
+ * (which use position:fixed) are not clipped by ancestor overflow rules.
  */
 #quick-search {
     position: relative !important;
