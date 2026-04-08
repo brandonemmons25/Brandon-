@@ -464,17 +464,26 @@ add_action( 'wp_enqueue_scripts', function () {
    ========================================================================= */
 
 function ss_get_sections() {
+    // Use a named meta_query clause for ordering so WordPress issues a LEFT JOIN
+    // instead of an INNER JOIN. An INNER JOIN (caused by top-level meta_key) would
+    // silently exclude any section that has no _ss_order value, which is why only
+    // a subset of sections was appearing on the front page.
     return new WP_Query( array(
         'post_type'      => 'scroll_section',
         'posts_per_page' => 50,
         'post_status'    => 'publish',
-        'orderby'        => 'meta_value_num',
-        'meta_key'       => '_ss_order',
-        'order'          => 'ASC',
+        'orderby'        => array( 'order_clause' => 'ASC', 'date' => 'ASC' ),
         'meta_query'     => array(
-            'relation' => 'OR',
-            array( 'key' => '_ss_order', 'compare' => 'EXISTS' ),
-            array( 'key' => '_ss_order', 'compare' => 'NOT EXISTS' ),
+            'relation'    => 'OR',
+            'order_clause' => array(
+                'key'     => '_ss_order',
+                'type'    => 'NUMERIC',
+                'compare' => 'EXISTS',
+            ),
+            array(
+                'key'     => '_ss_order',
+                'compare' => 'NOT EXISTS',
+            ),
         ),
     ) );
 }
