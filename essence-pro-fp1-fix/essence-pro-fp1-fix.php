@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Essence Pro – Front Page 1 Widget Fix
  * Description: Ensures all three Featured Page widgets display correctly in the Front Page 1 widget area of the Essence Pro theme.
- * Version:     1.0.0
+ * Version:     1.1.0
  * Author:      Brandon
  */
 
@@ -10,27 +10,23 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
  * Problem: Essence Pro's essence_widget_area_class() calls essence_count_widgets(),
- * which uses wp_get_sidebars_widgets() to count how many widgets are registered in
- * a sidebar. If the stored option contains stale or ghost entries the count can come
- * back as 2 rather than 3, causing essence_widget_area_class() to return
- * 'widget-halves' (2-column float layout) instead of 'widget-thirds' (3-column).
- * With a 2-column layout and 3 actual widgets, the third widget wraps onto a second
- * row that is either clipped or never rendered visibly.
+ * which uses wp_get_sidebars_widgets() to count widgets. If the count comes back as 2
+ * the function returns 'widget-halves' (2-column float layout) instead of 'widget-thirds'
+ * (3-column). The third widget still renders but wraps onto a second row.
  *
- * Fix 1 – PHP: Filter sidebars_widgets so empty/falsy entries are stripped from
- *   front-page-1 before Essence Pro counts them, guaranteeing an accurate count.
+ * Fix 1 – PHP: Strip ghost/empty entries from front-page-1 before the count runs.
  *
- * Fix 2 – CSS: Convert the front-page-1 flexible-widgets wrapper to flexbox so the
- *   three-column layout is enforced at the browser level regardless of float math.
+ * Fix 2 – CSS: Override only the float widths for #front-page-1 so three widgets always
+ *   sit in one row, matching Essence Pro's own float-based grid math (31% + 3.5% gap).
+ *   No flexbox — keeps all internal widget markup (title position, image, etc.) intact.
  */
 
 /* -------------------------------------------------------------------------
-   Fix 1: Strip ghost/empty entries from front-page-1 widget list
+   Fix 1: Ensure the widget count for front-page-1 is accurate
    ------------------------------------------------------------------------- */
 
 add_filter( 'sidebars_widgets', function ( $sidebars_widgets ) {
 	if ( ! empty( $sidebars_widgets['front-page-1'] ) && is_array( $sidebars_widgets['front-page-1'] ) ) {
-		// Remove any falsy / empty values that would throw off the widget count.
 		$sidebars_widgets['front-page-1'] = array_values(
 			array_filter( $sidebars_widgets['front-page-1'] )
 		);
@@ -39,31 +35,37 @@ add_filter( 'sidebars_widgets', function ( $sidebars_widgets ) {
 } );
 
 /* -------------------------------------------------------------------------
-   Fix 2: Override the float-based layout with flexbox for front-page-1 so
-   all three widgets always line up in one row regardless of the CSS class
-   that Essence Pro calculates.
+   Fix 2: Force 3-column float layout for Front Page 1
+   Uses the same float + width values as Essence Pro's .widget-thirds rule
+   so the rest of the theme's CSS (padding, backgrounds, etc.) still matches.
    ------------------------------------------------------------------------- */
 
 add_action( 'wp_head', function () {
 	?>
 	<style id="ep-fp1-fix">
-		/* Force the three Featured Page widgets into a proper three-column row. */
-		#front-page-1 .flexible-widgets {
-			display: flex !important;
-			flex-wrap: wrap !important;
-		}
-
-		/* Each widget takes an equal share of the row. */
 		#front-page-1 .flexible-widgets .widget {
-			flex: 1 1 calc(33.333% - 3.5%) !important;
-			float: none !important;
-			min-width: 0;
+			float: left;
+			margin-left: 3.5%;
+			width: 31%;
 		}
 
-		/* Stack to full width on small screens (matches Essence Pro breakpoint). */
+		#front-page-1 .flexible-widgets .widget:nth-child(3n+1) {
+			clear: left;
+			margin-left: 0;
+		}
+
+		/* Clearfix so the wrapper expands around the floated widgets */
+		#front-page-1 .wrap::after {
+			content: "";
+			display: table;
+			clear: both;
+		}
+
 		@media (max-width: 768px) {
 			#front-page-1 .flexible-widgets .widget {
-				flex: 1 1 100% !important;
+				float: none;
+				margin-left: 0;
+				width: 100%;
 			}
 		}
 	</style>
