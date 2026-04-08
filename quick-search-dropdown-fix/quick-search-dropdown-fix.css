@@ -1,9 +1,11 @@
 /*
- * Give #quick-search its own stacking context so it can beat the wave
- * (.c-wrap z-index:999) which is inside #slideshow.
- * No changes to #slideshow — transforms there break the hero layout.
+ * Raise #quick-search's stacking context so its shadow-DOM dropdown panels
+ * paint above .c-wrap (the wave, z-index:999).
+ *
+ * Do NOT override position — the theme uses position:absolute to overlay
+ * the search form on the hero image; overriding it displaces the widget.
+ * z-index works here because #quick-search already has a non-static position.
  */
 #quick-search {
-    position: relative !important;
     z-index: 1000 !important;
 }
