@@ -1,58 +1,61 @@
 /**
  * Quick Search Dropdown Fix
  *
- * iHomeFinder's React app runs inside an open shadow root.  The Price /
- * Beds-Baths / Property-Type dropdowns open as React portals appended to
- * document.body (standard MUI behaviour).  Those portals have z-index:1300
- * by default, which loses to the wave element (.c-wrap, z-index:999 inside
- * #slideshow whose stacking context sits at z-index:50 in the root).
+ * iHomeFinder dropdown panels (Price, Beds/Baths, Property Type, Location)
+ * are React/MUI components that portal to document.body.  They land with
+ * z-index:1300 (MUI default) which loses to the wave (.c-wrap, inside
+ * #slideshow) and to the content sections below.
  *
- * Key bug in earlier versions: we set el.style.zIndex = Z (no !important).
- * React reconciles and writes z-index:1300 back, overriding our value.
- * Fix: use el.style.setProperty('z-index', Z, 'important').
- * Inline !important beats React's non-!important inline style permanently.
- *
- * We also inject a stylesheet into the shadow root so any panels that
- * stay inside the shadow DOM (not portalled) also get z-index:max.
+ * Strategy:
+ *  1. Use document.querySelectorAll to find ALL MUI overlay elements in the
+ *     main document (works even if they are nested inside a portal wrapper).
+ *  2. Apply z-index:MAX via setProperty('important') — React's plain
+ *     el.style.zIndex assignments cannot override inline !important.
+ *  3. Watch the whole body subtree so we catch elements the moment they
+ *     are added or mutated by React.
+ *  4. Inject a stylesheet into the shadow root as a belt-and-suspenders
+ *     fallback for any panels that stay inside the shadow DOM.
  */
 (function () {
     'use strict';
 
     var Z = '2147483647';
 
-    /* ── Raise portal containers that land in document.body ─────────────── */
+    /* Selectors for every MUI overlay component */
+    var MUI_SEL = [
+        '[class*="MuiPopper-root"]',
+        '[class*="MuiPopover-root"]',
+        '[class*="MuiMenu-root"]',
+        '[class*="MuiAutocomplete-popper"]',
+        '[class*="MuiModal-root"]'
+    ].join(',');
 
-    function raiseEl(el) {
-        var pos = window.getComputedStyle(el).position;
-        if (pos === 'fixed' || pos === 'absolute') {
-            /* setProperty with 'important' cannot be overridden by
-               React's plain el.style.zIndex = '1300' assignment */
-            el.style.setProperty('z-index', Z, 'important');
+    /* ── Raise all MUI overlays found anywhere in the main document ──────── */
+    function raiseAll() {
+        var els = document.querySelectorAll(MUI_SEL);
+        for (var i = 0; i < els.length; i++) {
+            els[i].style.setProperty('z-index', Z, 'important');
         }
-    }
 
-    function raiseBodyPortals() {
+        /* Belt-and-suspenders: also raise any positioned direct body child
+           that might not carry a MUI class (e.g. custom portal wrappers) */
         var kids = document.body.children;
-        for (var i = 0; i < kids.length; i++) {
-            raiseEl(kids[i]);
+        for (var j = 0; j < kids.length; j++) {
+            var pos = window.getComputedStyle(kids[j]).position;
+            if (pos === 'fixed' || pos === 'absolute') {
+                kids[j].style.setProperty('z-index', Z, 'important');
+            }
         }
     }
 
-    /* ── Inject stylesheet into the shadow root ──────────────────────────── */
-
+    /* ── Inject stylesheet into shadow root ──────────────────────────────── */
     function initShadow(sr) {
         if (sr.querySelector('#qs-fix-style')) return;
-
         var style = document.createElement('style');
         style.id  = 'qs-fix-style';
-        /*
-         * stylesheet !important beats React's non-!important inline styles.
-         * Targets all MUI overlay components regardless of exact class name.
-         */
         style.textContent = [
-            '[class*="MuiPaper-root"] {',
-            '  z-index: ' + Z + ' !important;',
-            '}',
+            /* stylesheet !important beats React non-!important inline */
+            '[class*="MuiPaper-root"] { z-index: ' + Z + ' !important; }',
             '[class*="MuiPopper-root"],',
             '[class*="MuiPopover-root"],',
             '[class*="MuiMenu-root"],',
@@ -64,12 +67,10 @@
     }
 
     /* ── init ────────────────────────────────────────────────────────────── */
-
     function init() {
         var qs = document.getElementById('quick-search');
         if (!qs) { setTimeout(init, 200); return; }
 
-        /* Find shadow root */
         var sr  = null;
         var els = qs.querySelectorAll('*');
         for (var i = 0; i < els.length; i++) {
@@ -79,29 +80,23 @@
 
         initShadow(sr);
 
-        /*
-         * Watch document.body for new portal containers AND re-raise them.
-         * Also watch each existing body child for style attribute changes
-         * in case React overwrites z-index after we set it.
-         */
-        function watchChild(el) {
-            raiseEl(el);
-            new MutationObserver(function () { raiseEl(el); })
-                .observe(el, { attributes: true, attributeFilter: ['style'] });
-        }
+        /* Watch the entire body subtree — fires whenever React adds or
+           changes anything, including nested portal containers */
+        var debounce;
+        new MutationObserver(function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(raiseAll, 30);
+        }).observe(document.body, {
+            childList:  true,
+            subtree:    true,
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
 
-        /* Existing body children */
-        var kids = document.body.children;
-        for (var j = 0; j < kids.length; j++) { watchChild(kids[j]); }
+        /* Periodic fallback in case a reconcile slips past the observer */
+        setInterval(raiseAll, 300);
 
-        /* Future body children (new portals) */
-        new MutationObserver(function (mutations) {
-            mutations.forEach(function (m) {
-                m.addedNodes.forEach(function (node) {
-                    if (node.nodeType === 1) { watchChild(node); }
-                });
-            });
-        }).observe(document.body, { childList: true });
+        raiseAll();
     }
 
     if (document.readyState === 'loading') {
