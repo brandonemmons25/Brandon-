@@ -1,20 +1,17 @@
 /*
- * Raise #slideshow above its siblings (wave section, sections below).
- * Dropdowns live inside #slideshow — they can only paint above sibling
- * sections if #slideshow itself has a higher stacking context.
- *
- * overflow:visible ensures the panel isn't clipped at #slideshow's edge.
+ * Raise #slideshow just enough to beat the sections below it (z-index:11).
+ * Do NOT use overflow:visible — that caused the search bar to escape the
+ * slideshow bounds and cover the site header.
  */
 #slideshow {
-    z-index: 9999 !important;
-    overflow: visible !important;
+    z-index: 20 !important;
 }
 
 /*
- * Give the quick-search container its own stacking context so its shadow DOM
- * panels beat the internal .c-wrap (z-index:999) inside #slideshow.
+ * Give #quick-search its own stacking context to beat .c-wrap (z-index:999)
+ * which is inside #slideshow.
  */
 #quick-search {
     position: relative !important;
-    z-index: 10000 !important;
+    z-index: 1000 !important;
 }
