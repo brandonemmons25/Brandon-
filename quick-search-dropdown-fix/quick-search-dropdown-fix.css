@@ -1,4 +1,18 @@
 /*
+ * Remove any CSS transform/filter on #slideshow that would trap
+ * position:fixed children (making them fixed relative to the slideshow
+ * instead of the viewport, so they'd still paint behind the wave).
+ * translateZ(0) and will-change:transform are invisible performance hints —
+ * removing them does not change the visual appearance.
+ */
+#slideshow {
+    transform: none !important;
+    will-change: auto !important;
+    filter: none !important;
+    perspective: none !important;
+}
+
+/*
  * Give #quick-search its own stacking context so the shadow-DOM panels
  * (which use position:fixed) are not clipped by ancestor overflow rules.
  */
