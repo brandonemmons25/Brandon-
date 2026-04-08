@@ -7,21 +7,30 @@ on:
     paths:
       - 'quick-search-dropdown-fix/**'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create zip
         run: zip -r quick-search-dropdown-fix.zip quick-search-dropdown-fix/
 
-      - name: Commit zip
+      - name: Commit and push zip
         run: |
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
           git add quick-search-dropdown-fix.zip
-          git diff --staged --quiet || git commit -m "Auto-build: update quick-search-dropdown-fix.zip"
-          git push
+          git diff --staged --quiet || git commit -m "Auto-build: working plugin zip"
+          git push origin HEAD:claude/ihomefinder-full-width-f3SfX
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-search-dropdown-fix
+          path: quick-search-dropdown-fix.zip
