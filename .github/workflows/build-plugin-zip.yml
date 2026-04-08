@@ -7,18 +7,29 @@ on:
     paths:
       - 'quick-search-dropdown-fix/**'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch claude/ihomefinder-full-width-f3SfX \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/brandonemmons25/Brandon-.git repo
 
       - name: Create zip
-        run: zip -r quick-search-dropdown-fix.zip quick-search-dropdown-fix/
+        run: |
+          cd repo
+          zip -r ../quick-search-dropdown-fix.zip quick-search-dropdown-fix/
 
-      - name: Upload zip as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: quick-search-dropdown-fix
-          path: quick-search-dropdown-fix.zip
-          retention-days: 90
+      - name: Commit and push zip
+        run: |
+          cd repo
+          cp ../quick-search-dropdown-fix.zip .
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add quick-search-dropdown-fix.zip
+          git commit -m "Auto-build: real binary plugin zip" || echo "Nothing to commit"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/brandonemmons25/Brandon-.git HEAD:claude/ihomefinder-full-width-f3SfX
