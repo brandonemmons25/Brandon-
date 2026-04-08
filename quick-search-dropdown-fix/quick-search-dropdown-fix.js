@@ -1,43 +1,53 @@
 /**
  * Quick Search Dropdown Fix
  *
- * The CSS raises #slideshow's stacking context above the content sections.
- * This JS ensures dropdown panels inside the shadow root also beat the wave
- * (.c-wrap z-index:999) by giving them z-index:max.
+ * iHomeFinder's React app runs inside an open shadow root.  The Price /
+ * Beds-Baths / Property-Type dropdowns open as React portals appended to
+ * document.body (standard MUI behaviour).  Those portals have z-index:1300
+ * by default, which loses to the wave element (.c-wrap, z-index:999 inside
+ * #slideshow whose stacking context sits at z-index:50 in the root).
  *
- * We use a stylesheet injection (not inline setProperty) so React's inline
- * styles — which lack !important — are overridden by our !important rule.
+ * Key bug in earlier versions: we set el.style.zIndex = Z (no !important).
+ * React reconciles and writes z-index:1300 back, overriding our value.
+ * Fix: use el.style.setProperty('z-index', Z, 'important').
+ * Inline !important beats React's non-!important inline style permanently.
  *
- * We also watch document.body for any MUI panels portalled there.
+ * We also inject a stylesheet into the shadow root so any panels that
+ * stay inside the shadow DOM (not portalled) also get z-index:max.
  */
 (function () {
     'use strict';
 
     var Z = '2147483647';
 
-    /* ── Raise any MUI portal containers in document.body ───────────────── */
-    function raiseBodyPortals() {
-        var kids = document.body.children;
-        for (var i = 0; i < kids.length; i++) {
-            var el  = kids[i];
-            var pos = window.getComputedStyle(el).position;
-            if (pos === 'fixed' || pos === 'absolute') {
-                el.style.zIndex = Z;
-            }
+    /* ── Raise portal containers that land in document.body ─────────────── */
+
+    function raiseEl(el) {
+        var pos = window.getComputedStyle(el).position;
+        if (pos === 'fixed' || pos === 'absolute') {
+            /* setProperty with 'important' cannot be overridden by
+               React's plain el.style.zIndex = '1300' assignment */
+            el.style.setProperty('z-index', Z, 'important');
         }
     }
 
-    /* ── Inject stylesheet into shadow root ─────────────────────────────── */
+    function raiseBodyPortals() {
+        var kids = document.body.children;
+        for (var i = 0; i < kids.length; i++) {
+            raiseEl(kids[i]);
+        }
+    }
+
+    /* ── Inject stylesheet into the shadow root ──────────────────────────── */
+
     function initShadow(sr) {
-        if (sr.getElementById('qs-fix-style')) return;
+        if (sr.querySelector('#qs-fix-style')) return;
 
         var style = document.createElement('style');
         style.id  = 'qs-fix-style';
         /*
-         * Target any MUI Paper / Popper / Popover inside the shadow root.
-         * Using !important means we beat React's non-!important inline styles
-         * (inline styles without !important lose to stylesheet !important).
-         * We do NOT change position — let MUI/PopperJS handle placement.
+         * stylesheet !important beats React's non-!important inline styles.
+         * Targets all MUI overlay components regardless of exact class name.
          */
         style.textContent = [
             '[class*="MuiPaper-root"] {',
@@ -45,7 +55,8 @@
             '}',
             '[class*="MuiPopper-root"],',
             '[class*="MuiPopover-root"],',
-            '[class*="MuiMenu-root"] {',
+            '[class*="MuiMenu-root"],',
+            '[class*="MuiAutocomplete-popper"] {',
             '  z-index: ' + Z + ' !important;',
             '}'
         ].join('\n');
@@ -53,10 +64,12 @@
     }
 
     /* ── init ────────────────────────────────────────────────────────────── */
+
     function init() {
         var qs = document.getElementById('quick-search');
         if (!qs) { setTimeout(init, 200); return; }
 
+        /* Find shadow root */
         var sr  = null;
         var els = qs.querySelectorAll('*');
         for (var i = 0; i < els.length; i++) {
@@ -66,11 +79,29 @@
 
         initShadow(sr);
 
-        /* Watch body for MUI portals added dynamically */
-        new MutationObserver(raiseBodyPortals)
-            .observe(document.body, { childList: true });
+        /*
+         * Watch document.body for new portal containers AND re-raise them.
+         * Also watch each existing body child for style attribute changes
+         * in case React overwrites z-index after we set it.
+         */
+        function watchChild(el) {
+            raiseEl(el);
+            new MutationObserver(function () { raiseEl(el); })
+                .observe(el, { attributes: true, attributeFilter: ['style'] });
+        }
 
-        raiseBodyPortals();
+        /* Existing body children */
+        var kids = document.body.children;
+        for (var j = 0; j < kids.length; j++) { watchChild(kids[j]); }
+
+        /* Future body children (new portals) */
+        new MutationObserver(function (mutations) {
+            mutations.forEach(function (m) {
+                m.addedNodes.forEach(function (node) {
+                    if (node.nodeType === 1) { watchChild(node); }
+                });
+            });
+        }).observe(document.body, { childList: true });
     }
 
     if (document.readyState === 'loading') {

@@ -1,17 +1,13 @@
 /*
- * The dropdown panels are inside #slideshow's stacking context.
- * #slideshow's stacking context is currently at z-index:auto (≈0),
- * so the content sections below (.ct-tagline z-index:11, etc.)
- * paint above it — hiding the middle of any open dropdown.
+ * Raise #slideshow just above the content sections below it (~z-index:11)
+ * so shadow-DOM panels inside the widget also beat those sections.
+ * 50 is intentionally low — it must stay below the site header.
  *
- * #slideshow already has a CSS transform (theme design), which creates
- * a stacking context.  Adding z-index:9999 raises that context above
- * the content sections without touching position, transform, or overflow
- * so the hero layout stays intact.
- *
- * We do NOT set z-index on #quick-search — the theme already positions
- * the search widget above the wave; overriding it covers the wave.
+ * Body-portal dropdowns (React portals to document.body) are handled
+ * entirely in JS with z-index:max !important, so they beat everything
+ * including the wave (z-index:999 inside #slideshow) regardless of
+ * what z-index we set here.
  */
 #slideshow {
-    z-index: 9999 !important;
+    z-index: 50 !important;
 }
