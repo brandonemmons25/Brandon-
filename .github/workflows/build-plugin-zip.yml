@@ -6,6 +6,7 @@ on:
       - 'claude/ihomefinder-full-width-f3SfX'
     paths:
       - 'quick-search-dropdown-fix/**'
+  workflow_dispatch:
 
 permissions:
   contents: write
