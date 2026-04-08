@@ -20,25 +20,23 @@ jobs:
           git clone --depth 1 --branch claude/ihomefinder-full-width-f3SfX \
             https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/brandonemmons25/Brandon-.git repo
 
-      - name: Create versioned zip
+      - name: Create zip
         run: |
           cd repo
-          VERSION=$(grep "Version:" quick-search-dropdown-fix/quick-search-dropdown-fix.php | grep -oP '[\d.]+')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          zip -r quick-search-dropdown-fix-v${VERSION}.zip quick-search-dropdown-fix/
+          zip -r quick-search-dropdown-fix.zip quick-search-dropdown-fix/
 
       - name: Commit and push zip
         run: |
           cd repo
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
-          git add quick-search-dropdown-fix-v*.zip
-          git commit -m "Auto-build v${{ env.VERSION }}: plugin zip" || echo "Nothing to commit"
+          git add quick-search-dropdown-fix.zip
+          git commit -m "Auto-build: update quick-search-dropdown-fix.zip" || echo "Nothing to commit"
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/brandonemmons25/Brandon-.git HEAD:claude/ihomefinder-full-width-f3SfX
 
       - name: Upload zip as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: quick-search-dropdown-fix-v${{ env.VERSION }}
-          path: repo/quick-search-dropdown-fix-v*.zip
+          name: quick-search-dropdown-fix
+          path: repo/quick-search-dropdown-fix.zip
           retention-days: 90
