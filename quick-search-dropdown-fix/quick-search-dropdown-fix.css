@@ -1,11 +1,17 @@
 /*
- * Raise #quick-search's stacking context so its shadow-DOM dropdown panels
- * paint above .c-wrap (the wave, z-index:999).
+ * The dropdown panels are inside #slideshow's stacking context.
+ * #slideshow's stacking context is currently at z-index:auto (≈0),
+ * so the content sections below (.ct-tagline z-index:11, etc.)
+ * paint above it — hiding the middle of any open dropdown.
  *
- * Do NOT override position — the theme uses position:absolute to overlay
- * the search form on the hero image; overriding it displaces the widget.
- * z-index works here because #quick-search already has a non-static position.
+ * #slideshow already has a CSS transform (theme design), which creates
+ * a stacking context.  Adding z-index:9999 raises that context above
+ * the content sections without touching position, transform, or overflow
+ * so the hero layout stays intact.
+ *
+ * We do NOT set z-index on #quick-search — the theme already positions
+ * the search widget above the wave; overriding it covers the wave.
  */
-#quick-search {
-    z-index: 1000 !important;
+#slideshow {
+    z-index: 9999 !important;
 }
