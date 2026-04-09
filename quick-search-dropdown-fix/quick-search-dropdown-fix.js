@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.12.0
+ * Quick Search Dropdown Fix v6.13.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -9,18 +9,11 @@
  *   .c-wrap       z-index:999  inside #slideshow — wave
  *   .panel        inside #quick-search (light DOM) — the actual dropdown panels
  *
- * The panels (.panel class, light DOM) are bounded by #quick-search (z-index:99)
- * inside #slideshow (z-index:1).  Two elements block them:
- *   .c-wrap (999 > 99) inside #slideshow   → wave covers panels
- *   #hp-content (1001 > 1) in root         → content section covers lower panels
- *
  * Fix: watch for .panel elements becoming visible; when open, temporarily
  * suppress both blockers.  When closed, removeProperty so natural CSS wins.
  *
- * Three independent detectors feed a shared open/closed state:
- *   1. Light DOM  — .panel inside #quick-search (confirmed present by site CSS)
- *   2. Shadow DOM — .ihf-advanced-search-button-container > div (shadow root)
- *   3. Portal     — MUI portals added to document.body (fallback)
+ * Cosmetic: inject CSS into the iHF shadow root to set .quick-search
+ * background-color and height (confirmed fix from site admin).
  */
 (function () {
     'use strict';
@@ -40,12 +33,9 @@
         isOpen = open;
         var w = getWave(), h = getHp();
         if (open) {
-            /* Lower wave below #quick-search (99) so panels clear the wave */
             if (w) w.style.setProperty('z-index', '10',  'important');
-            /* Lower content section below #slideshow (1) so panels show through */
             if (h) h.style.setProperty('z-index', '0',   'important');
         } else {
-            /* Remove inline overrides — let natural CSS cascade take over */
             if (w) w.style.removeProperty('z-index');
             if (h) h.style.removeProperty('z-index');
         }
@@ -53,7 +43,7 @@
 
     function update() { applyState(reasons.lightDom || reasons.shadow || reasons.portal); }
 
-    /* ── 1. Light-DOM .panel watcher (primary) ───────────────────────────── */
+    /* ── 1. Light-DOM .panel watcher ─────────────────────────────────────── */
     function watchLightDom(qs) {
         var debounce;
         function check() {
@@ -121,68 +111,12 @@
         update();
     }
 
-    /* ── Cosmetic: background strip fix ─────────────────────────────────── */
-    /*
-     * The dark-green strip below the search form is whichever element inside
-     * #slideshow has a dark background showing through.  We scan #slideshow
-     * and its immediate children (skipping .c-wrap wave) and force the tan
-     * homepage color (#E0DEC1) on any element whose computed background is
-     * not transparent/white/tan.
-     */
-    function fixBackground() {
-        var tan = '#E0DEC1';
-        var ss = document.getElementById('slideshow');
-        if (!ss) return;
-        /* Always fix #slideshow itself */
-        ss.style.setProperty('background-color', tan, 'important');
-        /* Fix direct children that aren't the wave */
-        var kids = ss.children;
-        for (var i = 0; i < kids.length; i++) {
-            var el = kids[i];
-            if (el.classList && el.classList.contains('c-wrap')) continue;
-            var bg = window.getComputedStyle(el).backgroundColor;
-            /* Skip transparent and already-tan elements */
-            if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
-            if (bg === 'rgb(224, 222, 193)') continue; /* already tan */
-            el.style.setProperty('background-color', tan, 'important');
-        }
-        /* Also fix .hp-slideshow if present anywhere */
-        var hpSS = document.querySelector('.hp-slideshow');
-        if (hpSS) hpSS.style.setProperty('background-color', tan, 'important');
-        /* Fix #quick-search host element — confirmed bg: rgb(57,68,66) */
-        var qsEl = document.getElementById('quick-search');
-        if (qsEl) qsEl.style.setProperty('background-color', tan, 'important');
-    }
-
-    /* ── Cosmetic: shadow-DOM background fix ─────────────────────────────── */
-    /*
-     * The dark background rgb(57,68,66) is inside DIV.shadow-root, deeper
-     * than the 2 CSS levels we inject.  Re-introduce the element scan from
-     * v6.9.0 but gate it with a position check: only fix elements whose
-     * bounding rect top is within the #slideshow hero area.  City links are
-     * far below the hero on the page and will be skipped.
-     * CSS injection still handles the outermost 2 levels.
-     */
-    var DARK_BG = 'rgb(57, 68, 66)';
-    function fixShadowBg(sr) {
-        var tan = '#E0DEC1';
-        var ss = document.getElementById('slideshow');
-        var ssBottom = ss ? ss.getBoundingClientRect().bottom : 800;
-        var els = sr.querySelectorAll('*');
-        for (var i = 0; i < els.length; i++) {
-            if (window.getComputedStyle(els[i]).backgroundColor !== DARK_BG) continue;
-            var rect = els[i].getBoundingClientRect();
-            /* Skip elements below the hero — city links live far down the page */
-            if (rect.top > ssBottom + 50) continue;
-            els[i].style.setProperty('background-color', tan, 'important');
-        }
-    }
-
+    /* ── Cosmetic: inject CSS into iHF shadow root ───────────────────────── */
     function injectShadowCss(sr) {
         if (sr.querySelector('#qsdf-bg-fix')) return;
         var style = document.createElement('style');
         style.id = 'qsdf-bg-fix';
-        style.textContent = ':host > * { background-color: transparent !important; } :host > * > * { background-color: transparent !important; }';
+        style.textContent = '.quick-search { background-color: #48615c !important; height: 80px !important; }';
         sr.prepend(style);
     }
 
@@ -191,7 +125,6 @@
         var qs = document.getElementById('quick-search');
         if (!qs) { setTimeout(init, 150); return; }
 
-        fixBackground();
         watchLightDom(qs);
 
         var sr = qs.shadowRoot;
@@ -204,7 +137,6 @@
         if (sr) {
             watchShadow(sr);
             injectShadowCss(sr);
-            fixShadowBg(sr);
         }
 
         var debounce2;
