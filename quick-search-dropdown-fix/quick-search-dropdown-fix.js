@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.9.0
+ * Quick Search Dropdown Fix v6.10.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -156,20 +156,23 @@
 
     /* ── Cosmetic: shadow-DOM background fix ─────────────────────────────── */
     /*
-     * The iHF shadow DOM renders elements with the same dark background
-     * (rgb(57,68,66)) that covers the host element's tan background.
-     * Scan the shadow root for any element with that exact color and
-     * override it.  Re-run on MutationObserver in case the widget re-renders.
+     * The iHF shadow DOM's outermost container has bg rgb(57,68,66) which
+     * paints over the host element's tan background.  Scanning all descendants
+     * (v6.9.0) accidentally recolored the city-links section further down the
+     * page that iHF also renders inside the same shadow root.
+     *
+     * Fix: inject a <style> into the shadow root that ONLY targets the direct
+     * children of the shadow root (:host > div).  This makes just the outermost
+     * wrapper transparent so the host's tan background shows through.  All
+     * deeper components (form fields, buttons, city links, etc.) keep their
+     * own backgrounds untouched.
      */
-    var DARK_BG = 'rgb(57, 68, 66)';
-    function fixShadowBg(sr) {
-        var tan = '#E0DEC1';
-        var els = sr.querySelectorAll('*');
-        for (var i = 0; i < els.length; i++) {
-            if (window.getComputedStyle(els[i]).backgroundColor === DARK_BG) {
-                els[i].style.setProperty('background-color', tan, 'important');
-            }
-        }
+    function injectShadowCss(sr) {
+        if (sr.querySelector('#qsdf-bg-fix')) return; /* already injected */
+        var style = document.createElement('style');
+        style.id = 'qsdf-bg-fix';
+        style.textContent = ':host > div { background-color: transparent !important; }';
+        sr.prepend(style);
     }
 
     /* ── init ────────────────────────────────────────────────────────────── */
@@ -189,13 +192,7 @@
         }
         if (sr) {
             watchShadow(sr);
-            fixShadowBg(sr);
-            /* Re-run if shadow DOM re-renders */
-            var sbDebounce;
-            new MutationObserver(function () {
-                clearTimeout(sbDebounce);
-                sbDebounce = setTimeout(function () { fixShadowBg(sr); }, 50);
-            }).observe(sr, { childList: true, subtree: true });
+            injectShadowCss(sr);
         }
 
         var debounce2;
