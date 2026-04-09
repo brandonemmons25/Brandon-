@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.7.0
+ * Quick Search Dropdown Fix v6.8.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -149,6 +149,9 @@
         /* Also fix .hp-slideshow if present anywhere */
         var hpSS = document.querySelector('.hp-slideshow');
         if (hpSS) hpSS.style.setProperty('background-color', tan, 'important');
+        /* Fix #quick-search itself — confirmed source of dark strip */
+        var qsEl = document.getElementById('quick-search');
+        if (qsEl) qsEl.style.setProperty('background-color', tan, 'important');
     }
 
     /* ── init ────────────────────────────────────────────────────────────── */

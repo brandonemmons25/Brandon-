@@ -1,10 +1,12 @@
 /*
  * Dropdown stacking fixes are handled in quick-search-dropdown-fix.js.
  *
- * Cosmetic: CSS fallback for background strip fix (JS also patches children).
- * #slideshow > *:not(.c-wrap) catches any child wrapper (e.g. .hp-slideshow)
- * without touching the wave element itself.
+ * Cosmetic: #quick-search has background rgb(57,68,66) (dark olive). It is
+ * position:absolute; min-height:180px; bottom:0 — the top portion above the
+ * actual form shows as the dark strip below the hero image.
+ * Also target #slideshow and its non-wave children as a belt-and-suspenders.
  */
+#quick-search,
 #slideshow,
 #slideshow .hp-slideshow,
 #slideshow > *:not(.c-wrap) {
