@@ -1,61 +1,100 @@
 /**
- * Quick Search Dropdown Fix v6.4.0
+ * Quick Search Dropdown Fix v6.5.0
  *
- * Confirmed live-site values:
- *   #slideshow    z-index:1    position:relative  (root)
- *   #hp-content   z-index:1001 position:relative  (root — was blocking panels)
- *   #quick-search z-index:99   position:absolute  (shadow host, inside #slideshow)
- *   .c-wrap       z-index:999  position:absolute  (wave, inside #slideshow)
+ * Confirmed from live-site DevTools + full site CSS:
  *
- * Two toggles fire when a dropdown opens, both restore when it closes:
+ *   #slideshow    z-index:1    root — theme stylesheet
+ *   #hp-content   z-index:1001 root — theme overrides site's "unset" attempt
+ *   #quick-search z-index:99   inside #slideshow — shadow host
+ *   .c-wrap       z-index:999  inside #slideshow — wave
+ *   .panel        inside #quick-search (light DOM) — the actual dropdown panels
  *
- *   WAVE TOGGLE
- *     .c-wrap 999 → 10   puts wave below #quick-search (99) → panels visible
- *     .c-wrap 10  → 999  restores wave design
+ * The panels (.panel class, light DOM) are bounded by #quick-search (z-index:99)
+ * inside #slideshow (z-index:1).  Two elements block them:
+ *   .c-wrap (999 > 99) inside #slideshow   → wave covers panels
+ *   #hp-content (1001 > 1) in root         → content section covers lower panels
  *
- *   CONTENT TOGGLE
- *     #hp-content 1001 → 0   puts content section below #slideshow (1) → panels
- *                              extend visually through that area without being blocked
- *     #hp-content 0    → 1001 restores normal stacking
+ * Fix: watch for .panel elements becoming visible; when open, temporarily
+ * suppress both blockers.  When closed, removeProperty so natural CSS wins.
  *
- * NOTE: If you want to remove the wave design entirely and skip the wave
- * toggle, add this to the CSS field in iHF admin or site CSS:
- *     .c-wrap { display: none !important; }
- * Then only the content toggle is needed.
- *
- * Body-portal fallback also raises any MUI element to z-index:MAX.
+ * Three independent detectors feed a shared open/closed state:
+ *   1. Light DOM  — .panel inside #quick-search (confirmed present by site CSS)
+ *   2. Shadow DOM — .ihf-advanced-search-button-container > div (shadow root)
+ *   3. Portal     — MUI portals added to document.body (fallback)
  */
 (function () {
     'use strict';
 
     var Z_MAX = '2147483647';
 
-    /* Open-state is OR of two independent detectors */
-    var reasons = { shadow: false, portal: false };
+    /* Shared open/closed state — OR of all three detectors */
+    var reasons = { lightDom: false, shadow: false, portal: false };
+    var isOpen  = false;
 
     var waveEl = null, hpEl = null;
-    function getWave() { if (!waveEl) waveEl = document.querySelector('.c-wrap');          return waveEl; }
-    function getHp()   { if (!hpEl)   hpEl   = document.getElementById('hp-content');     return hpEl;   }
+    function getWave() { if (!waveEl) waveEl = document.querySelector('.c-wrap');      return waveEl; }
+    function getHp()   { if (!hpEl)   hpEl   = document.getElementById('hp-content'); return hpEl;   }
 
-    var isOpen = false;
     function applyState(open) {
         if (open === isOpen) return;
         isOpen = open;
-
-        /* Wave: 999 (wave above quick-search) → 10 (below quick-search:99) */
-        var w = getWave();
-        if (w) w.style.setProperty('z-index', open ? '10'   : '999',  'important');
-
-        /* Content section: 1001 → 0 (below #slideshow:1 → panels show through) */
-        var h = getHp();
-        if (h) h.style.setProperty('z-index', open ? '0'    : '1001', 'important');
+        var w = getWave(), h = getHp();
+        if (open) {
+            /* Lower wave below #quick-search (99) so panels clear the wave */
+            if (w) w.style.setProperty('z-index', '10',  'important');
+            /* Lower content section below #slideshow (1) so panels show through */
+            if (h) h.style.setProperty('z-index', '0',   'important');
+        } else {
+            /* Remove inline overrides — let natural CSS cascade take over */
+            if (w) w.style.removeProperty('z-index');
+            if (h) h.style.removeProperty('z-index');
+        }
     }
 
-    function update() {
-        applyState(reasons.shadow || reasons.portal);
+    function update() { applyState(reasons.lightDom || reasons.shadow || reasons.portal); }
+
+    /* ── 1. Light-DOM .panel watcher (primary) ───────────────────────────── */
+    function watchLightDom(qs) {
+        var debounce;
+        function check() {
+            var panels = qs.querySelectorAll('.panel');
+            var anyOpen = false;
+            for (var i = 0; i < panels.length; i++) {
+                if (panels[i].offsetHeight > 0) { anyOpen = true; break; }
+            }
+            reasons.lightDom = anyOpen;
+            update();
+        }
+        new MutationObserver(function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(check, 25);
+        }).observe(qs, { childList: true, subtree: true, attributes: true });
+        check();
     }
 
-    /* ── Body-portal fallback (MUI portals to document.body) ─────────────── */
+    /* ── 2. Shadow-root panel watcher ────────────────────────────────────── */
+    function watchShadow(sr) {
+        var debounce;
+        function check() {
+            var panels = sr.querySelectorAll(
+                '.ihf-advanced-search-button-container > div,' +
+                '[class*="MuiPopper"],[class*="MuiPaper"],[class*="MuiMenu"]'
+            );
+            var anyOpen = false;
+            for (var i = 0; i < panels.length; i++) {
+                if (panels[i].offsetHeight > 0) { anyOpen = true; break; }
+            }
+            reasons.shadow = anyOpen;
+            update();
+        }
+        new MutationObserver(function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(check, 25);
+        }).observe(sr, { childList: true, subtree: true, attributes: true });
+        check();
+    }
+
+    /* ── 3. Body-portal fallback ─────────────────────────────────────────── */
     var MUI_SEL = [
         '[class*="MuiPopper-root"]',
         '[class*="MuiPopover-root"]',
@@ -82,32 +121,12 @@
         update();
     }
 
-    /* ── Shadow-root panel watcher ───────────────────────────────────────── */
-    function watchShadow(sr) {
-        var debounce;
-        function check() {
-            var panels = sr.querySelectorAll(
-                '.ihf-advanced-search-button-container > div,' +
-                '[class*="MuiPopper"],[class*="MuiPaper"],[class*="MuiMenu"]'
-            );
-            var anyOpen = false;
-            for (var i = 0; i < panels.length; i++) {
-                if (panels[i].offsetHeight > 0) { anyOpen = true; break; }
-            }
-            reasons.shadow = anyOpen;
-            update();
-        }
-        new MutationObserver(function () {
-            clearTimeout(debounce);
-            debounce = setTimeout(check, 25);
-        }).observe(sr, { childList: true, subtree: true, attributes: true });
-        check();
-    }
-
     /* ── init ────────────────────────────────────────────────────────────── */
     function init() {
         var qs = document.getElementById('quick-search');
         if (!qs) { setTimeout(init, 150); return; }
+
+        watchLightDom(qs);
 
         var sr = qs.shadowRoot;
         if (!sr) {
