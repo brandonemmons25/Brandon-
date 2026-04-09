@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.8.0
+ * Quick Search Dropdown Fix v6.9.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -149,9 +149,27 @@
         /* Also fix .hp-slideshow if present anywhere */
         var hpSS = document.querySelector('.hp-slideshow');
         if (hpSS) hpSS.style.setProperty('background-color', tan, 'important');
-        /* Fix #quick-search itself — confirmed source of dark strip */
+        /* Fix #quick-search host element — confirmed bg: rgb(57,68,66) */
         var qsEl = document.getElementById('quick-search');
         if (qsEl) qsEl.style.setProperty('background-color', tan, 'important');
+    }
+
+    /* ── Cosmetic: shadow-DOM background fix ─────────────────────────────── */
+    /*
+     * The iHF shadow DOM renders elements with the same dark background
+     * (rgb(57,68,66)) that covers the host element's tan background.
+     * Scan the shadow root for any element with that exact color and
+     * override it.  Re-run on MutationObserver in case the widget re-renders.
+     */
+    var DARK_BG = 'rgb(57, 68, 66)';
+    function fixShadowBg(sr) {
+        var tan = '#E0DEC1';
+        var els = sr.querySelectorAll('*');
+        for (var i = 0; i < els.length; i++) {
+            if (window.getComputedStyle(els[i]).backgroundColor === DARK_BG) {
+                els[i].style.setProperty('background-color', tan, 'important');
+            }
+        }
     }
 
     /* ── init ────────────────────────────────────────────────────────────── */
@@ -169,7 +187,16 @@
                 if (all[i].shadowRoot) { sr = all[i].shadowRoot; break; }
             }
         }
-        if (sr) watchShadow(sr);
+        if (sr) {
+            watchShadow(sr);
+            fixShadowBg(sr);
+            /* Re-run if shadow DOM re-renders */
+            var sbDebounce;
+            new MutationObserver(function () {
+                clearTimeout(sbDebounce);
+                sbDebounce = setTimeout(function () { fixShadowBg(sr); }, 50);
+            }).observe(sr, { childList: true, subtree: true });
+        }
 
         var debounce2;
         new MutationObserver(function () {
