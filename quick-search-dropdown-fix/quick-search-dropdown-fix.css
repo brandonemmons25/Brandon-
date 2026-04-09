@@ -1,10 +1,12 @@
 /*
- * All dropdown stacking fixes are handled in quick-search-dropdown-fix.js.
+ * Dropdown stacking fixes are handled in quick-search-dropdown-fix.js.
  *
- * Cosmetic: the dark-green strip below the search form is #slideshow's
- * background showing through.  Match it to the homepage tan (#E0DEC1)
- * that #hp-content already uses for its border-bottom.
+ * Cosmetic: CSS fallback for background strip fix (JS also patches children).
+ * #slideshow > *:not(.c-wrap) catches any child wrapper (e.g. .hp-slideshow)
+ * without touching the wave element itself.
  */
-#slideshow {
+#slideshow,
+#slideshow .hp-slideshow,
+#slideshow > *:not(.c-wrap) {
     background-color: #E0DEC1 !important;
 }

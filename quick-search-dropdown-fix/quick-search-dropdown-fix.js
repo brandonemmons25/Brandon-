@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.5.0
+ * Quick Search Dropdown Fix v6.7.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -121,11 +121,42 @@
         update();
     }
 
+    /* ── Cosmetic: background strip fix ─────────────────────────────────── */
+    /*
+     * The dark-green strip below the search form is whichever element inside
+     * #slideshow has a dark background showing through.  We scan #slideshow
+     * and its immediate children (skipping .c-wrap wave) and force the tan
+     * homepage color (#E0DEC1) on any element whose computed background is
+     * not transparent/white/tan.
+     */
+    function fixBackground() {
+        var tan = '#E0DEC1';
+        var ss = document.getElementById('slideshow');
+        if (!ss) return;
+        /* Always fix #slideshow itself */
+        ss.style.setProperty('background-color', tan, 'important');
+        /* Fix direct children that aren't the wave */
+        var kids = ss.children;
+        for (var i = 0; i < kids.length; i++) {
+            var el = kids[i];
+            if (el.classList && el.classList.contains('c-wrap')) continue;
+            var bg = window.getComputedStyle(el).backgroundColor;
+            /* Skip transparent and already-tan elements */
+            if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
+            if (bg === 'rgb(224, 222, 193)') continue; /* already tan */
+            el.style.setProperty('background-color', tan, 'important');
+        }
+        /* Also fix .hp-slideshow if present anywhere */
+        var hpSS = document.querySelector('.hp-slideshow');
+        if (hpSS) hpSS.style.setProperty('background-color', tan, 'important');
+    }
+
     /* ── init ────────────────────────────────────────────────────────────── */
     function init() {
         var qs = document.getElementById('quick-search');
         if (!qs) { setTimeout(init, 150); return; }
 
+        fixBackground();
         watchLightDom(qs);
 
         var sr = qs.shadowRoot;
