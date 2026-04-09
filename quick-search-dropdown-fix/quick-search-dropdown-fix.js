@@ -1,34 +1,36 @@
 /**
- * Quick Search Dropdown Fix v6.2.0
+ * Quick Search Dropdown Fix v6.3.0
  *
- * Two-part fix:
+ * Confirmed live-site z-index values:
+ *   #slideshow    z-index:1    position:relative  (root stacking context)
+ *   #hp-content   z-index:1001 position:relative  (root — was blocking panels)
+ *   #quick-search z-index:99   position:absolute  (shadow host, inside #slideshow)
+ *   .c-wrap       z-index:999  position:absolute  (wave, inside #slideshow)
  *
- * PART 1 — Shadow-DOM stacking context
- *   The div housing #quick-search has a lower z-index than .c-wrap (the wave,
- *   z-index:999).  Shadow-DOM panels are bounded by that stacking context, so
- *   the wave paints over them.
- *   Fix: raise only already-positioned ancestors of #quick-search to z-index
- *   1000 (never add position:relative — that would shift absolutely-positioned
- *   children and break the layout).  Then push .c-wrap to 1001 via JS so the
- *   wave is still visible above the container.
- *   When a dropdown opens, drop .c-wrap to 999 so the panels clear it.
- *   When the dropdown closes, restore .c-wrap to 1001.
+ * Problem 1 — content section blocks dropdown:
+ *   Panels inside #slideshow (z-index:1 in root) are bounded below #hp-content
+ *   (z-index:1001).  CSS raises #slideshow to 1002 to fix this.
  *
- * PART 2 — MUI body-portal panels
- *   iHomeFinder/MUI also portals some panels to document.body at z-index:1300.
- *   The content sections below the hero can have a higher stacking context,
- *   blocking the middle of the panel.
- *   Fix: MutationObserver on body raises every portal element to z-index:MAX
- *   the instant it is added or shown.
+ * Problem 2 — wave covers shadow-DOM panels:
+ *   .c-wrap (999) > #quick-search (99) inside #slideshow → wave paints above
+ *   the shadow-DOM panels.  Fix: watch the shadow root; when a panel opens,
+ *   temporarily drop .c-wrap to z-index:10 (below #quick-search:99) so the
+ *   panels clear the wave.  Restore to 999 when the panel closes.
+ *
+ * Fallback — MUI body portals:
+ *   Some panels may portal to document.body.  A MutationObserver raises any
+ *   portal wrapper to z-index:MAX the instant it appears.
  */
 (function () {
     'use strict';
 
-    var Z_MAX   = '2147483647';
-    var Z_ABOVE = '1001';   /* wave above container (1000) — design intact */
-    var Z_BELOW = '999';    /* wave below container (1000) — panels visible */
+    var Z_MAX       = '2147483647';
+    var WAVE_NORMAL = '999';  /* original — wave above #quick-search (99) */
+    var WAVE_OPEN   = '10';   /* below #quick-search (99) — panels visible */
 
-    var waveEl = null;
+    /* ── Wave helpers ────────────────────────────────────────────────────── */
+    var waveEl   = null;
+    var waveDown = false;
     function getWave() {
         if (!waveEl) waveEl = document.querySelector('.c-wrap');
         return waveEl;
@@ -38,28 +40,48 @@
         if (w) w.style.setProperty('z-index', z, 'important');
     }
 
+    /* ── Shadow-root panel watcher ───────────────────────────────────────── */
+    function watchShadow(sr) {
+        var debounce;
+        function check() {
+            /* iHF dropdown panels live inside .ihf-advanced-search-button-container > div */
+            var panels = sr.querySelectorAll(
+                '.ihf-advanced-search-button-container > div,' +
+                '[class*="MuiPopper"],[class*="MuiPaper"],[class*="MuiMenu"]'
+            );
+            var anyOpen = false;
+            for (var i = 0; i < panels.length; i++) {
+                if (panels[i].offsetHeight > 0) { anyOpen = true; break; }
+            }
+            if (anyOpen && !waveDown) {
+                waveDown = true;
+                setWave(WAVE_OPEN);
+            } else if (!anyOpen && waveDown) {
+                waveDown = false;
+                setWave(WAVE_NORMAL);
+            }
+        }
+        new MutationObserver(function () {
+            clearTimeout(debounce);
+            debounce = setTimeout(check, 25);
+        }).observe(sr, { childList: true, subtree: true, attributes: true });
+        check();
+    }
+
+    /* ── Body-portal fallback ────────────────────────────────────────────── */
     var MUI_SEL = [
         '[class*="MuiPopper-root"]',
         '[class*="MuiPopover-root"]',
         '[class*="MuiMenu-root"]',
         '[class*="MuiAutocomplete-popper"]',
-        '[class*="MuiModal-root"]',
-        '[class*="MuiPaper-root"]'
+        '[class*="MuiModal-root"]'
     ].join(',');
 
-    /* ── PART 2: raise body portals ──────────────────────────────────────── */
-    var waveDown = false;
     function raisePortals() {
-        var anyOpen = false;
-
-        /* MUI elements anywhere in the document */
-        var muiEls = document.querySelectorAll(MUI_SEL);
-        for (var i = 0; i < muiEls.length; i++) {
-            muiEls[i].style.setProperty('z-index', Z_MAX, 'important');
-            if (muiEls[i].offsetHeight > 0) anyOpen = true;
+        var els = document.querySelectorAll(MUI_SEL);
+        for (var i = 0; i < els.length; i++) {
+            els[i].style.setProperty('z-index', Z_MAX, 'important');
         }
-
-        /* Fixed/absolute direct children of body (portal wrapper divs) */
         var kids = document.body.children;
         for (var j = 0; j < kids.length; j++) {
             var pos = window.getComputedStyle(kids[j]).position;
@@ -67,62 +89,37 @@
                 kids[j].style.setProperty('z-index', Z_MAX, 'important');
             }
         }
-
-        /* Keep wave in sync with portal state */
-        if (anyOpen && !waveDown) {
-            waveDown = true;
-            setWave(Z_BELOW);
-        } else if (!anyOpen && waveDown) {
-            waveDown = false;
-            setWave(Z_ABOVE);
-        }
     }
 
-    /* ── PART 1: raise the #quick-search ancestor stacking context ────────── */
-    var ancestorsRaised = false;
-    function raiseSearchAncestors() {
-        if (ancestorsRaised) return;
+    /* ── init ────────────────────────────────────────────────────────────── */
+    function init() {
         var qs = document.getElementById('quick-search');
-        if (!qs) return;
-        var el = qs.parentElement;
-        while (el && el.id !== 'slideshow' && el !== document.body) {
-            /* Only touch already-positioned elements — adding position:relative
-               to a static ancestor can shift absolutely-positioned children. */
-            if (window.getComputedStyle(el).position !== 'static') {
-                el.style.setProperty('z-index', '1000', 'important');
+        if (!qs) { setTimeout(init, 150); return; }
+
+        /* Find shadow root */
+        var sr = qs.shadowRoot;
+        if (!sr) {
+            var all = qs.querySelectorAll('*');
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].shadowRoot) { sr = all[i].shadowRoot; break; }
             }
-            el = el.parentElement;
         }
-        ancestorsRaised = true;
-        /* Wave must be above the container (1000) so the design is intact */
-        setWave(Z_ABOVE);
-    }
+        if (sr) watchShadow(sr);
 
-    /* ── start ───────────────────────────────────────────────────────────── */
-    function start() {
-        var qs = document.getElementById('quick-search');
-        if (!qs) { setTimeout(start, 150); return; }
-
-        raiseSearchAncestors();
-        raisePortals();
-
-        var debounce;
+        /* Body portal fallback */
+        var debounce2;
         new MutationObserver(function () {
-            clearTimeout(debounce);
-            debounce = setTimeout(raisePortals, 25);
-        }).observe(document.body, {
-            childList:       true,
-            subtree:         true,
-            attributes:      true,
-            attributeFilter: ['style', 'class']
-        });
+            clearTimeout(debounce2);
+            debounce2 = setTimeout(raisePortals, 25);
+        }).observe(document.body, { childList: true });
 
         setInterval(raisePortals, 300);
+        raisePortals();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { setTimeout(start, 300); });
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 300); });
     } else {
-        setTimeout(start, 300);
+        setTimeout(init, 300);
     }
 })();

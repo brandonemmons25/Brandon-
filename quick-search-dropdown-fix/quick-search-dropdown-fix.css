@@ -1,7 +1,12 @@
 /*
- * Keep #slideshow's stacking context above content sections, below the header.
- * The JS handles all other z-index work dynamically.
+ * Live-site values (confirmed via DevTools):
+ *   #slideshow   z-index:1    (root stacking context)
+ *   #hp-content  z-index:1001 (root — blocks dropdowns inside #slideshow)
+ *   #quick-search z-index:99  (inside #slideshow — shadow host)
+ *   .c-wrap       z-index:999 (inside #slideshow — wave, covers quick-search)
+ *
+ * Fix 1: raise #slideshow above #hp-content so shadow-DOM panels clear it.
  */
 #slideshow {
-    z-index: 50 !important;
+    z-index: 1002 !important;
 }
