@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.11.0
+ * Quick Search Dropdown Fix v6.12.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -156,23 +156,32 @@
 
     /* ── Cosmetic: shadow-DOM background fix ─────────────────────────────── */
     /*
-     * The iHF shadow DOM's outermost container has bg rgb(57,68,66) which
-     * paints over the host element's tan background.  Scanning all descendants
-     * (v6.9.0) accidentally recolored the city-links section further down the
-     * page that iHF also renders inside the same shadow root.
-     *
-     * Fix: inject a <style> into the shadow root that ONLY targets the direct
-     * children of the shadow root (:host > div).  This makes just the outermost
-     * wrapper transparent so the host's tan background shows through.  All
-     * deeper components (form fields, buttons, city links, etc.) keep their
-     * own backgrounds untouched.
+     * The dark background rgb(57,68,66) is inside DIV.shadow-root, deeper
+     * than the 2 CSS levels we inject.  Re-introduce the element scan from
+     * v6.9.0 but gate it with a position check: only fix elements whose
+     * bounding rect top is within the #slideshow hero area.  City links are
+     * far below the hero on the page and will be skipped.
+     * CSS injection still handles the outermost 2 levels.
      */
+    var DARK_BG = 'rgb(57, 68, 66)';
+    function fixShadowBg(sr) {
+        var tan = '#E0DEC1';
+        var ss = document.getElementById('slideshow');
+        var ssBottom = ss ? ss.getBoundingClientRect().bottom : 800;
+        var els = sr.querySelectorAll('*');
+        for (var i = 0; i < els.length; i++) {
+            if (window.getComputedStyle(els[i]).backgroundColor !== DARK_BG) continue;
+            var rect = els[i].getBoundingClientRect();
+            /* Skip elements below the hero — city links live far down the page */
+            if (rect.top > ssBottom + 50) continue;
+            els[i].style.setProperty('background-color', tan, 'important');
+        }
+    }
+
     function injectShadowCss(sr) {
-        if (sr.querySelector('#qsdf-bg-fix')) return; /* already injected */
+        if (sr.querySelector('#qsdf-bg-fix')) return;
         var style = document.createElement('style');
         style.id = 'qsdf-bg-fix';
-        /* :host > * covers any tag (not just div); two levels catches nested
-           wrappers without reaching city-links deep in the component tree */
         style.textContent = ':host > * { background-color: transparent !important; } :host > * > * { background-color: transparent !important; }';
         sr.prepend(style);
     }
@@ -195,6 +204,7 @@
         if (sr) {
             watchShadow(sr);
             injectShadowCss(sr);
+            fixShadowBg(sr);
         }
 
         var debounce2;
