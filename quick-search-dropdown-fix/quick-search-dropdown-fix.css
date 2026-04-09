@@ -1,4 +1,10 @@
 /*
- * All stacking fixes are handled in JS via targeted toggles.
- * No permanent z-index overrides needed here.
+ * All dropdown stacking fixes are handled in quick-search-dropdown-fix.js.
+ *
+ * Cosmetic: the dark-green strip below the search form is #slideshow's
+ * background showing through.  Match it to the homepage tan (#E0DEC1)
+ * that #hp-content already uses for its border-bottom.
  */
+#slideshow {
+    background-color: #E0DEC1 !important;
+}
