@@ -1,9 +1,12 @@
 /*
- * Keep #slideshow's stacking context below the site header but
- * above the content sections further down the page.
- * The JS raises the #quick-search container to z-index:1000
- * (above .c-wrap's z-index:999) so shadow-DOM panels clear the wave.
+ * #slideshow: stacking context above content sections, below site header.
+ * .c-wrap: wave above the search container (z-index:1000) by default.
+ *   JS temporarily lowers it to 999 when a dropdown is open.
  */
 #slideshow {
     z-index: 50 !important;
+}
+
+.c-wrap {
+    z-index: 2000 !important;
 }
