@@ -1,44 +1,44 @@
 /**
- * Quick Search Dropdown Fix
+ * Quick Search Dropdown Fix v5.4.0
  *
- * iHomeFinder dropdown panels (Price, Beds/Baths, Property Type, Location)
- * are React/MUI components that portal to document.body.  They land with
- * z-index:1300 (MUI default) which loses to the wave (.c-wrap, inside
- * #slideshow) and to the content sections below.
+ * Core fix runs unconditionally — does NOT require finding the shadow root.
+ * Shadow root CSS injection is a separate, periodic belt-and-suspenders step.
  *
- * Strategy:
- *  1. Use document.querySelectorAll to find ALL MUI overlay elements in the
- *     main document (works even if they are nested inside a portal wrapper).
- *  2. Apply z-index:MAX via setProperty('important') — React's plain
- *     el.style.zIndex assignments cannot override inline !important.
- *  3. Watch the whole body subtree so we catch elements the moment they
- *     are added or mutated by React.
- *  4. Inject a stylesheet into the shadow root as a belt-and-suspenders
- *     fallback for any panels that stay inside the shadow DOM.
+ * raiseAll() also walks up the ancestor chain of every MUI element so that
+ * any positioned portal-wrapper containers are raised alongside the panels.
  */
 (function () {
     'use strict';
 
     var Z = '2147483647';
 
-    /* Selectors for every MUI overlay component */
     var MUI_SEL = [
         '[class*="MuiPopper-root"]',
         '[class*="MuiPopover-root"]',
         '[class*="MuiMenu-root"]',
         '[class*="MuiAutocomplete-popper"]',
-        '[class*="MuiModal-root"]'
+        '[class*="MuiModal-root"]',
+        '[class*="MuiPaper-root"]'
     ].join(',');
 
-    /* ── Raise all MUI overlays found anywhere in the main document ──────── */
+    /* ── Raise MUI overlays + their positioned ancestors ──────────────────── */
     function raiseAll() {
-        var els = document.querySelectorAll(MUI_SEL);
-        for (var i = 0; i < els.length; i++) {
-            els[i].style.setProperty('z-index', Z, 'important');
+        /* 1. Every MUI element in the main document */
+        var muiEls = document.querySelectorAll(MUI_SEL);
+        for (var i = 0; i < muiEls.length; i++) {
+            muiEls[i].style.setProperty('z-index', Z, 'important');
+
+            /* Walk up and raise any positioned container that might trap it */
+            var p = muiEls[i].parentElement;
+            while (p && p !== document.body) {
+                if (window.getComputedStyle(p).position !== 'static') {
+                    p.style.setProperty('z-index', Z, 'important');
+                }
+                p = p.parentElement;
+            }
         }
 
-        /* Belt-and-suspenders: also raise any positioned direct body child
-           that might not carry a MUI class (e.g. custom portal wrappers) */
+        /* 2. Fixed/absolute direct body children (portal wrapper divs) */
         var kids = document.body.children;
         for (var j = 0; j < kids.length; j++) {
             var pos = window.getComputedStyle(kids[j]).position;
@@ -48,60 +48,55 @@
         }
     }
 
-    /* ── Inject stylesheet into shadow root ──────────────────────────────── */
-    function initShadow(sr) {
-        if (sr.querySelector('#qs-fix-style')) return;
-        var style = document.createElement('style');
-        style.id  = 'qs-fix-style';
-        style.textContent = [
-            /* stylesheet !important beats React non-!important inline */
-            '[class*="MuiPaper-root"] { z-index: ' + Z + ' !important; }',
-            '[class*="MuiPopper-root"],',
-            '[class*="MuiPopover-root"],',
-            '[class*="MuiMenu-root"],',
-            '[class*="MuiAutocomplete-popper"] {',
-            '  z-index: ' + Z + ' !important;',
-            '}'
-        ].join('\n');
-        sr.appendChild(style);
+    /* ── Shadow-root CSS injection (retried until found) ──────────────────── */
+    var shadowDone = false;
+    function tryInjectShadow() {
+        if (shadowDone) return;
+        var qs = document.getElementById('quick-search');
+        if (!qs) return;
+
+        /* Check the host element itself first, then its descendants */
+        var sr = qs.shadowRoot;
+        if (!sr) {
+            var all = qs.querySelectorAll('*');
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].shadowRoot) { sr = all[i].shadowRoot; break; }
+            }
+        }
+        if (!sr) return;
+
+        if (!sr.querySelector('#qs-fix-style')) {
+            var style = document.createElement('style');
+            style.id   = 'qs-fix-style';
+            style.textContent = MUI_SEL + ' { z-index: ' + Z + ' !important; }';
+            sr.appendChild(style);
+        }
+        shadowDone = true;
     }
 
-    /* ── init ────────────────────────────────────────────────────────────── */
-    function init() {
-        var qs = document.getElementById('quick-search');
-        if (!qs) { setTimeout(init, 200); return; }
-
-        var sr  = null;
-        var els = qs.querySelectorAll('*');
-        for (var i = 0; i < els.length; i++) {
-            if (els[i].shadowRoot) { sr = els[i].shadowRoot; break; }
-        }
-        if (!sr) { setTimeout(init, 200); return; }
-
-        initShadow(sr);
-
-        /* Watch the entire body subtree — fires whenever React adds or
-           changes anything, including nested portal containers */
+    /* ── start — runs unconditionally, no shadow-root gate ───────────────── */
+    function start() {
         var debounce;
         new MutationObserver(function () {
             clearTimeout(debounce);
-            debounce = setTimeout(raiseAll, 30);
+            debounce = setTimeout(raiseAll, 20);
         }).observe(document.body, {
-            childList:  true,
-            subtree:    true,
-            attributes: true,
+            childList:       true,
+            subtree:         true,
+            attributes:      true,
             attributeFilter: ['style', 'class']
         });
 
-        /* Periodic fallback in case a reconcile slips past the observer */
-        setInterval(raiseAll, 300);
+        setInterval(raiseAll,         250);   /* periodic safety net          */
+        setInterval(tryInjectShadow,  500);   /* keep probing for shadow root */
 
         raiseAll();
+        tryInjectShadow();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { setTimeout(init, 400); });
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(start, 300); });
     } else {
-        setTimeout(init, 400);
+        setTimeout(start, 300);
     }
 })();
