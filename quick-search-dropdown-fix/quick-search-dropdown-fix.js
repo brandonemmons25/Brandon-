@@ -1,102 +1,53 @@
 /**
- * Quick Search Dropdown Fix v5.4.0
+ * Quick Search Dropdown Fix v6.0.0
  *
- * Core fix runs unconditionally — does NOT require finding the shadow root.
- * Shadow root CSS injection is a separate, periodic belt-and-suspenders step.
+ * Root cause (confirmed from iHomeFinder admin CSS):
+ *   Dropdown panels render inside the shadow DOM at z-index:110.
+ *   But the shadow host's CONTAINER div has a z-index lower than
+ *   .c-wrap (the wave, z-index:999 inside #slideshow).
+ *   Shadow-DOM content is bounded by the host's stacking context,
+ *   so the wave always paints over the panels.
  *
- * raiseAll() also walks up the ancestor chain of every MUI element so that
- * any positioned portal-wrapper containers are raised alongside the panels.
+ * Fix:
+ *   Walk up from #quick-search and raise every ancestor (stopping
+ *   at #slideshow) to z-index:1000 — just above the wave's 999.
+ *   This lifts the shadow host's stacking context above the wave
+ *   without touching #slideshow itself (kept at z-index:50 so it
+ *   stays below the site header).
  */
 (function () {
     'use strict';
 
-    var Z = '2147483647';
+    var raised = false;
 
-    var MUI_SEL = [
-        '[class*="MuiPopper-root"]',
-        '[class*="MuiPopover-root"]',
-        '[class*="MuiMenu-root"]',
-        '[class*="MuiAutocomplete-popper"]',
-        '[class*="MuiModal-root"]',
-        '[class*="MuiPaper-root"]'
-    ].join(',');
-
-    /* ── Raise MUI overlays + their positioned ancestors ──────────────────── */
-    function raiseAll() {
-        /* 1. Every MUI element in the main document */
-        var muiEls = document.querySelectorAll(MUI_SEL);
-        for (var i = 0; i < muiEls.length; i++) {
-            muiEls[i].style.setProperty('z-index', Z, 'important');
-
-            /* Walk up and raise any positioned container that might trap it */
-            var p = muiEls[i].parentElement;
-            while (p && p !== document.body) {
-                if (window.getComputedStyle(p).position !== 'static') {
-                    p.style.setProperty('z-index', Z, 'important');
-                }
-                p = p.parentElement;
-            }
-        }
-
-        /* 2. Fixed/absolute direct body children (portal wrapper divs) */
-        var kids = document.body.children;
-        for (var j = 0; j < kids.length; j++) {
-            var pos = window.getComputedStyle(kids[j]).position;
-            if (pos === 'fixed' || pos === 'absolute') {
-                kids[j].style.setProperty('z-index', Z, 'important');
-            }
-        }
-    }
-
-    /* ── Shadow-root CSS injection (retried until found) ──────────────────── */
-    var shadowDone = false;
-    function tryInjectShadow() {
-        if (shadowDone) return;
+    function raiseSearchContainer() {
+        if (raised) return;
         var qs = document.getElementById('quick-search');
         if (!qs) return;
 
-        /* Check the host element itself first, then its descendants */
-        var sr = qs.shadowRoot;
-        if (!sr) {
-            var all = qs.querySelectorAll('*');
-            for (var i = 0; i < all.length; i++) {
-                if (all[i].shadowRoot) { sr = all[i].shadowRoot; break; }
+        var el = qs.parentElement;
+        while (el && el.id !== 'slideshow' && el !== document.body) {
+            /* z-index only works on positioned elements */
+            if (window.getComputedStyle(el).position === 'static') {
+                el.style.setProperty('position', 'relative', 'important');
             }
+            el.style.setProperty('z-index', '1000', 'important');
+            el = el.parentElement;
         }
-        if (!sr) return;
-
-        if (!sr.querySelector('#qs-fix-style')) {
-            var style = document.createElement('style');
-            style.id   = 'qs-fix-style';
-            style.textContent = MUI_SEL + ' { z-index: ' + Z + ' !important; }';
-            sr.appendChild(style);
-        }
-        shadowDone = true;
+        raised = true;
     }
 
-    /* ── start — runs unconditionally, no shadow-root gate ───────────────── */
-    function start() {
-        var debounce;
-        new MutationObserver(function () {
-            clearTimeout(debounce);
-            debounce = setTimeout(raiseAll, 20);
-        }).observe(document.body, {
-            childList:       true,
-            subtree:         true,
-            attributes:      true,
-            attributeFilter: ['style', 'class']
-        });
-
-        setInterval(raiseAll,         250);   /* periodic safety net          */
-        setInterval(tryInjectShadow,  500);   /* keep probing for shadow root */
-
-        raiseAll();
-        tryInjectShadow();
+    function init() {
+        raiseSearchContainer();
+        if (!raised) {
+            /* #quick-search not in DOM yet — retry */
+            setTimeout(init, 150);
+        }
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { setTimeout(start, 300); });
+        document.addEventListener('DOMContentLoaded', init);
     } else {
-        setTimeout(start, 300);
+        init();
     }
 })();

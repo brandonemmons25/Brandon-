@@ -1,18 +1,9 @@
 /*
- * Raise #slideshow stacking context above content sections below it.
- * 50 stays well below the site header.
- *
- * CSS fallback for MUI portals that land as direct body children —
- * these rules fire immediately, before any JS runs.
+ * Keep #slideshow's stacking context below the site header but
+ * above the content sections further down the page.
+ * The JS raises the #quick-search container to z-index:1000
+ * (above .c-wrap's z-index:999) so shadow-DOM panels clear the wave.
  */
 #slideshow {
     z-index: 50 !important;
-}
-
-body > [class*="MuiPopper-root"],
-body > [class*="MuiPopover-root"],
-body > [class*="MuiMenu-root"],
-body > [class*="MuiAutocomplete-popper"],
-body > [class*="MuiModal-root"] {
-    z-index: 2147483647 !important;
 }
