@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.10.0
+ * Quick Search Dropdown Fix v6.11.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -171,7 +171,9 @@
         if (sr.querySelector('#qsdf-bg-fix')) return; /* already injected */
         var style = document.createElement('style');
         style.id = 'qsdf-bg-fix';
-        style.textContent = ':host > div { background-color: transparent !important; }';
+        /* :host > * covers any tag (not just div); two levels catches nested
+           wrappers without reaching city-links deep in the component tree */
+        style.textContent = ':host > * { background-color: transparent !important; } :host > * > * { background-color: transparent !important; }';
         sr.prepend(style);
     }
 
