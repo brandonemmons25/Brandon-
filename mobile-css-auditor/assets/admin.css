@@ -1,0 +1,148 @@
+/* Mobile CSS Auditor — Admin Styles v1.0.0 */
+
+#mca-wrap {
+    max-width: 1100px;
+}
+
+#mca-wrap h1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ── Toolbar ── */
+#mca-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    border-bottom: 1px solid #ddd;
+}
+
+#mca-progress-bar {
+    flex: 1;
+    min-width: 120px;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+#mca-progress-fill {
+    height: 100%;
+    background: #2271b1;
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.35s ease;
+}
+
+#mca-progress-text {
+    font-size: 0.82rem;
+    color: #555;
+    min-width: 180px;
+    white-space: nowrap;
+}
+
+/* ── Page table ── */
+#mca-table-wrap {
+    margin-top: 8px;
+}
+
+.mca-table td,
+.mca-table th {
+    vertical-align: middle;
+}
+
+/* ── Status badges ── */
+.mca-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    white-space: nowrap;
+    line-height: 1.6;
+}
+
+.mca-pending  { background: #f0f0f0; color: #555; }
+.mca-scanning { background: #fff3cd; color: #856404; animation: mca-pulse 1s ease-in-out infinite; }
+.mca-done     { background: #d4edda; color: #155724; }
+.mca-error    { background: #f8d7da; color: #721c24; }
+
+@keyframes mca-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+}
+
+/* ── Summary rows ── */
+.mca-detail-row > td {
+    background: #f6f7f7 !important;
+    padding: 6px 16px 8px 32px !important;
+}
+
+.mca-issue-list {
+    margin: 0;
+    padding: 0 0 0 16px;
+    font-size: 0.82rem;
+    color: #444;
+    line-height: 1.8;
+}
+
+/* ── Output section ── */
+#mca-output-wrap {
+    margin-top: 32px;
+    border-top: 2px solid #2271b1;
+    padding-top: 20px;
+}
+
+#mca-output-wrap h2 {
+    color: #1d2327;
+    margin-bottom: 4px;
+}
+
+#mca-output-wrap h3 {
+    margin-top: 28px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 6px;
+    font-size: 1rem;
+    color: #2271b1;
+}
+
+#mca-output-wrap textarea {
+    display: block;
+    width: 100%;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.80rem;
+    background: #1a1a2e;
+    color: #e2e2e2;
+    padding: 16px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    resize: vertical;
+    box-sizing: border-box;
+    line-height: 1.55;
+    tab-size: 2;
+}
+
+.mca-copy-btn {
+    margin-top: 8px !important;
+    margin-bottom: 4px !important;
+}
+
+/* ── Hidden iframe ── */
+#mca-iframe {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+    width: 375px;
+    height: 812px;
+    border: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* ── Utility ── */
+.mca-hidden { display: none !important; }
