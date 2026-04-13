@@ -1,5 +1,5 @@
 /**
- * Quick Search Dropdown Fix v6.13.0
+ * Quick Search Dropdown Fix v6.14.0
  *
  * Confirmed from live-site DevTools + full site CSS:
  *
@@ -14,6 +14,9 @@
  *
  * Cosmetic: inject CSS into the iHF shadow root to set .quick-search
  * background-color and height (confirmed fix from site admin).
+ *
+ * Mobile: inject responsive CSS into both the quick-search and featured
+ * listings shadow roots using confirmed class names from DevTools.
  */
 (function () {
     'use strict';
@@ -111,12 +114,55 @@
         update();
     }
 
-    /* ── Cosmetic: inject CSS into iHF shadow root ───────────────────────── */
-    function injectShadowCss(sr) {
-        if (sr.querySelector('#qsdf-bg-fix')) return;
+    /* ── Shadow CSS ──────────────────────────────────────────────────────── */
+
+    /* Quick-search widget: brand color + mobile field stacking */
+    var QS_CSS = [
+        '.quick-search { background-color: #48615c !important; height: auto !important; min-height: 80px !important; }',
+        '@media (max-width: 768px) {',
+        '  .quick-search { padding: 10px !important; box-sizing: border-box !important; }',
+        '  .ui-grid-container { flex-direction: column !important; align-items: stretch !important; }',
+        '  .ui-grid-item { max-width: 100% !important; flex-basis: 100% !important; width: 100% !important; margin-bottom: 6px !important; }',
+        '  .ui-button { width: 100% !important; box-sizing: border-box !important; }',
+        '  .ui-form-control { width: 100% !important; }',
+        '  .ui-input-base { width: 100% !important; }',
+        '}'
+    ].join('\n');
+
+    /* Featured listings: center cards, stack layout, fix disclaimer + contact form */
+    var LISTING_CSS = [
+        '@media (max-width: 768px) {',
+        '  * { box-sizing: border-box !important; max-width: 100% !important; }',
+        '  [class*="listing-card"],[class*="property-card"],[class*="result-item"] {',
+        '    width: 100% !important; margin: 0 auto 16px !important; float: none !important;',
+        '  }',
+        '  [class*="listings-grid"],[class*="results-grid"],[class*="property-list"] {',
+        '    display: flex !important; flex-direction: column !important; align-items: center !important;',
+        '  }',
+        '  [class*="disclaimer"],[class*="legal"],[class*="attribution"] {',
+        '    display: block !important; clear: both !important;',
+        '    font-size: 0.7rem !important; line-height: 1.5 !important;',
+        '    color: #555 !important; padding: 12px 10px !important;',
+        '    margin-bottom: 20px !important;',
+        '  }',
+        '  [class*="contact"],[class*="lead-form"],[class*="agent-contact"] {',
+        '    display: block !important; clear: both !important; width: 100% !important;',
+        '    background: #fff !important; color: #222 !important;',
+        '    padding: 16px !important; margin-top: 20px !important;',
+        '  }',
+        '  [class*="contact"] input,[class*="lead"] input,',
+        '  [class*="contact"] textarea,[class*="lead"] textarea {',
+        '    width: 100% !important; margin-bottom: 10px !important;',
+        '    font-size: 16px !important;',
+        '  }',
+        '}'
+    ].join('\n');
+
+    function injectStyle(sr, id, css) {
+        if (sr.querySelector('#' + id)) return;
         var style = document.createElement('style');
-        style.id = 'qsdf-bg-fix';
-        style.textContent = '.quick-search { background-color: #48615c !important; height: 80px !important; }';
+        style.id = id;
+        style.textContent = css;
         sr.prepend(style);
     }
 
@@ -127,6 +173,7 @@
 
         watchLightDom(qs);
 
+        /* Quick-search shadow root */
         var sr = qs.shadowRoot;
         if (!sr) {
             var all = qs.querySelectorAll('*');
@@ -136,8 +183,24 @@
         }
         if (sr) {
             watchShadow(sr);
-            injectShadowCss(sr);
+            injectStyle(sr, 'qsdf-bg-fix', QS_CSS);
         }
+
+        /* Featured listings shadow roots */
+        var containers = document.querySelectorAll('.ihf-container');
+        for (var j = 0; j < containers.length; j++) {
+            var csr = containers[j].shadowRoot;
+            if (csr) injectStyle(csr, 'qsdf-listing-' + j, LISTING_CSS);
+        }
+
+        /* Re-check listing shadow roots as iHF may render them late */
+        setTimeout(function () {
+            var lateContainers = document.querySelectorAll('.ihf-container');
+            for (var k = 0; k < lateContainers.length; k++) {
+                var lcsr = lateContainers[k].shadowRoot;
+                if (lcsr) injectStyle(lcsr, 'qsdf-listing-' + k, LISTING_CSS);
+            }
+        }, 2000);
 
         var debounce2;
         new MutationObserver(function () {

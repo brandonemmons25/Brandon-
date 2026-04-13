@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Quick Search Dropdown Fix
  * Description: Fixes iHomeFinder dropdown menus appearing behind the theme's .c-wrap wave. Wave design preserved.
- * Version: 6.13.0
+ * Version: 6.14.0
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -14,14 +14,14 @@ function qsdf_enqueue_assets() {
         'quick-search-dropdown-fix',
         plugin_dir_url( __FILE__ ) . 'quick-search-dropdown-fix.css',
         array(),
-        '6.13.0'
+        '6.14.0'
     );
 
     wp_enqueue_script(
         'quick-search-dropdown-fix',
         plugin_dir_url( __FILE__ ) . 'quick-search-dropdown-fix.js',
         array(),
-        '6.13.0',
+        '6.14.0',
         true
     );
 }
