@@ -1,0 +1,94 @@
+/*
+ * Mobile Responsive Fixes
+ * v1.0.0
+ *
+ * Targeted fixes derived from Mobile CSS Auditor scan of
+ * x-cbintermountainrealty-ihf.mystagingwebsite.com at 375 px viewport.
+ *
+ * Two pages had real horizontal scrolling (bodyScrollW > 375):
+ *   1. Homepage  (bodyScrollW = 1040 px) — slideshow tagline + iHF search panel
+ *   2. Maps – Fall River Valley (bodyScrollW = 545 px) — wide content / long links
+ */
+
+@media (max-width: 782px) {
+
+    /* ── 1. HOMEPAGE: Slideshow tagline overflows at 1040 px ──────────────── */
+    /*
+     * .c-wrap is position:absolute inside #slideshow and can extend past the
+     * viewport.  Clamp it and hide its overflow so ct-tagline stays contained.
+     */
+    #slideshow .c-wrap {
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+
+    #slideshow .ct-tagline {
+        max-width: 100% !important;
+        width: 100% !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* ── 2. HOMEPAGE: iHF quick-search panel overflows at 987 px ─────────── */
+    /*
+     * The iHF Kestrel widget renders div.ihf-container at a fixed desktop
+     * width inside div.panel > p.  Force both wrappers to 100 % viewport.
+     */
+    #quick-search .quick-search .panel,
+    #quick-search .quick-search .panel p,
+    #quick-search .quick-search .panel .ihf-container {
+        max-width: 100% !important;
+        width: 100% !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* ── 3. HOMEPAGE: Welcome / hp-content section overflows at 640 px ───── */
+    #hp-content .panel .welcome,
+    #hp-content .panel .welcome h1,
+    #hp-content .panel .welcome p {
+        max-width: 100% !important;
+        width: 100% !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* ── 4. MAPS: Long links break outside the content area ──────────────── */
+    /*
+     * Maps – Fall River Valley: an <a> inside .entry extended to right=446 px
+     * on a 375 px viewport.  Force word-breaking on all content links.
+     */
+    .entry a,
+    .post .entry a,
+    #content .entry a {
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+
+    /* ── 5. GLOBAL: Images should never exceed their container ───────────── */
+    /*
+     * 746 image-no-max-width hits across 79 pages.  Most are small icons
+     * (< 375 px) so they don't cause overflow, but adding max-width is the
+     * correct baseline and future-proofs against larger uploads.
+     * Excluded: img inside .c-wrap (the hero slideshow — intentionally full-bleed).
+     */
+    img:not(.c-wrap img) {
+        max-width: 100% !important;
+        height: auto !important;
+    }
+
+    /* ── 6. Float clears on mobile ───────────────────────────────────────── */
+    /*
+     * img.alignright / img.realtor-logo are floated right.
+     * On 375 px these can push text off-screen.
+     * Drop floats and let images sit in the normal flow.
+     */
+    img.alignright,
+    img.alignleft,
+    img.realtor-logo {
+        float: none !important;
+        display: block !important;
+        margin: 0 auto 1em !important;
+    }
+
+}
