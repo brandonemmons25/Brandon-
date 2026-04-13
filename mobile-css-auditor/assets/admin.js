@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Admin UI v1.2.0
+ * Mobile CSS Auditor — Admin UI v1.3.0
  *
  * Scans all pages at 375px, collects deep element data + shadow DOM,
  * and exports a rich CSV for analysis and targeted CSS authoring.
@@ -102,8 +102,9 @@
     function nextScan() {
         if (!pageQueue.length) {
             scanning = false;
-            $('#mca-progress-text').text('Scan complete — Download CSV to share findings');
+            $('#mca-progress-text').text('Scan complete — copy data and paste into Claude');
             $('#mca-btn-csv').removeClass('mca-hidden');
+            $('#mca-btn-view').removeClass('mca-hidden');
             return;
         }
         var page = pageQueue.shift();
@@ -417,6 +418,14 @@
         return rows.join('\n');
     }
 
+    /* ── View / Copy in browser (no file download needed) ───────── */
+    function showViewPanel() {
+        var csv = buildCSV();
+        $('#mca-data-out').val(csv);
+        $('#mca-view-wrap').removeClass('mca-hidden');
+        $('html,body').animate({ scrollTop: $('#mca-view-wrap').offset().top - 20 }, 500);
+    }
+
     function downloadCSV() {
         var csv      = buildCSV();
         var blob     = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -455,6 +464,7 @@
                 function () {
                     if (Object.keys(allReports).length) {
                         $('#mca-btn-csv').removeClass('mca-hidden');
+                        $('#mca-btn-view').removeClass('mca-hidden');
                     }
                 }
             );
@@ -463,6 +473,24 @@
         /* Download CSV */
         $('#mca-btn-csv').on('click', downloadCSV);
 
+        /* View / Copy data in browser */
+        $('#mca-btn-view').on('click', showViewPanel);
+
+        /* Select & copy all text in the data textarea */
+        $('#mca-btn-copy-data').on('click', function () {
+            var ta = document.getElementById('mca-data-out');
+            ta.select();
+            ta.setSelectionRange(0, 999999999);
+            try {
+                document.execCommand('copy');
+                $(this).text('Copied! Now paste into Claude chat');
+                var $btn = $(this);
+                setTimeout(function () { $btn.html('&#128203;&nbsp;Select &amp; Copy All'); }, 4000);
+            } catch (e) {
+                $(this).text('Press Ctrl+A then Ctrl+C in the box below');
+            }
+        });
+
         /* Clear */
         $('#mca-btn-clear').on('click', function () {
             allReports   = {};
@@ -470,6 +498,8 @@
             scanning     = false;
             initTable();
             $('#mca-btn-csv').addClass('mca-hidden');
+            $('#mca-btn-view').addClass('mca-hidden');
+            $('#mca-view-wrap').addClass('mca-hidden');
             $('#mca-progress-text').text('');
             $('#mca-progress-fill').css('width', '0%');
             document.getElementById('mca-iframe').src = 'about:blank';

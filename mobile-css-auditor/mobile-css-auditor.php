@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Mobile CSS Auditor
  * Description: Scans every page of your site at mobile width, inspects all DOM elements and iHF shadow roots, then generates ready-to-paste CSS for WordPress Customizer and iHomeFinder Admin.
- * Version:     1.2.0
+ * Version:     1.3.0
  * Author:      Brandon Emmons
  */
 
@@ -37,13 +37,13 @@ class Mobile_CSS_Auditor {
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.css',
             [],
-            '1.2.0'
+            '1.3.0'
         );
         wp_enqueue_script(
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.js',
             [ 'jquery' ],
-            '1.2.0',
+            '1.3.0',
             true
         );
         wp_localize_script( 'mca-admin', 'MCA', [
@@ -65,7 +65,7 @@ class Mobile_CSS_Auditor {
                 'mca-probe',
                 plugin_dir_url( __FILE__ ) . 'assets/probe.js',
                 [],
-                '1.2.0',
+                '1.3.0',
                 true   // load in footer so DOM is ready
             );
         }
@@ -123,6 +123,7 @@ class Mobile_CSS_Auditor {
             <div id="mca-toolbar">
                 <button id="mca-btn-scan-all" class="button button-primary">&#9654;&nbsp;Scan All Pages</button>
                 <button id="mca-btn-csv"      class="button button-secondary mca-hidden">&#8659;&nbsp;Download CSV</button>
+                <button id="mca-btn-view"     class="button mca-hidden">&#128065;&nbsp;View / Copy Data</button>
                 <button id="mca-btn-clear"    class="button">&#10007;&nbsp;Clear</button>
                 <span   id="mca-progress-text"></span>
                 <div    id="mca-progress-bar"><div id="mca-progress-fill"></div></div>
@@ -130,11 +131,18 @@ class Mobile_CSS_Auditor {
 
             <div id="mca-workflow">
                 <strong>Workflow:</strong>
-                Scan all pages &rarr; Download CSV &rarr; Share CSV with Claude &rarr; Claude writes the CSS &rarr; paste into
+                Scan all pages &rarr; <strong>View / Copy Data</strong> &rarr; paste into Claude chat &rarr; Claude writes the CSS &rarr; paste into
                 <em>Customizer &rarr; Additional CSS</em> and <em>Optima Express &rarr; Custom CSS</em>.
             </div>
 
             <div id="mca-table-wrap"></div>
+
+            <div id="mca-view-wrap" class="mca-hidden">
+                <h2>Scan Data — Copy and paste this into Claude</h2>
+                <p>Select all text below (<strong>Ctrl+A</strong> inside the box, or use the button), copy, then paste directly into the Claude chat.</p>
+                <button id="mca-btn-copy-data" class="button button-primary">&#128203;&nbsp;Select &amp; Copy All</button>
+                <textarea id="mca-data-out" rows="30" readonly spellcheck="false" style="margin-top:10px"></textarea>
+            </div>
         </div>
 
         <!-- Hidden iframe: loads pages at 375 px to trigger mobile media queries -->
