@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Mobile CSS Auditor
  * Description: Scans every page of your site at mobile width, inspects all DOM elements and iHF shadow roots, then generates ready-to-paste CSS for WordPress Customizer and iHomeFinder Admin.
- * Version:     1.1.0
+ * Version:     1.2.0
  * Author:      Brandon Emmons
  */
 
@@ -37,13 +37,13 @@ class Mobile_CSS_Auditor {
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.css',
             [],
-            '1.1.0'
+            '1.2.0'
         );
         wp_enqueue_script(
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.js',
             [ 'jquery' ],
-            '1.1.0',
+            '1.2.0',
             true
         );
         wp_localize_script( 'mca-admin', 'MCA', [
@@ -65,7 +65,7 @@ class Mobile_CSS_Auditor {
                 'mca-probe',
                 plugin_dir_url( __FILE__ ) . 'assets/probe.js',
                 [],
-                '1.1.0',
+                '1.2.0',
                 true   // load in footer so DOM is ready
             );
         }
@@ -122,30 +122,19 @@ class Mobile_CSS_Auditor {
 
             <div id="mca-toolbar">
                 <button id="mca-btn-scan-all" class="button button-primary">&#9654;&nbsp;Scan All Pages</button>
-                <button id="mca-btn-generate" class="button button-secondary mca-hidden">&#128196;&nbsp;Generate CSS</button>
-                <button id="mca-btn-csv"      class="button mca-hidden">&#8659;&nbsp;Download CSV</button>
+                <button id="mca-btn-csv"      class="button button-secondary mca-hidden">&#8659;&nbsp;Download CSV</button>
                 <button id="mca-btn-clear"    class="button">&#10007;&nbsp;Clear</button>
                 <span   id="mca-progress-text"></span>
                 <div    id="mca-progress-bar"><div id="mca-progress-fill"></div></div>
             </div>
 
-            <div id="mca-table-wrap"></div>
-
-            <div id="mca-output-wrap" class="mca-hidden">
-                <h2>Generated Mobile CSS</h2>
-                <p>Copy each block and paste it into the location shown.</p>
-
-                <h3>1 &mdash; WordPress Customizer &rarr; Additional CSS</h3>
-                <textarea id="mca-out-customizer" rows="35" readonly spellcheck="false"></textarea>
-                <button class="button mca-copy-btn" data-target="mca-out-customizer">&#128203;&nbsp;Copy to Clipboard</button>
-
-                <h3>2 &mdash; iHomeFinder Admin &rarr; Custom CSS</h3>
-                <textarea id="mca-out-ihf" rows="25" readonly spellcheck="false"></textarea>
-                <button class="button mca-copy-btn" data-target="mca-out-ihf">&#128203;&nbsp;Copy to Clipboard</button>
-
-                <h3>3 &mdash; Scan Report (raw findings)</h3>
-                <textarea id="mca-out-report" rows="20" readonly spellcheck="false"></textarea>
+            <div id="mca-workflow">
+                <strong>Workflow:</strong>
+                Scan all pages &rarr; Download CSV &rarr; Share CSV with Claude &rarr; Claude writes the CSS &rarr; paste into
+                <em>Customizer &rarr; Additional CSS</em> and <em>Optima Express &rarr; Custom CSS</em>.
             </div>
+
+            <div id="mca-table-wrap"></div>
         </div>
 
         <!-- Hidden iframe: loads pages at 375 px to trigger mobile media queries -->
