@@ -123,6 +123,7 @@ class Mobile_CSS_Auditor {
             <div id="mca-toolbar">
                 <button id="mca-btn-scan-all" class="button button-primary">&#9654;&nbsp;Scan All Pages</button>
                 <button id="mca-btn-generate" class="button button-secondary mca-hidden">&#128196;&nbsp;Generate CSS</button>
+                <button id="mca-btn-csv"      class="button mca-hidden">&#8659;&nbsp;Download CSV</button>
                 <button id="mca-btn-clear"    class="button">&#10007;&nbsp;Clear</button>
                 <span   id="mca-progress-text"></span>
                 <div    id="mca-progress-bar"><div id="mca-progress-fill"></div></div>
