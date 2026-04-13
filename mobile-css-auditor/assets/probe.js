@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Probe v1.0.0
+ * Mobile CSS Auditor — Probe v1.1.0
  *
  * Runs INSIDE the hidden iframe at ~375 px viewport width.
  * Collects computed styles, shadow DOM content, overflow sources,
