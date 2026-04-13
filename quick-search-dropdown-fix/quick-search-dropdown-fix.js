@@ -116,7 +116,26 @@
         if (sr.querySelector('#qsdf-bg-fix')) return;
         var style = document.createElement('style');
         style.id = 'qsdf-bg-fix';
-        style.textContent = '.quick-search { background-color: #48615c !important; height: 80px !important; }';
+        style.textContent = [
+            '.quick-search { background-color: #48615c !important; height: 80px !important; }',
+            '@media (max-width: 768px) {',
+            '  * { box-sizing: border-box !important; }',
+            '  :host, .shadow-root { width: 100% !important; max-width: 100vw !important; overflow-x: hidden !important; }',
+            '  input, select, textarea { width: 100% !important; max-width: 100% !important; font-size: 16px !important; }',
+            '  [class*="contact"], [class*="form"], [class*="lead"] {',
+            '    background: #fff !important; color: #333 !important;',
+            '    padding: 1rem !important; width: 100% !important; max-width: 100% !important;',
+            '  }',
+            '  [class*="card"], [class*="listing"], [class*="property"] {',
+            '    width: 100% !important; max-width: 100% !important;',
+            '  }',
+            '  [class*="title"], [class*="heading"], h1, h2, h3 {',
+            '    font-size: clamp(1rem, 4vw, 1.5rem) !important;',
+            '    overflow: hidden !important; text-overflow: ellipsis !important;',
+            '    white-space: normal !important; word-break: break-word !important;',
+            '  }',
+            '}'
+        ].join('\n');
         sr.prepend(style);
     }
 
