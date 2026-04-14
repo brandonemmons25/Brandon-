@@ -402,35 +402,36 @@
             if (r.layout) {
                 var L = r.layout;
 
-                /* Section visibility rows */
-                L.sections.forEach(function (s) {
-                    rows.push(row([
-                        title, url, 'LAYOUT-SECTION',
-                        s.key, s.selector || '', s.tagId || '', '', s.classes || '', '',
-                        s.isHidden ? 'section-hidden' : 'section-visible',
-                        'found=' + s.found +
-                        ' | display=' + (s.display || 'n/a') +
-                        ' | visibility=' + (s.visibility || 'n/a') +
-                        ' | opacity=' + (s.opacity || 'n/a') +
-                        ' | offsetH=' + (s.offsetH != null ? s.offsetH + 'px' : 'n/a') +
-                        ' | offsetW=' + (s.offsetW != null ? s.offsetW + 'px' : 'n/a'),
-                        s.position || '', s.display || '', '', '', '', '', '', '', '', '',
-                        '', '', '', '',
-                        '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-                        '', '', '', '', '', '', '', '',
-                        s.offsetW != null ? s.offsetW : '',
-                        s.offsetH != null ? s.offsetH : '', '',
-                        s.isHidden ? 'yes' : 'no', '', '', '',
-                    ]));
-                });
+                /* DOM-order section rows */
+                if (L.sections) {
+                    L.sections.forEach(function (s) {
+                        rows.push(row([
+                            title, url, 'LAYOUT-SECTION',
+                            s.selector || '', s.fullPath || '', s.tagId || '', '', s.classes || '', '',
+                            s.isHidden ? 'section-hidden' : 'section-visible',
+                            'depth=' + s.depth +
+                            ' | display=' + (s.display || 'n/a') +
+                            ' | visibility=' + (s.visibility || 'n/a') +
+                            ' | opacity=' + (s.opacity || 'n/a') +
+                            ' | offsetH=' + (s.offsetH != null ? s.offsetH + 'px' : 'n/a') +
+                            ' | offsetW=' + (s.offsetW != null ? s.offsetW + 'px' : 'n/a'),
+                            s.position || '', s.display || '', '', '', '', '', '', '', '', '',
+                            '', '', '', '',
+                            '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                            '', '', '', '', '', '', '', '',
+                            s.offsetW != null ? s.offsetW : '',
+                            s.offsetH != null ? s.offsetH : '', '',
+                            s.isHidden ? 'yes' : 'no', '', '', '',
+                        ]));
+                    });
+                }
 
-                /* Hamburger + stylesheet detection */
+                /* Meta: body classes + stylesheets */
                 rows.push(row([
                     title, url, 'LAYOUT-META',
                     '', '', '', '', '', '',
                     'layout-meta',
-                    'hamburgerExists=' + L.hamburgerExists +
-                    ' | bodyClasses=' + (L.bodyClasses || '').substring(0, 120) +
+                    'bodyClasses=' + (L.bodyClasses || '').substring(0, 120) +
                     ' | stylesheets=' + (L.stylesheets || []).join(' '),
                     '', '', '', '', '', '', '', '', '', '', '', '', '',
                     '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
