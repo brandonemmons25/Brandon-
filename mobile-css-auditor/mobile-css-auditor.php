@@ -138,10 +138,10 @@ class Mobile_CSS_Auditor {
             <div id="mca-table-wrap"></div>
 
             <div id="mca-view-wrap" class="mca-hidden">
-                <h2>Scan Data — Copy and paste into Claude</h2>
-                <p>Click <strong>Select &amp; Copy All</strong>, then paste directly into the Claude chat.</p>
-                <button id="mca-btn-copy-data" class="button button-primary" style="font-size:15px;padding:8px 20px;">&#128203;&nbsp;Select &amp; Copy All</button>
-                <textarea id="mca-data-out" rows="40" readonly spellcheck="false" style="margin-top:12px;width:100%;font-size:11px;font-family:monospace;background:#1a1a2e;color:#e2e2e2;padding:12px;box-sizing:border-box;border-radius:4px;"></textarea>
+                <h2>Scan Summary — Copy and paste into Claude</h2>
+                <p>This is a compact summary of everything Claude needs. Click <strong>Copy All</strong> then paste into the chat.</p>
+                <button id="mca-btn-copy-data" class="button button-primary" style="font-size:15px;padding:8px 24px;">&#128203;&nbsp;Copy All</button>
+                <textarea id="mca-data-out" rows="40" readonly spellcheck="false" style="margin-top:12px;width:100%;font-size:11px;font-family:monospace;background:#1a1a2e;color:#e2e2e2;padding:12px;box-sizing:border-box;border-radius:4px;resize:vertical;"></textarea>
             </div>
         </div>
 

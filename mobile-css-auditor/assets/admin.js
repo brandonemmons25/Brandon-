@@ -474,10 +474,103 @@
         return rows.join('\n');
     }
 
-    /* ── View / Copy in browser (no file download needed) ───────── */
+    /* ── Compact summary (what Claude actually needs) ────────────── */
+    function buildSummary() {
+        var lines = [];
+        lines.push('MOBILE CSS AUDIT SUMMARY');
+        lines.push('Generated: ' + new Date().toISOString());
+        lines.push('='.repeat(60));
+
+        Object.keys(allReports).forEach(function (id) {
+            var r = allReports[id];
+
+            lines.push('');
+            lines.push('PAGE: ' + r.title);
+            lines.push('URL: ' + r.url);
+            lines.push('Viewport: ' + r.viewport + 'px | BodyScrollW: ' + r.bodyScrollW +
+                       'px | Overflow: ' + (r.hasOverflow ? 'YES' : 'no') +
+                       ' | DocHeight: ' + r.docHeight + 'px');
+
+            /* Body classes */
+            if (r.layout && r.layout.bodyClasses) {
+                lines.push('Body classes: ' + r.layout.bodyClasses.substring(0, 200));
+            }
+
+            /* DOM layout order */
+            if (r.layout && r.layout.sections && r.layout.sections.length) {
+                lines.push('--- DOM LAYOUT (body children, in order) ---');
+                r.layout.sections.forEach(function (s) {
+                    var status = s.isHidden ? 'HIDDEN' : 'visible';
+                    lines.push('  [depth=' + s.depth + '] ' + s.tagId +
+                               ' (' + s.classes.split(' ').slice(0,3).join(' ') + ')' +
+                               ' → ' + status +
+                               ' | display:' + s.display +
+                               ' | ' + s.offsetW + 'x' + s.offsetH + 'px');
+                });
+            }
+
+            /* Header HTML */
+            if (r.layout && r.layout.headerHTML) {
+                lines.push('--- HEADER HTML ---');
+                lines.push(r.layout.headerHTML.substring(0, 1500));
+            }
+
+            /* Stylesheets */
+            if (r.layout && r.layout.stylesheets && r.layout.stylesheets.length) {
+                lines.push('--- STYLESHEETS ---');
+                lines.push(r.layout.stylesheets.join(', '));
+            }
+
+            /* Navigation */
+            if (r.navigation && r.navigation.length) {
+                lines.push('--- NAVIGATION ---');
+                r.navigation.forEach(function (n) {
+                    lines.push('  ' + n.selector +
+                               ' | display:' + n.display +
+                               ' | ' + n.offsetH + 'px tall' +
+                               ' | items:' + n.itemCount +
+                               ' | hidden:' + n.isHidden +
+                               ' | hasHamburger:' + n.hasHamburger +
+                               ' | path:' + (n.fullPath || ''));
+                });
+            }
+
+            /* Overflow culprits */
+            if (r.overflowCulprits && r.overflowCulprits.length) {
+                lines.push('--- OVERFLOW CULPRITS ---');
+                r.overflowCulprits.forEach(function (c) {
+                    lines.push('  ' + c.selector +
+                               ' | right=' + c.right + 'px' +
+                               ' | excess=+' + c.excess + 'px' +
+                               ' | width=' + c.width + 'px' +
+                               ' | path: ' + (c.fullPath || ''));
+                });
+            }
+
+            /* Hidden sections of interest */
+            var hiddenEls = r.elements.filter(function (e) {
+                return e.isHidden && e.id && !e.id.match(/^a11y|adminbar|wpadmin/i);
+            });
+            if (hiddenEls.length) {
+                lines.push('--- HIDDEN ELEMENTS WITH IDs ---');
+                hiddenEls.slice(0, 20).forEach(function (e) {
+                    lines.push('  ' + e.selector +
+                               ' | display:' + e.display +
+                               ' | visibility:' + e.overflowX +
+                               ' | ' + e.offsetW + 'x' + e.offsetH);
+                });
+            }
+
+            lines.push('-'.repeat(60));
+        });
+
+        return lines.join('\n');
+    }
+
+    /* ── View / Copy in browser ──────────────────────────────────── */
     function showViewPanel() {
-        var csv = buildCSV();
-        $('#mca-data-out').val(csv);
+        var summary = buildSummary();
+        $('#mca-data-out').val(summary);
         $('#mca-view-wrap').removeClass('mca-hidden');
         $('html,body').animate({ scrollTop: $('#mca-view-wrap').offset().top - 20 }, 500);
     }
