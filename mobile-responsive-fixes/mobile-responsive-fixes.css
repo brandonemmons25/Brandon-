@@ -1,22 +1,93 @@
 /*
  * Mobile Responsive Fixes
- * v1.0.0
+ * v2.0.0
  *
- * Targeted fixes derived from Mobile CSS Auditor scan of
- * x-cbintermountainrealty-ihf.mystagingwebsite.com at 375 px viewport.
- *
- * Two pages had real horizontal scrolling (bodyScrollW > 375):
- *   1. Homepage  (bodyScrollW = 1040 px) — slideshow tagline + iHF search panel
- *   2. Maps – Fall River Valley (bodyScrollW = 545 px) — wide content / long links
+ * Targeted fixes derived from Mobile CSS Auditor scan at 375 px viewport.
+ * Desired mobile layout:
+ *   1. Hamburger menu (collapsed nav)
+ *   2. Hero image (slideshow)
+ *   3. Search form (iHF quick-search)
+ *   4. Featured properties (Soliloquy slider)
+ *   5. Contact form / hp-content
+ *   6. Community links (ul.fc)
+ *   7. Footer
  */
 
 @media (max-width: 782px) {
 
-    /* ── 1. HOMEPAGE: Slideshow tagline overflows at 1040 px ──────────────── */
-    /*
-     * .c-wrap is position:absolute inside #slideshow and can extend past the
-     * viewport.  Clamp it and hide its overflow so ct-tagline stays contained.
-     */
+    /* ══════════════════════════════════════════════════════════════
+       1. HAMBURGER MENU
+       Collapses div.nav (284 px expanded list) into a toggle button.
+    ══════════════════════════════════════════════════════════════ */
+
+    /* Hide the full nav by default */
+    #header .nav,
+    #header div.nav {
+        display: none !important;
+    }
+
+    /* Show nav when body has the open class (toggled by JS) */
+    body.mrf-nav-open #header .nav,
+    body.mrf-nav-open #header div.nav {
+        display: block !important;
+    }
+
+    /* Hamburger button */
+    .mrf-hamburger {
+        display: flex !important;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 14px 10px;
+        background: none;
+        border: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        color: inherit;
+        box-sizing: border-box;
+    }
+
+    .mrf-bar {
+        display: block;
+        width: 28px;
+        height: 3px;
+        background: currentColor;
+        border-radius: 2px;
+        transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+
+    /* Animate to × when open */
+    body.mrf-nav-open .mrf-hamburger .mrf-bar:nth-child(1) {
+        transform: translateY(9px) rotate(45deg);
+    }
+    body.mrf-nav-open .mrf-hamburger .mrf-bar:nth-child(2) {
+        opacity: 0;
+    }
+    body.mrf-nav-open .mrf-hamburger .mrf-bar:nth-child(3) {
+        transform: translateY(-9px) rotate(-45deg);
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       2. HERO IMAGE — full width, no overflow
+    ══════════════════════════════════════════════════════════════ */
+
+    #slideshow {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    #slideshow .hp-slideshow,
+    #slideshow .soliloquy-viewport,
+    #slideshow img {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+    }
+
+    /* Constrain the absolute .c-wrap overlay so it doesn't push past viewport */
     #slideshow .c-wrap {
         max-width: 100% !important;
         overflow-x: hidden !important;
@@ -29,11 +100,10 @@
         box-sizing: border-box !important;
     }
 
-    /* ── 2. HOMEPAGE: iHF quick-search panel overflows at 987 px ─────────── */
-    /*
-     * The iHF Kestrel widget renders div.ihf-container at a fixed desktop
-     * width inside div.panel > p.  Force both wrappers to 100 % viewport.
-     */
+    /* ══════════════════════════════════════════════════════════════
+       3. SEARCH FORM — clamp iHF container to viewport
+    ══════════════════════════════════════════════════════════════ */
+
     #quick-search .quick-search .panel,
     #quick-search .quick-search .panel p,
     #quick-search .quick-search .panel .ihf-container {
@@ -43,7 +113,21 @@
         box-sizing: border-box !important;
     }
 
-    /* ── 3. HOMEPAGE: Welcome / hp-content section overflows at 640 px ───── */
+    /* ══════════════════════════════════════════════════════════════
+       4. FEATURED PROPERTIES — Soliloquy slider
+    ══════════════════════════════════════════════════════════════ */
+
+    #soliloquy-container-647_1,
+    .soliloquy-wrapper,
+    .soliloquy-viewport {
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       5. HP-CONTENT (welcome / contact area)
+    ══════════════════════════════════════════════════════════════ */
+
     #hp-content .panel .welcome,
     #hp-content .panel .welcome h1,
     #hp-content .panel .welcome p {
@@ -53,42 +137,63 @@
         box-sizing: border-box !important;
     }
 
-    /* ── 4. MAPS: Long links break outside the content area ──────────────── */
-    /*
-     * Maps – Fall River Valley: an <a> inside .entry extended to right=446 px
-     * on a 375 px viewport.  Force word-breaking on all content links.
-     */
-    .entry a,
-    .post .entry a,
-    #content .entry a {
-        word-break: break-word !important;
-        overflow-wrap: break-word !important;
+    /* ══════════════════════════════════════════════════════════════
+       6. COMMUNITY LINKS — ul.fc is hidden by the theme on mobile;
+          show it and its wrapper
+    ══════════════════════════════════════════════════════════════ */
+
+    #hp-content #quick-search,
+    #hp-content .quick-search,
+    #hp-content .community,
+    #hp-content .community .textwidget,
+    #hp-content ul.fc {
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 
-    /* ── 5. GLOBAL: Images should never exceed their container ───────────── */
-    /*
-     * 746 image-no-max-width hits across 79 pages.  Most are small icons
-     * (< 375 px) so they don't cause overflow, but adding max-width is the
-     * correct baseline and future-proofs against larger uploads.
-     * Excluded: img inside .c-wrap (the hero slideshow — intentionally full-bleed).
-     */
+    #hp-content ul.fc {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    #hp-content ul.fc li {
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
+    #hp-content ul.fc li a {
+        display: block;
+        padding: 10px 16px;
+        text-decoration: none;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       GLOBAL: Images + floats
+    ══════════════════════════════════════════════════════════════ */
+
     img:not(.c-wrap img) {
         max-width: 100% !important;
         height: auto !important;
     }
 
-    /* ── 6. Float clears on mobile ───────────────────────────────────────── */
-    /*
-     * img.alignright / img.realtor-logo are floated right.
-     * On 375 px these can push text off-screen.
-     * Drop floats and let images sit in the normal flow.
-     */
     img.alignright,
     img.alignleft,
     img.realtor-logo {
         float: none !important;
         display: block !important;
         margin: 0 auto 1em !important;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       MAPS: Long links word-break
+    ══════════════════════════════════════════════════════════════ */
+
+    .entry a,
+    .post .entry a,
+    #content .entry a {
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
     }
 
 }
