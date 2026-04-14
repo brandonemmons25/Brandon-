@@ -1,10 +1,6 @@
 /**
  * Mobile Responsive Fixes — Hamburger Menu
- * v2.0.0
- *
- * Inserts a hamburger toggle button before div.nav inside #header.
- * Only runs on mobile (≤ 782 px).
- * Toggles body class `mrf-nav-open` so CSS can show/hide the nav.
+ * v3.0.0
  */
 (function () {
     'use strict';
@@ -12,9 +8,20 @@
     function init() {
         if (window.innerWidth > 782) return;
 
-        var nav = document.querySelector('#header .nav') ||
-                  document.querySelector('#header div.nav');
+        /* Try multiple selectors in order of specificity */
+        var nav =
+            document.querySelector('#header .nav') ||
+            document.querySelector('#header div.nav') ||
+            document.querySelector('div.nav') ||
+            document.querySelector('#nav') ||
+            document.querySelector('ul#nav');
+
         if (!nav) return;
+
+        /* Ensure nav is the div wrapper, not the ul */
+        if (nav.tagName.toLowerCase() === 'ul') {
+            nav = nav.parentElement || nav;
+        }
 
         /* Build hamburger button */
         var btn = document.createElement('button');
@@ -26,7 +33,7 @@
             '<span class="mrf-bar"></span>' +
             '<span class="mrf-bar"></span>';
 
-        /* Insert before div.nav */
+        /* Insert before the nav element */
         nav.parentNode.insertBefore(btn, nav);
 
         /* Toggle */

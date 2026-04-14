@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Mobile Responsive Fixes
  * Description: Hamburger nav + correct mobile layout order for Intermountain Realty. Derived from Mobile CSS Auditor scan.
- * Version: 2.0.0
+ * Version: 3.0.0
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Probe v1.2.0
+ * Mobile CSS Auditor — Probe v1.3.0
  *
  * Runs INSIDE the hidden iframe at ~375 px viewport width.
  * Collects deep computed style data, shadow DOM content, parent context,
@@ -316,6 +316,69 @@
         });
     }
 
+    /* ── Layout structure scan (sections + hamburger state) ─────── */
+    function scanLayout() {
+        var SECTIONS = [
+            { key: 'wrapper',    sel: '#wrapper, div.wrapper, div#wrapper' },
+            { key: 'header',     sel: '#header, header.site-header, #masthead' },
+            { key: 'nav',        sel: '#header .nav, #header div.nav, div.nav, nav' },
+            { key: 'slideshow',  sel: '#slideshow' },
+            { key: 'quickSearch',sel: '#quick-search' },
+            { key: 'soliloquy',  sel: '[id^="soliloquy-container"]' },
+            { key: 'hpContent',  sel: '#hp-content' },
+            { key: 'footer',     sel: '#footer, footer.site-footer' },
+        ];
+
+        var sections = [];
+        SECTIONS.forEach(function (s) {
+            var el = document.querySelector(s.sel);
+            if (!el) { sections.push({ key: s.key, found: false }); return; }
+            var c = window.getComputedStyle(el);
+            sections.push({
+                key:        s.key,
+                found:      true,
+                selector:   s.sel,
+                tagId:      (el.tagName.toLowerCase()) + (el.id ? '#' + el.id : ''),
+                classes:    Array.prototype.slice.call(el.classList || []).join(' '),
+                display:    c.display,
+                visibility: c.visibility,
+                opacity:    c.opacity,
+                position:   c.position,
+                offsetW:    el.offsetWidth,
+                offsetH:    el.offsetHeight,
+                isHidden:   c.display === 'none' || c.visibility === 'hidden' ||
+                            parseFloat(c.opacity) === 0 || el.offsetHeight === 0,
+            });
+        });
+
+        /* Capture header inner HTML (first 1200 chars) to reveal exact structure */
+        var headerEl  = document.querySelector('#header, header.site-header, #masthead');
+        var headerHTML = headerEl ? headerEl.outerHTML.substring(0, 1200).replace(/\s+/g, ' ') : '';
+
+        /* Hamburger detection — did our JS run? */
+        var hamburgerExists = !!document.querySelector('.mrf-hamburger');
+
+        /* Loaded stylesheets */
+        var sheets = [];
+        var links = document.querySelectorAll('link[rel="stylesheet"]');
+        for (var li = 0; li < links.length; li++) {
+            var href = links[li].href || '';
+            var fname = href.split('/').pop().split('?')[0];
+            if (fname) sheets.push(fname);
+        }
+
+        /* Body classes */
+        var bodyClasses = document.body ? document.body.className : '';
+
+        return {
+            sections:        sections,
+            headerHTML:      headerHTML,
+            hamburgerExists: hamburgerExists,
+            stylesheets:     sheets,
+            bodyClasses:     bodyClasses,
+        };
+    }
+
     /* ── Main scan ───────────────────────────────────────────────── */
     function scan() {
         var report = {
@@ -333,6 +396,7 @@
             overflowCulprits: [],
             images:           [],
             allClasses:       [],
+            layout:           null,
         };
 
         var TARGET_SEL = [
@@ -366,6 +430,7 @@
         report.shadowRoots = findShadowRoots();
 
         report.navigation       = scanNav();
+        report.layout           = scanLayout();
         report.overflowCulprits = report.hasOverflow ? findOverflowCulprits() : [];
         report.allClasses       = collectAllClasses();
 

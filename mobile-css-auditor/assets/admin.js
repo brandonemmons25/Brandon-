@@ -398,6 +398,61 @@
                 ]));
             });
 
+            /* ── Layout structure ── */
+            if (r.layout) {
+                var L = r.layout;
+
+                /* Section visibility rows */
+                L.sections.forEach(function (s) {
+                    rows.push(row([
+                        title, url, 'LAYOUT-SECTION',
+                        s.key, s.selector || '', s.tagId || '', '', s.classes || '', '',
+                        s.isHidden ? 'section-hidden' : 'section-visible',
+                        'found=' + s.found +
+                        ' | display=' + (s.display || 'n/a') +
+                        ' | visibility=' + (s.visibility || 'n/a') +
+                        ' | opacity=' + (s.opacity || 'n/a') +
+                        ' | offsetH=' + (s.offsetH != null ? s.offsetH + 'px' : 'n/a') +
+                        ' | offsetW=' + (s.offsetW != null ? s.offsetW + 'px' : 'n/a'),
+                        s.position || '', s.display || '', '', '', '', '', '', '', '', '',
+                        '', '', '', '',
+                        '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                        '', '', '', '', '', '', '', '',
+                        s.offsetW != null ? s.offsetW : '',
+                        s.offsetH != null ? s.offsetH : '', '',
+                        s.isHidden ? 'yes' : 'no', '', '', '',
+                    ]));
+                });
+
+                /* Hamburger + stylesheet detection */
+                rows.push(row([
+                    title, url, 'LAYOUT-META',
+                    '', '', '', '', '', '',
+                    'layout-meta',
+                    'hamburgerExists=' + L.hamburgerExists +
+                    ' | bodyClasses=' + (L.bodyClasses || '').substring(0, 120) +
+                    ' | stylesheets=' + (L.stylesheets || []).join(' '),
+                    '', '', '', '', '', '', '', '', '', '', '', '', '',
+                    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                    '', '', '', '', '', '', '', '', '',
+                    '', '', '', '',
+                ]));
+
+                /* Header HTML snapshot */
+                if (L.headerHTML) {
+                    rows.push(row([
+                        title, url, 'LAYOUT-HEADER-HTML',
+                        '#header', '', '', '', '', '',
+                        'header-html',
+                        L.headerHTML,
+                        '', '', '', '', '', '', '', '', '', '', '', '', '',
+                        '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                        '', '', '', '', '', '', '', '', '',
+                        '', '', '', '',
+                    ]));
+                }
+            }
+
             /* ── Top class names on page ── */
             if (r.allClasses && r.allClasses.length) {
                 var topClasses = r.allClasses.slice(0, 40).map(function (c) {
