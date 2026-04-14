@@ -534,16 +534,42 @@
 
         /* Select & copy all text in the data textarea */
         $('#mca-btn-copy-data').on('click', function () {
-            var ta = document.getElementById('mca-data-out');
-            ta.select();
-            ta.setSelectionRange(0, 999999999);
-            try {
-                document.execCommand('copy');
-                $(this).text('Copied! Now paste into Claude chat');
-                var $btn = $(this);
-                setTimeout(function () { $btn.html('&#128203;&nbsp;Select &amp; Copy All'); }, 4000);
-            } catch (e) {
-                $(this).text('Press Ctrl+A then Ctrl+C in the box below');
+            var $btn = $(this);
+            var text = $('#mca-data-out').val();
+
+            function onSuccess() {
+                $btn.text('✓ Copied! Paste into Claude chat now');
+                $btn.css('background', '#155724');
+                setTimeout(function () {
+                    $btn.html('&#128203;&nbsp;Select &amp; Copy All');
+                    $btn.css('background', '');
+                }, 5000);
+            }
+
+            function onFail() {
+                /* Fallback: select text so user can Ctrl+C manually */
+                var ta = document.getElementById('mca-data-out');
+                ta.focus();
+                ta.select();
+                ta.setSelectionRange(0, 999999999);
+                $btn.text('Press Ctrl+C now to copy');
+            }
+
+            /* Modern Clipboard API (Chrome/Edge/Firefox) */
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(onSuccess).catch(onFail);
+            } else {
+                /* Legacy fallback */
+                try {
+                    var ta = document.getElementById('mca-data-out');
+                    ta.focus();
+                    ta.select();
+                    ta.setSelectionRange(0, 999999999);
+                    document.execCommand('copy');
+                    onSuccess();
+                } catch (e) {
+                    onFail();
+                }
             }
         });
 
