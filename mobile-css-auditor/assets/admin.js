@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Admin UI v1.3.0
+ * Mobile CSS Auditor — Admin UI v2.2.0
  *
  * Scans all pages at 375px, collects deep element data + shadow DOM,
  * and exports a rich CSV for analysis and targeted CSS authoring.
@@ -498,14 +498,62 @@
 
             /* DOM layout order */
             if (r.layout && r.layout.sections && r.layout.sections.length) {
-                lines.push('--- DOM LAYOUT (body children, in order) ---');
+                lines.push('--- DOM LAYOUT (body children, 4 levels deep) ---');
                 r.layout.sections.forEach(function (s) {
                     var status = s.isHidden ? 'HIDDEN' : 'visible';
-                    lines.push('  [depth=' + s.depth + '] ' + s.tagId +
-                               ' (' + s.classes.split(' ').slice(0,3).join(' ') + ')' +
+                    var extra  = [];
+                    if (s.float && s.float !== 'none')       extra.push('float:' + s.float);
+                    if (s.order && s.order !== '0')          extra.push('order:' + s.order);
+                    if (s.marginTop && s.marginTop !== '0px') extra.push('mt:' + s.marginTop);
+                    if (s.marginBottom && s.marginBottom !== '0px') extra.push('mb:' + s.marginBottom);
+                    if (s.dataAttrs)                         extra.push('data:' + s.dataAttrs.substring(0, 60));
+                    lines.push('  [d=' + s.depth + '] ' + s.tagId +
+                               ' (' + s.classes.split(' ').slice(0, 3).join(' ') + ')' +
                                ' → ' + status +
                                ' | display:' + s.display +
-                               ' | ' + s.offsetW + 'x' + s.offsetH + 'px');
+                               ' | pos:' + s.position +
+                               ' | ' + s.offsetW + 'x' + s.offsetH + 'px' +
+                               (extra.length ? ' | ' + extra.join(' ') : ''));
+                });
+            }
+
+            /* Sliders */
+            if (r.sliders && r.sliders.length) {
+                lines.push('--- SLIDERS ---');
+                r.sliders.forEach(function (sl) {
+                    lines.push('  [' + sl.type + '] ' + sl.selector +
+                               ' | slides:' + sl.slideCount +
+                               ' | autoplay:' + sl.autoplay +
+                               ' | config:' + (sl.config || 'none') +
+                               ' | path:' + sl.fullPath);
+                });
+            }
+
+            /* Pseudo-elements (::before / ::after) */
+            if (r.pseudoElements && r.pseudoElements.length) {
+                lines.push('--- PSEUDO-ELEMENTS (::before / ::after with visible content) ---');
+                r.pseudoElements.forEach(function (pe) {
+                    lines.push('  ' + pe.selector +
+                               ' | display:' + pe.display +
+                               ' | pos:' + pe.position +
+                               ' | ' + pe.width + 'x' + pe.height +
+                               ' | bg:' + (pe.bgColor || '') +
+                               ' | bgImg:' + (pe.bgImage ? pe.bgImage.substring(0, 60) : 'none') +
+                               ' | path:' + pe.fullPath);
+                });
+            }
+
+            /* Decorative elements (SVGs, wave-named elements) */
+            if (r.decorative && r.decorative.length) {
+                lines.push('--- DECORATIVE / WAVE ELEMENTS ---');
+                r.decorative.forEach(function (d) {
+                    lines.push('  [' + d.type + '] ' + d.selector +
+                               ' classes:(' + (d.classes || '') + ')' +
+                               ' | display:' + d.display +
+                               ' | pos:' + d.position +
+                               ' | ' + d.offsetW + 'x' + d.offsetH + 'px' +
+                               ' | hidden:' + (d.isHidden ? 'yes' : 'no') +
+                               ' | path:' + d.fullPath);
                 });
             }
 
