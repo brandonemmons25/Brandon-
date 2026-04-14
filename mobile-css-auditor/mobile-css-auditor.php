@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Mobile CSS Auditor
  * Description: Scans every page of your site at mobile width, inspects all DOM elements and iHF shadow roots, then generates ready-to-paste CSS for WordPress Customizer and iHomeFinder Admin.
- * Version:     2.0.0
+ * Version:     2.1.0
  * Author:      Brandon Emmons
  */
 
@@ -37,13 +37,13 @@ class Mobile_CSS_Auditor {
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.css',
             [],
-            '2.0.0'
+            '2.1.0'
         );
         wp_enqueue_script(
             'mca-admin',
             plugin_dir_url( __FILE__ ) . 'assets/admin.js',
             [ 'jquery' ],
-            '2.0.0',
+            '2.1.0',
             true
         );
         wp_localize_script( 'mca-admin', 'MCA', [
@@ -65,7 +65,7 @@ class Mobile_CSS_Auditor {
                 'mca-probe',
                 plugin_dir_url( __FILE__ ) . 'assets/probe.js',
                 [],
-                '2.0.0',
+                '2.1.0',
                 true   // load in footer so DOM is ready
             );
         }

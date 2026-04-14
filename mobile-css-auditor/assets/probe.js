@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Probe v2.0.0
+ * Mobile CSS Auditor — Probe v2.1.0
  *
  * Runs INSIDE the hidden iframe at 375 px viewport width.
  * Collects computed styles, shadow DOM, navigation structure,
@@ -247,9 +247,9 @@
     }
 
     /* ── Generic layout map ──────────────────────────────────────── */
-    /* Walks body's direct children (and one level deeper for wrappers)
-     * to build a DOM-order map of all major sections.
-     * Works on any site — no hardcoded IDs. */
+    /* Walks 3 levels deep from every body child so wrapper > section >
+     * sub-section structure is always captured regardless of IDs.
+     * Works on any site — no hardcoded selectors. */
     function scanLayout() {
         var sections = [];
 
@@ -265,6 +265,8 @@
                 visibility: c.visibility,
                 opacity:    c.opacity,
                 position:   c.position,
+                float:      c.float,
+                overflow:   c.overflow,
                 offsetW:    el.offsetWidth,
                 offsetH:    el.offsetHeight,
                 isHidden:   c.display === 'none' || c.visibility === 'hidden' ||
@@ -272,18 +274,28 @@
             };
         }
 
-        /* Direct children of <body> */
-        var bodyChildren = document.body ? document.body.children : [];
-        for (var i = 0; i < bodyChildren.length; i++) {
-            var child = bodyChildren[i];
-            sections.push(captureEl(child, 0));
+        var SKIP_TAGS = { SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, NOSCRIPT: 1 };
 
-            /* If child has no id (likely a wrapper div), walk its children too */
-            if (!child.id && child.children.length < 20) {
-                for (var j = 0; j < child.children.length; j++) {
-                    sections.push(captureEl(child.children[j], 1));
+        /* Recursive walk — goes up to maxDepth levels deep */
+        function walk(el, depth, maxDepth) {
+            if (depth > maxDepth) return;
+            if (SKIP_TAGS[el.tagName]) return;
+            sections.push(captureEl(el, depth));
+            if (depth < maxDepth && el.children.length > 0 && el.children.length < 40) {
+                for (var i = 0; i < el.children.length; i++) {
+                    walk(el.children[i], depth + 1, maxDepth);
                 }
             }
+        }
+
+        /* Walk body children 3 levels deep:
+         * depth 0 = body children        (div#wrapper, div#wpadminbar …)
+         * depth 1 = wrapper children     (div#header, div#slideshow, div#hp-content …)
+         * depth 2 = section children     (div.panel, div.logo, div.nav …)
+         * depth 3 = sub-section children (div.welcome, div.hp-sidebar, div.clear …) */
+        var bodyChildren = document.body ? document.body.children : [];
+        for (var i = 0; i < bodyChildren.length; i++) {
+            walk(bodyChildren[i], 0, 3);
         }
 
         /* Header HTML snapshot for exact nav selector debugging */
