@@ -535,41 +535,45 @@
         /* Select & copy all text in the data textarea */
         $('#mca-btn-copy-data').on('click', function () {
             var $btn = $(this);
-            var text = $('#mca-data-out').val();
+            var ta   = document.getElementById('mca-data-out');
 
-            function onSuccess() {
-                $btn.text('✓ Copied! Paste into Claude chat now');
-                $btn.css('background', '#155724');
+            /* Always select the text first — visible confirmation + Ctrl+C fallback */
+            ta.focus();
+            ta.select();
+            ta.setSelectionRange(0, ta.value.length);
+
+            function markSuccess() {
+                $btn.text('✓ Copied — paste into Claude now');
+                $btn.css({ background: '#155724', color: '#fff' });
                 setTimeout(function () {
                     $btn.html('&#128203;&nbsp;Select &amp; Copy All');
-                    $btn.css('background', '');
+                    $btn.css({ background: '', color: '' });
                 }, 5000);
             }
 
-            function onFail() {
-                /* Fallback: select text so user can Ctrl+C manually */
-                var ta = document.getElementById('mca-data-out');
-                ta.focus();
-                ta.select();
-                ta.setSelectionRange(0, 999999999);
-                $btn.text('Press Ctrl+C now to copy');
+            function markSelected() {
+                $btn.text('Text selected — press Ctrl+C to copy');
             }
 
-            /* Modern Clipboard API (Chrome/Edge/Firefox) */
+            /* 1. Try execCommand — works in most WP admin contexts */
+            var copied = false;
+            try {
+                copied = document.execCommand('copy');
+            } catch (e) {}
+
+            if (copied) {
+                markSuccess();
+                return;
+            }
+
+            /* 2. Try modern Clipboard API */
             if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(onSuccess).catch(onFail);
+                navigator.clipboard.writeText(ta.value)
+                    .then(markSuccess)
+                    .catch(markSelected);
             } else {
-                /* Legacy fallback */
-                try {
-                    var ta = document.getElementById('mca-data-out');
-                    ta.focus();
-                    ta.select();
-                    ta.setSelectionRange(0, 999999999);
-                    document.execCommand('copy');
-                    onSuccess();
-                } catch (e) {
-                    onFail();
-                }
+                /* 3. Text is already selected — just tell them to Ctrl+C */
+                markSelected();
             }
         });
 
