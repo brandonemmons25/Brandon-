@@ -15,7 +15,7 @@
         <table class="form-table mdg-settings-table">
             <tr>
                 <th scope="row">
-                    <label for="mdg_api_key"><?php esc_html_e( 'OpenAI API Key', 'meta-description-generator' ); ?></label>
+                    <label for="mdg_api_key"><?php esc_html_e( 'Claude API Key', 'meta-description-generator' ); ?></label>
                 </th>
                 <td>
                     <input type="password" id="mdg_api_key" name="mdg_api_key"
@@ -25,10 +25,10 @@
                         <?php esc_html_e( 'Show', 'meta-description-generator' ); ?>
                     </button>
                     <p class="description">
-                        <?php esc_html_e( 'Your OpenAI API key. Get one at platform.openai.com.', 'meta-description-generator' ); ?><br>
+                        <?php esc_html_e( 'Your Anthropic API key. Get one at console.anthropic.com.', 'meta-description-generator' ); ?><br>
                         <?php printf(
                             esc_html__( 'Model used: %s', 'meta-description-generator' ),
-                            '<strong>' . esc_html( MDG_AI_MODEL ) . '</strong>'
+                            '<strong>' . esc_html( MDG_CLAUDE_MODEL ) . '</strong>'
                         ); ?>
                     </p>
                 </td>

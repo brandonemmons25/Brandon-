@@ -80,7 +80,7 @@ class MDG_Admin {
                 'applied'       => __( 'Saved to Yoast ✓', 'meta-description-generator' ),
                 'error'         => __( 'Error', 'meta-description-generator' ),
                 'confirm_bulk'  => __( 'Apply all approved descriptions to Yoast SEO? This will overwrite any existing meta descriptions for the selected posts.', 'meta-description-generator' ),
-                'no_api_key'    => __( 'Add your OpenAI API key under Settings first.', 'meta-description-generator' ),
+                'no_api_key'    => __( 'Add your Claude API key under Settings first.', 'meta-description-generator' ),
                 'chars_ok'      => __( 'characters — Good length', 'meta-description-generator' ),
                 'chars_short'   => __( 'characters — Too short (aim for 140–160)', 'meta-description-generator' ),
                 'chars_long'    => __( 'characters — Too long (aim for 140–160)', 'meta-description-generator' ),
