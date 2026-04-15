@@ -11,7 +11,7 @@
 
     <?php if ( ! $has_key ) : ?>
     <div class="mdg-notice mdg-notice--warn">
-        <strong><?php esc_html_e( 'No Claude API key.', 'meta-description-generator' ); ?></strong>
+        <strong><?php esc_html_e( 'No OpenAI API key.', 'meta-description-generator' ); ?></strong>
         <?php printf(
             /* translators: %s: settings URL */
             wp_kses( __( 'Add your key on the <a href="%s">Settings page</a> before generating descriptions.', 'meta-description-generator' ), [ 'a' => [ 'href' => [] ] ] ),
@@ -86,7 +86,7 @@
         <p class="mdg-meta">
             <?php printf(
                 esc_html__( 'Optimal length: 120–158 characters. Put keywords and your CTA within the first 120 so mobile truncation doesn\'t cut them. Powered by %s.', 'meta-description-generator' ),
-                '<strong>' . esc_html( MDG_CLAUDE_MODEL ) . '</strong>'
+                '<strong>' . esc_html( MDG_AI_MODEL ) . '</strong>'
             ); ?>
         </p>
     </div>

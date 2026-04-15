@@ -4,19 +4,19 @@ defined( 'ABSPATH' ) || exit;
 /**
  * MDG_Generator
  *
- * Calls the Claude API (Anthropic Messages API) to write a meta description
+ * Calls the OpenAI Chat Completions API to write a meta description
  * for a single post, then optionally saves it to Yoast's meta field.
  */
 class MDG_Generator {
 
-    const API_URL = 'https://api.anthropic.com/v1/messages';
+    const API_URL = 'https://api.openai.com/v1/chat/completions';
 
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
 
     /**
-     * Generate a meta description for one post via the Claude API.
+     * Generate a meta description for one post via the OpenAI API.
      *
      * @param  int  $post_id
      * @return array { success: bool, description?: string, chars?: int, error?: string }
@@ -24,7 +24,7 @@ class MDG_Generator {
     public static function generate_for_post( int $post_id ): array {
         $api_key = self::get_api_key();
         if ( empty( $api_key ) ) {
-            return [ 'success' => false, 'error' => 'No Claude API key configured. Add it under Meta Descriptions → Settings.' ];
+            return [ 'success' => false, 'error' => 'No OpenAI API key configured. Add it under Meta Descriptions → Settings.' ];
         }
 
         $post_data = MDG_Scanner::get_post_data( $post_id );
@@ -126,12 +126,12 @@ class MDG_Generator {
     }
 
     // -------------------------------------------------------------------------
-    // Claude API call
+    // OpenAI API call
     // -------------------------------------------------------------------------
 
     private static function call_api( string $api_key, string $prompt ): array {
         $body = wp_json_encode( [
-            'model'      => MDG_CLAUDE_MODEL,
+            'model'      => MDG_AI_MODEL,
             'max_tokens' => 300,
             'messages'   => [
                 [ 'role' => 'user', 'content' => $prompt ],
@@ -141,9 +141,8 @@ class MDG_Generator {
         $response = wp_remote_post( self::API_URL, [
             'timeout' => 30,
             'headers' => [
-                'Content-Type'      => 'application/json',
-                'x-api-key'         => $api_key,
-                'anthropic-version' => '2023-06-01',
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
             ],
             'body' => $body,
         ] );
@@ -158,19 +157,18 @@ class MDG_Generator {
 
         if ( $code !== 200 ) {
             $msg = $data['error']['message'] ?? "HTTP {$code}";
-            return [ 'success' => false, 'error' => "Claude API error: {$msg}" ];
+            return [ 'success' => false, 'error' => "OpenAI API error: {$msg}" ];
         }
 
-        $text = $data['content'][0]['text'] ?? '';
+        $text = $data['choices'][0]['message']['content'] ?? '';
         if ( empty( $text ) ) {
-            return [ 'success' => false, 'error' => 'Claude returned an empty response.' ];
+            return [ 'success' => false, 'error' => 'OpenAI returned an empty response.' ];
         }
 
         return [ 'success' => true, 'text' => $text ];
     }
 
     private static function clean_response( string $text ): string {
-        // Strip any accidental wrapping quotes or label prefixes Claude might add.
         $text = trim( $text );
         $text = trim( $text, '"' );
         $text = preg_replace( '/^(Meta description:|Description:)\s*/i', '', $text );
@@ -182,10 +180,10 @@ class MDG_Generator {
     // -------------------------------------------------------------------------
 
     public static function get_api_key(): string {
-        return trim( (string) get_option( 'mdg_claude_api_key', '' ) );
+        return trim( (string) get_option( 'mdg_openai_api_key', '' ) );
     }
 
     public static function save_api_key( string $key ): void {
-        update_option( 'mdg_claude_api_key', sanitize_text_field( trim( $key ) ) );
+        update_option( 'mdg_openai_api_key', sanitize_text_field( trim( $key ) ) );
     }
 }
