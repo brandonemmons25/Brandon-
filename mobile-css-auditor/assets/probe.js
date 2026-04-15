@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Probe v2.2.0
+ * Mobile CSS Auditor — Probe v2.3.0
  *
  * Runs INSIDE the hidden iframe at 375 px viewport width.
  * Collects computed styles, shadow DOM, navigation structure,
@@ -466,8 +466,13 @@
                 order:        c.order,
                 marginTop:    c.marginTop,
                 marginBottom: c.marginBottom,
+                marginLeft:   c.marginLeft,
+                marginRight:  c.marginRight,
                 paddingTop:   c.paddingTop,
                 paddingBottom: c.paddingBottom,
+                paddingLeft:  c.paddingLeft,
+                paddingRight: c.paddingRight,
+                inlineStyle:  (el.getAttribute('style') || '').substring(0, 120),
                 offsetW:      el.offsetWidth,
                 offsetH:      el.offsetHeight,
                 dataAttrs:    readDataAttrs(el),

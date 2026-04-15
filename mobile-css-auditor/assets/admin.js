@@ -1,5 +1,5 @@
 /**
- * Mobile CSS Auditor — Admin UI v2.2.0
+ * Mobile CSS Auditor — Admin UI v2.3.0
  *
  * Scans all pages at 375px, collects deep element data + shadow DOM,
  * and exports a rich CSV for analysis and targeted CSS authoring.
@@ -502,11 +502,18 @@
                 r.layout.sections.forEach(function (s) {
                     var status = s.isHidden ? 'HIDDEN' : 'visible';
                     var extra  = [];
-                    if (s.float && s.float !== 'none')       extra.push('float:' + s.float);
-                    if (s.order && s.order !== '0')          extra.push('order:' + s.order);
-                    if (s.marginTop && s.marginTop !== '0px') extra.push('mt:' + s.marginTop);
-                    if (s.marginBottom && s.marginBottom !== '0px') extra.push('mb:' + s.marginBottom);
-                    if (s.dataAttrs)                         extra.push('data:' + s.dataAttrs.substring(0, 60));
+                    if (s.float && s.float !== 'none')                     extra.push('float:' + s.float);
+                    if (s.order && s.order !== '0')                        extra.push('order:' + s.order);
+                    if (s.marginTop    && s.marginTop    !== '0px')        extra.push('mt:' + s.marginTop);
+                    if (s.marginBottom && s.marginBottom !== '0px')        extra.push('mb:' + s.marginBottom);
+                    if (s.marginLeft   && s.marginLeft   !== '0px')        extra.push('ml:' + s.marginLeft);
+                    if (s.marginRight  && s.marginRight  !== '0px')        extra.push('mr:' + s.marginRight);
+                    if (s.paddingTop   && s.paddingTop   !== '0px')        extra.push('pt:' + s.paddingTop);
+                    if (s.paddingBottom && s.paddingBottom !== '0px')      extra.push('pb:' + s.paddingBottom);
+                    if (s.paddingLeft  && s.paddingLeft  !== '0px')        extra.push('pl:' + s.paddingLeft);
+                    if (s.paddingRight && s.paddingRight !== '0px')        extra.push('pr:' + s.paddingRight);
+                    if (s.inlineStyle)                                     extra.push('inline:' + s.inlineStyle.substring(0, 60));
+                    if (s.dataAttrs)                                       extra.push('data:' + s.dataAttrs.substring(0, 60));
                     lines.push('  [d=' + s.depth + '] ' + s.tagId +
                                ' (' + s.classes.split(' ').slice(0, 3).join(' ') + ')' +
                                ' → ' + status +
