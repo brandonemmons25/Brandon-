@@ -1,0 +1,154 @@
+/*
+ * Mobile Fix — Dick Sakowicz (Palm Springs Real Estate)
+ * Paste into: Appearance > Customize > Additional CSS
+ * Tested viewport: 375px
+ * Generated: 2026-04-21
+ * --------------------------------------------------------
+ * Issues fixed:
+ *   1. Hero video section (#text-26) hidden on mobile
+ *   2. Mobile navigation toggle broken
+ *   3. Admin bar display-name overflow (logged-in users)
+ *   4. Video / iframe responsive sizing in home-featured
+ */
+
+/* =============================================================
+   1. HERO VIDEO — force visible on all screen sizes
+   ============================================================= */
+
+section#text-26 {
+    display: block !important;
+    margin-bottom: 40px;
+}
+
+/* Make any iframe (YouTube / Vimeo) inside the home-featured
+   area fully responsive at 16:9 */
+.home-featured .widget-wrap iframe {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+    display: block;
+    border: 0;
+}
+
+/* If the widget wraps the iframe in a div with inline padding-bottom trick */
+.home-featured .widget-wrap > div[style*="padding-bottom"] {
+    position: relative !important;
+    padding-bottom: 56.25% !important;
+    height: 0 !important;
+    overflow: hidden;
+    width: 100% !important;
+}
+
+.home-featured .widget-wrap > div[style*="padding-bottom"] iframe {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Native <video> tags — fill container */
+.home-featured video {
+    width: 100% !important;
+    height: auto !important;
+    display: block;
+}
+
+/* =============================================================
+   2. MOBILE NAVIGATION — fix hamburger toggle
+   ============================================================= */
+
+@media (max-width: 1023px) {
+
+    /* Ensure hamburger icon is clickable and styled */
+    .responsive-menu-icon {
+        cursor: pointer;
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        min-height: 60px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Draw the three hamburger lines if theme doesn't render them */
+    .responsive-menu-icon:not(:empty) {
+        /* theme already renders content — no pseudo needed */
+    }
+
+    .responsive-menu-icon:empty::before {
+        content: '';
+        display: block;
+        width: 26px;
+        height: 2px;
+        background: #333;
+        box-shadow: 0 8px 0 #333, 0 16px 0 #333;
+    }
+
+    /* Slide-down menu when .menu-open is toggled by JS */
+    .nav-primary ul#menu-main-navigation.menu-open,
+    ul#menu-main-navigation.menu-open {
+        display: block !important;
+        width: 100%;
+        background: #fff;
+        border-top: 1px solid #e5e5e5;
+    }
+
+    .nav-primary ul#menu-main-navigation.menu-open li {
+        display: block !important;
+        float: none;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .nav-primary ul#menu-main-navigation.menu-open li a {
+        display: block;
+        padding: 14px 20px;
+        font-size: 15px;
+    }
+
+    /* Sub-menus */
+    .nav-primary ul#menu-main-navigation.menu-open .sub-menu {
+        display: none;
+        padding-left: 16px;
+        background: #f9f9f9;
+    }
+
+    .nav-primary ul#menu-main-navigation.menu-open .menu-item.open > .sub-menu {
+        display: block;
+    }
+}
+
+/* =============================================================
+   3. ADMIN BAR — fix display-name overflow (logged-in only)
+   ============================================================= */
+
+@media (max-width: 782px) {
+    #wp-admin-bar-my-account .ab-item {
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    #wp-admin-bar-my-account .display-name {
+        display: none !important;
+    }
+}
+
+/* =============================================================
+   4. GENERAL MOBILE POLISH
+   ============================================================= */
+
+@media (max-width: 768px) {
+
+    /* Prevent any widget from breaking the 375px layout */
+    .home-featured .widget,
+    .home-featured .widget-wrap {
+        max-width: 100% !important;
+        overflow-x: hidden;
+    }
+
+    /* Give the hero section breathing room */
+    .home-featured .wrap {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
