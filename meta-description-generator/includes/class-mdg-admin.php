@@ -167,8 +167,8 @@ class MDG_Admin {
         check_ajax_referer( 'mdg_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
 
-        $post_id = (int) ( $_POST['post_id'] ?? 0 );
-        if ( ! $post_id ) wp_send_json_error( 'Invalid post ID.' );
+        $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : null;
+        if ( $post_id === null ) wp_send_json_error( 'Invalid post ID.' );
 
         $result = MDG_Generator::generate_for_post( $post_id );
 
@@ -187,10 +187,10 @@ class MDG_Admin {
         check_ajax_referer( 'mdg_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
 
-        $post_id     = (int) ( $_POST['post_id']     ?? 0 );
+        $post_id     = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : null;
         $description = wp_unslash( $_POST['description'] ?? '' );
 
-        if ( ! $post_id ) wp_send_json_error( 'Invalid post ID.' );
+        if ( $post_id === null ) wp_send_json_error( 'Invalid post ID.' );
 
         $result = MDG_Generator::apply_to_yoast( $post_id, $description );
 

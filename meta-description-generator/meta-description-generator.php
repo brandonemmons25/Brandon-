@@ -11,13 +11,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MDG_VERSION',     '1.0.2' );
+define( 'MDG_VERSION',     '1.0.3' );
 define( 'MDG_PLUGIN_FILE', __FILE__ );
 define( 'MDG_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'MDG_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
 
 // Claude model to use for generation.
-define( 'MDG_CLAUDE_MODEL', 'claude-3-haiku-20240307' );
+define( 'MDG_CLAUDE_MODEL', 'claude-haiku-4-5-20251001' );
 
 // Ideal meta description length range (120–158 chars).
 // Critical content should sit within the first 120 — mobile truncates sooner.

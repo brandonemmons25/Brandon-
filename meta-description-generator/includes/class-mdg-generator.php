@@ -64,6 +64,17 @@ class MDG_Generator {
             return [ 'success' => false, 'error' => 'Description cannot be empty.' ];
         }
 
+        // Homepage (virtual — no real post).
+        if ( $post_id === 0 ) {
+            MDG_Scanner::save_homepage_meta( $description );
+            return [
+                'success'     => true,
+                'post_id'     => 0,
+                'description' => $description,
+                'chars'       => mb_strlen( $description ),
+            ];
+        }
+
         $post = get_post( $post_id );
         if ( ! $post ) {
             return [ 'success' => false, 'error' => "Post #{$post_id} not found." ];

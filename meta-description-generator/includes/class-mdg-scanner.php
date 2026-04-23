@@ -6,13 +6,10 @@ defined( 'ABSPATH' ) || exit;
  *
  * Discovers all published posts/pages/CPTs and reports the status of
  * their Yoast SEO meta description (_yoast_wpseo_metadesc).
+ * Also handles the "Your latest posts" homepage case (post_id = 0).
  */
 class MDG_Scanner {
 
-    /**
-     * Post types excluded from scanning — functional/internal types that
-     * don't need public meta descriptions.
-     */
     const DEFAULT_EXCLUDE_TYPES = [
         'attachment',
         'revision',
@@ -26,16 +23,67 @@ class MDG_Scanner {
         'shop_webhook',
     ];
 
+    // -------------------------------------------------------------------------
+    // Homepage (latest posts front page) helpers
+    // -------------------------------------------------------------------------
+
     /**
-     * Return every published post with its meta description status.
-     *
-     * @param array $args {
-     *   status     string  'all' | 'missing' | 'has'
-     *   post_type  string  '' = all public types
-     *   search     string  title substring search
-     *   per_page   int
-     *   page       int
-     * }
+     * Returns true when WordPress uses "Your latest posts" as the front page
+     * (i.e. there is no static page assigned as the homepage).
+     */
+    public static function has_virtual_homepage(): bool {
+        return get_option( 'show_on_front' ) === 'posts';
+    }
+
+    /**
+     * Build a synthetic row for the virtual homepage.
+     * Yoast stores this description in the wpseo_titles option.
+     */
+    public static function get_homepage_row(): array {
+        $meta = self::get_homepage_meta();
+        return [
+            'ID'        => 0,
+            'title'     => 'Homepage',
+            'post_type' => 'homepage',
+            'url'       => home_url( '/' ),
+            'edit_url'  => admin_url( 'options-reading.php' ),
+            'meta'      => $meta,
+            'has_meta'  => $meta !== '',
+            'meta_len'  => mb_strlen( $meta ),
+        ];
+    }
+
+    public static function get_homepage_meta(): string {
+        $titles = get_option( 'wpseo_titles', [] );
+        return trim( (string) ( $titles['metadesc-home-wpseo'] ?? '' ) );
+    }
+
+    public static function save_homepage_meta( string $description ): void {
+        $titles = get_option( 'wpseo_titles', [] );
+        $titles['metadesc-home-wpseo'] = $description;
+        update_option( 'wpseo_titles', $titles );
+    }
+
+    /**
+     * Data for the generator when post_id = 0 (virtual homepage).
+     */
+    public static function get_homepage_data(): array {
+        return [
+            'ID'        => 0,
+            'title'     => get_bloginfo( 'name' ),
+            'post_type' => 'Homepage',
+            'content'   => get_bloginfo( 'description' ),
+            'existing'  => self::get_homepage_meta(),
+            'url'       => home_url( '/' ),
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Post list
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param array $args { status, post_type, search, per_page, page }
      * @return array { rows: array, total: int }
      */
     public static function get_posts( array $args = [] ): array {
@@ -48,11 +96,30 @@ class MDG_Scanner {
         ];
         $args = wp_parse_args( $args, $defaults );
 
-        $post_types = empty( $args['post_type'] )
+        $rows         = [];
+        $homepage_row = null;
+
+        // Prepend virtual homepage row when on page 1, no post_type filter, and no search.
+        if (
+            self::has_virtual_homepage() &&
+            (int) $args['page'] === 1 &&
+            empty( $args['post_type'] ) &&
+            empty( $args['search'] )
+        ) {
+            $hp = self::get_homepage_row();
+            $include = (
+                $args['status'] === 'all' ||
+                ( $args['status'] === 'missing' && ! $hp['has_meta'] ) ||
+                ( $args['status'] === 'has'     &&   $hp['has_meta'] )
+            );
+            if ( $include ) {
+                $homepage_row = $hp;
+            }
+        }
+
+        $post_types   = empty( $args['post_type'] )
             ? self::get_scannable_types()
             : [ sanitize_key( $args['post_type'] ) ];
-
-        // Exclude WooCommerce utility pages by ID.
         $excluded_ids = self::get_excluded_ids();
 
         $query_args = [
@@ -69,32 +136,19 @@ class MDG_Scanner {
             $query_args['s'] = sanitize_text_field( $args['search'] );
         }
 
-        // When filtering by meta status, use a meta query.
         if ( $args['status'] === 'missing' ) {
             $query_args['meta_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery
                 'relation' => 'OR',
-                [
-                    'key'     => '_yoast_wpseo_metadesc',
-                    'compare' => 'NOT EXISTS',
-                ],
-                [
-                    'key'     => '_yoast_wpseo_metadesc',
-                    'value'   => '',
-                    'compare' => '=',
-                ],
+                [ 'key' => '_yoast_wpseo_metadesc', 'compare' => 'NOT EXISTS' ],
+                [ 'key' => '_yoast_wpseo_metadesc', 'value' => '', 'compare' => '=' ],
             ];
         } elseif ( $args['status'] === 'has' ) {
             $query_args['meta_query'] = [ // phpcs:ignore WordPress.DB.SlowDBQuery
-                [
-                    'key'     => '_yoast_wpseo_metadesc',
-                    'value'   => '',
-                    'compare' => '!=',
-                ],
+                [ 'key' => '_yoast_wpseo_metadesc', 'value' => '', 'compare' => '!=' ],
             ];
         }
 
         $query = new WP_Query( $query_args );
-        $rows  = [];
 
         foreach ( $query->posts as $post ) {
             $meta   = get_post_meta( $post->ID, '_yoast_wpseo_metadesc', true );
@@ -111,15 +165,19 @@ class MDG_Scanner {
             ];
         }
 
-        return [
-            'rows'  => $rows,
-            'total' => (int) $query->found_posts,
-        ];
+        if ( $homepage_row ) {
+            array_unshift( $rows, $homepage_row );
+        }
+
+        $total = (int) $query->found_posts + ( $homepage_row ? 1 : 0 );
+
+        return [ 'rows' => $rows, 'total' => $total ];
     }
 
-    /**
-     * Summary counts: total posts, missing, has description, too short, too long.
-     */
+    // -------------------------------------------------------------------------
+    // Summary
+    // -------------------------------------------------------------------------
+
     public static function get_summary(): array {
         global $wpdb;
 
@@ -157,24 +215,41 @@ class MDG_Scanner {
               {$id_exclusion}
         ";
 
-        // Prepend length constants to params.
         array_unshift( $params, MDG_META_MIN, MDG_META_MAX );
+        $summary = (array) $wpdb->get_row( $wpdb->prepare( $sql, $params ), ARRAY_A );
 
-        return (array) $wpdb->get_row( $wpdb->prepare( $sql, $params ), ARRAY_A );
+        // Add virtual homepage to counts.
+        if ( self::has_virtual_homepage() ) {
+            $hp_meta = self::get_homepage_meta();
+            $summary['total']   = ( (int) $summary['total'] ) + 1;
+            if ( $hp_meta === '' ) {
+                $summary['missing'] = ( (int) $summary['missing'] ) + 1;
+            } else {
+                $summary['has_meta'] = ( (int) $summary['has_meta'] ) + 1;
+                $len = mb_strlen( $hp_meta );
+                if ( $len < MDG_META_MIN ) $summary['too_short'] = ( (int) $summary['too_short'] ) + 1;
+                if ( $len > MDG_META_MAX ) $summary['too_long']  = ( (int) $summary['too_long'] ) + 1;
+            }
+        }
+
+        return $summary;
     }
 
-    /**
-     * Fetch a single post's data for the generator (title + clean content).
-     */
+    // -------------------------------------------------------------------------
+    // Single post data
+    // -------------------------------------------------------------------------
+
     public static function get_post_data( int $post_id ): ?array {
+        if ( $post_id === 0 ) {
+            return self::get_homepage_data();
+        }
+
         $post = get_post( $post_id );
         if ( ! $post ) return null;
 
         $content = wp_strip_all_tags( apply_filters( 'the_content', $post->post_content ) );
-        // Collapse whitespace and limit to 1500 chars to keep API tokens low.
         $content = preg_replace( '/\s+/', ' ', $content );
         $content = mb_substr( trim( $content ), 0, 1500 );
-
         $existing = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_metadesc', true ) );
 
         return [
