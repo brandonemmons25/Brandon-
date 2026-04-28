@@ -21,11 +21,12 @@ class MCA_Admin {
         );
     }
 
-    /** Return list of all published page/post URLs as JSON. */
+    /** Return list of all published page/post URLs as JSON — same-host only. */
     public static function ajax_get_urls() {
         check_ajax_referer( 'mca_admin', 'nonce' );
 
-        $urls = [];
+        $site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+        $urls      = [];
 
         // Pages and posts.
         $query = new WP_Query( [
@@ -35,10 +36,14 @@ class MCA_Admin {
             'fields'         => 'ids',
         ] );
         foreach ( $query->posts as $id ) {
-            $urls[] = get_permalink( $id );
+            $url = get_permalink( $id );
+            if ( wp_parse_url( $url, PHP_URL_HOST ) === $site_host ) {
+                $urls[] = $url;
+            }
         }
 
-        // Custom post types (exclude built-in ones already covered).
+        // Custom post types — skip any whose permalink resolves off-domain
+        // (e.g. IDX listing types that redirect to search.domain.com).
         $cpts = get_post_types( [ 'public' => true, '_builtin' => false ], 'names' );
         if ( $cpts ) {
             $cpt_query = new WP_Query( [
@@ -48,7 +53,10 @@ class MCA_Admin {
                 'fields'         => 'ids',
             ] );
             foreach ( $cpt_query->posts as $id ) {
-                $urls[] = get_permalink( $id );
+                $url = get_permalink( $id );
+                if ( wp_parse_url( $url, PHP_URL_HOST ) === $site_host ) {
+                    $urls[] = $url;
+                }
             }
         }
 
@@ -106,11 +114,13 @@ class MCA_Admin {
         (function () {
             var ajaxUrl  = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
             var adminNonce = <?php echo wp_json_encode( $admin_nonce ); ?>;
-            var probeNonce = '';
-            var lines      = [];
-            var urls       = [];
-            var current    = 0;
-            var scanWindow = null;
+            var probeNonce  = '';
+            var lines       = [];
+            var urls        = [];
+            var current     = 0;
+            var scanWindow  = null;
+            var pageTimer   = null;
+            var PAGE_TIMEOUT = 10000; // ms before skipping a non-responsive page
 
             var $run    = document.getElementById('mca-run');
             var $copy   = document.getElementById('mca-copy');
@@ -123,7 +133,12 @@ class MCA_Admin {
             // ── Listen for probe results ─────────────────────────────────────
             window.addEventListener('message', function (e) {
                 if (!e.data || !e.data.mca) return;
+                clearTimeout(pageTimer);
                 lines.push(e.data.report);
+                advance();
+            });
+
+            function advance() {
                 current++;
                 updateProgress();
                 if (current < urls.length) {
@@ -131,7 +146,7 @@ class MCA_Admin {
                 } else {
                     finishScan();
                 }
-            });
+            }
 
             // ── Run button ───────────────────────────────────────────────────
             $run.addEventListener('click', function () {
@@ -170,7 +185,6 @@ class MCA_Admin {
             // ── Load next URL in popup window ────────────────────────────────
             function loadNext() {
                 var url = urls[current];
-                // Add probe params.
                 url += (url.indexOf('?') === -1 ? '?' : '&') + 'mca_probe=1&mca_nonce=' + probeNonce;
 
                 if (scanWindow && !scanWindow.closed) {
@@ -180,6 +194,13 @@ class MCA_Admin {
                 }
 
                 $label.textContent = '(' + (current + 1) + '/' + urls.length + ') ' + urls[current];
+
+                // Skip this page if no postMessage arrives within PAGE_TIMEOUT ms.
+                clearTimeout(pageTimer);
+                pageTimer = setTimeout(function () {
+                    lines.push('PAGE: (skipped — timeout)\nURL: ' + urls[current] + '\n--- SKIPPED: no response within ' + (PAGE_TIMEOUT / 1000) + 's ---\n------------------------------------------------------------');
+                    advance();
+                }, PAGE_TIMEOUT);
             }
 
             // ── Update progress bar ──────────────────────────────────────────
