@@ -8,7 +8,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'IMS_VERSION', '2.0.0' );
+define( 'IMS_VERSION', '2.1.0' );
 define( 'IMS_FILE',    __FILE__ );
 define( 'IMS_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'IMS_URL',     plugin_dir_url( __FILE__ ) );
@@ -19,6 +19,8 @@ define( 'IMS_OPT_APP_PASS', 'ims_app_password' );
 define( 'IMS_OPT_MARKETS',  'ims_markets' );
 define( 'IMS_OPT_CLAUDE_MD','ims_claude_md' );
 define( 'IMS_OPT_SCAN',     'ims_scan_results' );
+
+require_once IMS_DIR . 'migration-runner.php';
 
 // ── Activation: auto-run all setup ────────────────────────────────────────────
 
@@ -814,6 +816,43 @@ add_action( 'wp_ajax_ims_refresh_markets', function () {
     ] );
 } );
 
+// ── Migration AJAX handlers ────────────────────────────────────────────────────
+
+add_action( 'wp_ajax_ims_migrate_menus', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	wp_send_json_success( ims_run_menu_migration( isset( $_POST['dry_run'] ) && $_POST['dry_run'] === '1' ) );
+} );
+
+add_action( 'wp_ajax_ims_migrate_pages', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	wp_send_json_success( ims_run_page_migration( isset( $_POST['dry_run'] ) && $_POST['dry_run'] === '1' ) );
+} );
+
+add_action( 'wp_ajax_ims_migrate_posts', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	wp_send_json_success( ims_run_post_migration( isset( $_POST['dry_run'] ) && $_POST['dry_run'] === '1' ) );
+} );
+
+add_action( 'wp_ajax_ims_migrate_all', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	$dry = isset( $_POST['dry_run'] ) && $_POST['dry_run'] === '1';
+	wp_send_json_success( [
+		'menus' => ims_run_menu_migration( $dry ),
+		'pages' => ims_run_page_migration( $dry ),
+		'posts' => ims_run_post_migration( $dry ),
+	] );
+} );
+
+add_action( 'wp_ajax_ims_verify_migration', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	wp_send_json_success( ims_run_verify() );
+} );
+
 // ── Admin page (status dashboard) ─────────────────────────────────────────────
 
 function ims_render_page(): void {
@@ -935,6 +974,23 @@ function ims_render_page(): void {
                 </tr>
             </table>
             <p style="margin-top:14px;color:#555;font-size:13px;">Tell Claude Code: <em>"Write this to <code>.claude/settings.json</code> under mcpServers and connect to WordPress."</em></p>
+        </div>
+
+        <!-- ── Migration Control Panel ────────────────────────────────────── -->
+        <div class="ims-card">
+            <h2>Migration Control Panel</h2>
+            <p style="color:#555;font-size:13px;margin-top:0;">Run migration steps directly — no external tools needed. Use <strong>Dry Run</strong> to preview changes before applying them.</p>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="ims-dry-run" /> Dry Run (preview only — no changes saved)
+            </label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+                <button id="ims-btn-migrate-menus"  class="button button-primary">Migrate Menus</button>
+                <button id="ims-btn-migrate-pages"  class="button button-primary">Migrate Pages</button>
+                <button id="ims-btn-migrate-posts"  class="button button-primary">Migrate Posts</button>
+                <button id="ims-btn-migrate-all"    class="button button-primary" style="background:#1d2327;border-color:#1d2327;">Full Migration</button>
+                <button id="ims-btn-verify"         class="button button-secondary">Verify (Check for Remaining IDX)</button>
+            </div>
+            <div id="ims-migration-result" class="ims-result" style="display:none;max-height:500px;overflow-y:auto;"></div>
         </div>
 
         <!-- ── CLAUDE.md Preview ───────────────────────────────────────────── -->
