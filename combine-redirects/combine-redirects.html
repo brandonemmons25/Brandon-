@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IDX → iHomefinder Redirect Mapper</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #f0f0f1; margin: 0; padding: 24px; color: #1d2327; }
+  h1  { font-size: 1.4rem; margin-bottom: 4px; }
+  p.sub { color: #555; margin-top: 0; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px;
+          padding: 20px; margin-bottom: 20px; }
+  .card h2 { font-size: 1rem; margin-top: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input[type=file] { display: block; }
+  button { cursor: pointer; border: none; border-radius: 4px;
+           padding: 8px 18px; font-size: .9rem; }
+  .btn-primary  { background: #2271b1; color: #fff; }
+  .btn-primary:hover  { background: #135e96; }
+  .btn-success  { background: #00a32a; color: #fff; }
+  .btn-success:hover  { background: #008a20; }
+  .btn-outline  { background: #fff; color: #2271b1; border: 1px solid #2271b1; }
+  #status { margin-top: 14px; font-weight: 600; }
+  .ok  { color: #00a32a; }
+  .err { color: #d63638; }
+  .warn{ color: #996800; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: 14px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+  th { background: #f6f7f7; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  .matched   { background: #f0fff4; }
+  .unmatched { background: #fff8f0; }
+  .badge-ok   { color: #00a32a; font-weight: 700; }
+  .badge-no   { color: #d63638; font-weight: 700; }
+  code { font-size: .82rem; background: #f6f7f7; padding: 1px 4px; border-radius: 3px; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .note { font-size: .8rem; color: #666; margin-top: 8px; }
+  #summary { display: none; }
+</style>
+</head>
+<body>
+
+<h1>IDX Broker → iHomefinder Redirect Mapper</h1>
+<p class="sub">
+  Upload both CSV exports, match by name, and download the combined redirect spreadsheet.
+  Everything runs in your browser — no data is sent anywhere.
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Step 1 — IDX Broker CSV</h2>
+    <label for="idx-file">
+      From the <strong>IDX Saved Searches Exporter</strong> plugin:<br>
+      <small style="font-weight:400;color:#555">Columns: Name, IDX URL, Category, Created</small>
+    </label>
+    <input type="file" id="idx-file" accept=".csv">
+  </div>
+
+  <div class="card">
+    <h2>Step 2 — iHomefinder CSV</h2>
+    <label for="ihf-file">
+      From the <strong>iHomefinder Markets Exporter</strong> plugin:<br>
+      <small style="font-weight:400;color:#555">Columns: Name, iHF URL</small>
+    </label>
+    <input type="file" id="ihf-file" accept=".csv">
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 3 — Match &amp; Export</h2>
+  <button id="match-btn" class="btn-primary">Match &amp; Preview</button>
+  <div id="status"></div>
+</div>
+
+<div id="summary" class="card">
+  <h2>Results</h2>
+  <div class="actions">
+    <button id="dl-all"      class="btn-success">Download Full Redirect CSV</button>
+    <button id="dl-matched"  class="btn-outline">Matched Only</button>
+    <button id="dl-unmatched"class="btn-outline">Unmatched Only</button>
+    <button id="dl-nginx"    class="btn-outline">Nginx Redirects (.conf)</button>
+    <button id="dl-htaccess" class="btn-outline">.htaccess Redirects</button>
+  </div>
+  <p class="note">
+    <strong>CSV columns:</strong>
+    A = IDX Broker Link &nbsp;|&nbsp; B = iHomefinder Link &nbsp;|&nbsp; C = Name &nbsp;|&nbsp; D = Match status
+  </p>
+  <div id="table-wrap"></div>
+</div>
+
+<script>
+// ── CSV parser (handles quoted fields) ────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  const re   = /("(?:[^"]|"")*"|[^,\r\n]*)(,|\r?\n|$)/g;
+  let row = [], match;
+  while ((match = re.exec(text)) !== null) {
+    let val = match[1];
+    if (val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1).replace(/""/g, '"');
+    }
+    row.push(val);
+    if (match[2] !== ',') {
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    }
+    if (match[2] === '') break;
+  }
+  return rows;
+}
+
+function readFile(input) {
+  return new Promise((resolve, reject) => {
+    if (!input.files[0]) { resolve(null); return; }
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsText(input.files[0]);
+  });
+}
+
+// ── Name normalisation for matching ──────────────────────────────────────────
+function norm(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// ── Levenshtein distance (for fuzzy fallback) ─────────────────────────────────
+function lev(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_, i) => Array.from({length: n+1}, (_, j) => i ? (j ? 0 : i) : j));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+               : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+function bestMatch(target, candidates) {
+  let best = null, bestScore = Infinity;
+  for (const c of candidates) {
+    const d = lev(target, c.key);
+    const maxLen = Math.max(target.length, c.key.length) || 1;
+    const score  = d / maxLen; // 0 = perfect, 1 = total mismatch
+    if (score < bestScore) { bestScore = score; best = c; }
+  }
+  // Accept fuzzy match only if similarity > 70 %
+  return bestScore <= 0.30 ? { match: best, score: bestScore } : { match: null, score: bestScore };
+}
+
+// ── Main logic ────────────────────────────────────────────────────────────────
+let allRows = [];
+
+document.getElementById('match-btn').addEventListener('click', async () => {
+  const idxText = await readFile(document.getElementById('idx-file'));
+  const ihfText = await readFile(document.getElementById('ihf-file'));
+
+  const statusEl = document.getElementById('status');
+
+  if (!idxText && !ihfText) {
+    statusEl.innerHTML = '<span class="err">Please upload at least one CSV file.</span>'; return;
+  }
+
+  // Parse IDX CSV: skip header row; cols: Name, IDX URL, Category, Created
+  const idxRows = idxText ? parseCSV(idxText).slice(1).filter(r => r[1]) : [];
+  const idx = idxRows.map(r => ({
+    name:    (r[0] || '').trim(),
+    url:     (r[1] || '').trim(),
+    key:     norm((r[0] || '').trim()),
+  }));
+
+  // Parse iHF CSV: skip header row; cols: Name, iHF URL
+  const ihfRows = ihfText ? parseCSV(ihfText).slice(1).filter(r => r[0]) : [];
+  const ihf = ihfRows.map(r => ({
+    name: (r[0] || '').trim(),
+    url:  (r[1] || '').trim(),
+    key:  norm((r[0] || '').trim()),
+  }));
+
+  // Build exact lookup
+  const ihfMap = {};
+  ihf.forEach(m => { ihfMap[m.key] = m; });
+
+  allRows = [];
+
+  // Match IDX → iHF
+  const usedIhf = new Set();
+  for (const s of idx) {
+    let ihfEntry = ihfMap[s.key] ?? null;
+    let method   = ihfEntry ? 'exact' : null;
+
+    if (!ihfEntry) {
+      const { match, score } = bestMatch(s.key, ihf);
+      if (match) { ihfEntry = match; method = `fuzzy (${Math.round((1-score)*100)}%)`; }
+    }
+
+    if (ihfEntry) usedIhf.add(ihfEntry.key);
+
+    allRows.push({
+      name:     s.name,
+      idx_url:  s.url,
+      ihf_url:  ihfEntry ? ihfEntry.url : '',
+      matched:  !!ihfEntry,
+      method:   method || '—',
+    });
+  }
+
+  // iHF markets with no IDX counterpart
+  for (const m of ihf) {
+    if (!usedIhf.has(m.key)) {
+      allRows.push({
+        name:    m.name + ' (iHF only)',
+        idx_url: '',
+        ihf_url: m.url,
+        matched: false,
+        method:  '—',
+      });
+    }
+  }
+
+  allRows.sort((a, b) => a.name.localeCompare(b.name));
+
+  const matched   = allRows.filter(r => r.matched).length;
+  const unmatched = allRows.length - matched;
+  statusEl.innerHTML =
+    `<span class="ok">✓ ${matched} matched</span>` +
+    (unmatched ? ` &nbsp; <span class="warn">⚠ ${unmatched} unmatched</span>` : '');
+
+  renderTable(allRows);
+  document.getElementById('summary').style.display = '';
+});
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+function renderTable(rows) {
+  let html = `<table>
+    <thead><tr>
+      <th>Name</th><th>Col A — IDX Broker</th><th>Col B — iHomefinder</th><th>Match</th>
+    </tr></thead><tbody>`;
+  rows.forEach(r => {
+    const cls   = r.matched ? 'matched' : 'unmatched';
+    const badge = r.matched
+      ? `<span class="badge-ok">✓ ${esc(r.method)}</span>`
+      : `<span class="badge-no">✗</span>`;
+    html += `<tr class="${cls}">
+      <td>${esc(r.name)}</td>
+      <td><code>${esc(r.idx_url)}</code></td>
+      <td><code>${esc(r.ihf_url)}</code></td>
+      <td>${badge}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('table-wrap').innerHTML = html;
+}
+
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+
+// ── CSV download ──────────────────────────────────────────────────────────────
+function toCSV(rows) {
+  const lines = ['"IDX Broker Link (Col A)","iHomefinder Link (Col B)","Name","Match Status"'];
+  rows.forEach(r => {
+    lines.push([r.idx_url, r.ihf_url, r.name, r.matched ? 'Matched' : 'Unmatched']
+      .map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(','));
+  });
+  return lines.join('\n');
+}
+
+function download(content, filename, type='text/csv') {
+  const blob = new Blob([content], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+}
+
+document.getElementById('dl-all')      .addEventListener('click', () => download(toCSV(allRows), 'redirects-all.csv'));
+document.getElementById('dl-matched')  .addEventListener('click', () => download(toCSV(allRows.filter(r=>r.matched)), 'redirects-matched.csv'));
+document.getElementById('dl-unmatched').addEventListener('click', () => download(toCSV(allRows.filter(r=>!r.matched)), 'redirects-unmatched.csv'));
+
+// ── Nginx config download ─────────────────────────────────────────────────────
+document.getElementById('dl-nginx').addEventListener('click', () => {
+  const lines = [
+    '# IDX Broker → iHomefinder 301 redirects',
+    '# Generated ' + new Date().toISOString(),
+    '',
+  ];
+  allRows.filter(r => r.matched && r.idx_url && r.ihf_url).forEach(r => {
+    lines.push(`# ${r.name}`);
+    lines.push(`rewrite ^${escapeRegex(r.idx_url)}$ ${r.ihf_url} permanent;`);
+    lines.push('');
+  });
+  download(lines.join('\n'), 'nginx-redirects.conf', 'text/plain');
+});
+
+// ── .htaccess download ────────────────────────────────────────────────────────
+document.getElementById('dl-htaccess').addEventListener('click', () => {
+  const lines = [
+    '# IDX Broker → iHomefinder 301 redirects',
+    '# Generated ' + new Date().toISOString(),
+    'RewriteEngine On',
+    '',
+  ];
+  allRows.filter(r => r.matched && r.idx_url && r.ihf_url).forEach(r => {
+    lines.push(`# ${r.name}`);
+    lines.push(`Redirect 301 ${r.idx_url} ${r.ihf_url}`);
+    lines.push('');
+  });
+  download(lines.join('\n'), 'htaccess-redirects.txt', 'text/plain');
+});
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+</script>
+</body>
+</html>

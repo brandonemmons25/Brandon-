@@ -1,0 +1,58 @@
+services:
+
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wppass
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 5s
+      retries: 10
+
+  wordpress:
+    image: wordpress:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DEBUG: 1
+    volumes:
+      # Mount the whole repo so all plugins are available
+      - ./idx-to-ihf-migration:/var/www/html/wp-content/plugins/idx-to-ihf-migration
+      - ./idx-saved-searches-exporter:/var/www/html/wp-content/plugins/idx-saved-searches-exporter
+      - ./idx-scanner.php:/var/www/html/wp-content/plugins/idx-scanner.php
+      - wp_data:/var/www/html
+
+  wpcli:
+    image: wordpress:cli
+    depends_on:
+      - wordpress
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wppass
+    volumes:
+      - wp_data:/var/www/html
+      - ./idx-to-ihf-migration:/var/www/html/wp-content/plugins/idx-to-ihf-migration
+      - ./idx-saved-searches-exporter:/var/www/html/wp-content/plugins/idx-saved-searches-exporter
+      - ./test:/test
+    # Default: seed. Override with: docker compose run --rm wpcli wp <command>
+    entrypoint: ["sh", "/test/seed.sh"]
+
+volumes:
+  db_data:
+  wp_data:
