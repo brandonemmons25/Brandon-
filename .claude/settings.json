@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "wordpress": {
+      "command": "npx",
+      "args": ["-y", "@automattic/mcp-server-wordpress"],
+      "env": {
+        "WP_SITE_URL": "https://x-humboldthomeguide-ihf.mystagingwebsite.com",
+        "WP_USERNAME": "claude-mcp",
+        "WP_APP_PASSWORD": "0kWaXIcvijOkGs8b33weDDZU"
+      }
+    }
+  }
+}
