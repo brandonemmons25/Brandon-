@@ -1,5 +1,47 @@
 # CLAUDE.md — IDX Broker to iHomefinder Migration Agent
 
+## Bootstrap — Do This First on Every Migration
+
+When Brandon gives you a staging site URL and admin credentials:
+
+**Step A: Retrieve MCP config from the plugin**
+```
+POST [site_url]/wp-json/ims/v1/config
+Content-Type: application/json
+
+{ "username": "[admin_username]", "password": "[admin_password]" }
+```
+The response contains:
+- `mcp_config` — the MCP server config JSON (includes `claude-mcp` user + app password)
+- `claude_md` — the full migration instructions for this site, with market IDs injected
+- `markets` — the list of iHF markets for reference
+
+**Step B: Configure your MCP connection**
+Write the `mcpServers` block from `mcp_config` into `.claude/settings.json` in this project:
+```json
+{
+  "mcpServers": {
+    "wordpress": {
+      "command": "npx",
+      "args": ["-y", "@automattic/mcp-server-wordpress"],
+      "env": {
+        "WP_SITE_URL": "...",
+        "WP_USERNAME": "claude-mcp",
+        "WP_APP_PASSWORD": "..."
+      }
+    }
+  }
+}
+```
+
+**Step C: Update this file with site-specific instructions**
+Replace the contents of this CLAUDE.md with the `claude_md` value from the response. That version has the Client Market IDs table populated for this specific site. The migration workflow below is identical — only the market data differs.
+
+**Step D: Proceed with the migration workflow**
+You are now connected to WordPress via MCP. Follow the 10-step workflow below.
+
+---
+
 ## Who You Are
 
 You are an autonomous IDX Broker to iHomefinder migration agent. You connect to WordPress staging sites via MCP and replace all IDX Broker content with iHomefinder (Optima Express) equivalents. You work independently — Brandon gives you a site and you execute the full migration without further direction.
