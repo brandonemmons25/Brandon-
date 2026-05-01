@@ -241,41 +241,55 @@ PHP,
             'title' => 'Migration Post Abilities',
             'code'  => <<<'PHP'
 add_action( 'wp_abilities_api_init', function() {
-    wp_register_ability( 'migration/get-ihf-markets', array(
-        'label'       => 'Get iHF Markets',
-        'description' => 'Returns all Optima Express Markets from the iHF API',
+
+    wp_register_ability( 'migration/get-post-by-id', array(
+        'label'       => 'Get Post by ID',
+        'description' => 'Returns a single post content by its WordPress ID',
         'category'    => 'site',
-        'input_schema' => array( 'type' => 'object', 'properties' => array(), 'required' => array() ),
+        'input_schema' => array(
+            'type' => 'object',
+            'properties' => array(
+                'post_id' => array( 'type' => 'integer', 'description' => 'The WordPress post ID' ),
+            ),
+            'required' => array( 'post_id' ),
+        ),
         'execute_callback' => function( $input ) {
-            $token = get_option( 'ihf_activation_token' );
-            $info  = array();
-            $consts = get_defined_constants( true );
-            foreach ( $consts['user'] as $k => $v ) {
-                if ( stripos( $k, 'ihf' ) !== false || stripos( $k, 'optima' ) !== false || stripos( $k, 'homefinder' ) !== false ) {
-                    $info['constants'][ $k ] = $v;
-                }
-            }
-            $classes     = get_declared_classes();
-            $ihf_classes = array_values( array_filter( $classes, function( $c ) {
-                return stripos( $c, 'ihf' ) !== false || stripos( $c, 'optima' ) !== false || stripos( $c, 'homefinder' ) !== false;
-            } ) );
-            $info['classes'] = $ihf_classes;
-            if ( class_exists( 'IHF_Plugin' ) )           $info['ihf_plugin_methods'] = get_class_methods( 'IHF_Plugin' );
-            if ( class_exists( 'OptimalExpressPlugin' ) )  $info['optima_methods']     = get_class_methods( 'OptimalExpressPlugin' );
-            $urls = array(
-                'a' => "https://api.ihomefinder.com/v1/account/toppicks?apiKey={$token}",
-                'b' => "https://api.ihomefinder.com/v1/toppicks?apiKey={$token}",
-                'c' => "https://homefinder.com/data/getTopPicks?apiKey={$token}",
+            $post = get_post( $input['post_id'] );
+            if ( ! $post ) return array( 'error' => 'Post not found' );
+            return array(
+                'ID'      => $post->ID,
+                'title'   => $post->post_title,
+                'slug'    => $post->post_name,
+                'type'    => $post->post_type,
+                'url'     => get_permalink( $post->ID ),
+                'content' => $post->post_content,
             );
-            foreach ( $urls as $k => $url ) {
-                $r = wp_remote_get( $url, array( 'timeout' => 10 ) );
-                $info['api'][ $k ] = is_wp_error( $r ) ? $r->get_error_message() : array( 'status' => wp_remote_retrieve_response_code( $r ), 'body' => substr( wp_remote_retrieve_body( $r ), 0, 500 ) );
-            }
-            return $info;
         },
         'permission_callback' => function() { return current_user_can( 'edit_posts' ); },
         'meta' => array( 'mcp' => array( 'public' => true ), 'annotations' => array( 'readonly' => true, 'destructive' => false, 'idempotent' => true ), 'show_in_rest' => true ),
     ) );
+
+    wp_register_ability( 'migration/update-post', array(
+        'label'       => 'Update Post Content',
+        'description' => 'Updates the content of a WordPress post by ID',
+        'category'    => 'site',
+        'input_schema' => array(
+            'type' => 'object',
+            'properties' => array(
+                'post_id' => array( 'type' => 'integer', 'description' => 'The post ID to update' ),
+                'content' => array( 'type' => 'string',  'description' => 'The new post content (HTML/block markup)' ),
+            ),
+            'required' => array( 'post_id', 'content' ),
+        ),
+        'execute_callback' => function( $input ) {
+            $result = wp_update_post( array( 'ID' => $input['post_id'], 'post_content' => $input['content'] ), true );
+            if ( is_wp_error( $result ) ) return array( 'success' => false, 'error' => $result->get_error_message() );
+            return array( 'success' => true, 'post_id' => $result );
+        },
+        'permission_callback' => function() { return current_user_can( 'edit_posts' ); },
+        'meta' => array( 'mcp' => array( 'public' => true ), 'annotations' => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ), 'show_in_rest' => true ),
+    ) );
+
 } );
 PHP,
         ],
@@ -588,45 +602,40 @@ add_action( 'wp_ajax_ims_generate_claude_md', function () {
 } );
 
 function ims_claude_md_template( string $site_name, string $site_url, string $market_lines ): string {
-    return <<<MD
-# Migration Instructions — {$site_name}
+    // Load the master CLAUDE.md template and inject site-specific market IDs
+    $template_path = plugin_dir_path( dirname( __FILE__ ) ) . 'CLAUDE.md';
 
-## Site
+    if ( file_exists( $template_path ) ) {
+        $base = file_get_contents( $template_path );
+        // Replace the placeholder section with the real market data
+        $market_block = "## Client Market IDs — {$site_name}\n\nSite URL: {$site_url}\n\n{$market_lines}";
+        $base = preg_replace(
+            '/<!-- MARKET_IDS_START -->.*<!-- MARKET_IDS_END -->/s',
+            "<!-- MARKET_IDS_START -->\n{$market_block}\n<!-- MARKET_IDS_END -->",
+            $base
+        );
+        // Also update the client section header if it has the Cesi Pagano placeholder
+        $base = preg_replace(
+            '/## Cesi Pagano Market IDs \(Client #\d+\).*$/s',
+            "## {$site_name} Market IDs\n\nSite URL: {$site_url}\n\n{$market_lines}",
+            $base
+        );
+        return $base;
+    }
+
+    // Fallback: inline template if CLAUDE.md not found on disk
+    return <<<MD
+# CLAUDE.md — IDX Broker to iHomefinder Migration Agent
+
+## Site: {$site_name}
 - **URL:** {$site_url}
 - **MCP User:** claude-mcp (Administrator)
 
-## Your Job
-Migrate this WordPress site from IDX Broker to iHomeFinder (Optima Express).
-
-### What that means:
-1. Find every IDX Broker shortcode, widget, and URL on the site
-2. Replace each one with the correct Optima Express equivalent
-3. Map IDX saved searches → iHF Markets using the Market IDs below
-4. Replace `[impress_property_showcase saved_link_id=X]` and `[IDX-savedlinks id=X]` with `[optima_express_toppicks id=MARKET_ID]`
-5. Replace IDX search URLs with the equivalent iHF page URLs
-6. Update navigation menus
-7. Leave all design/layout decisions to the human — only touch IDX/iHF content
-
-## iHF Markets
+## Client Market IDs
 {$market_lines}
-## Shortcode Reference
 
-| IDX Broker | Optima Express |
-|---|---|
-| `[impress_property_showcase saved_link_id=X]` | `[optima_express_toppicks id=MARKET_ID]` |
-| `[IDX-savedlinks id=X]` | `[optima_express_toppicks id=MARKET_ID]` |
-| `[idx-listings-showcase id=X]` | `[optima_express_toppicks id=MARKET_ID]` |
-| `[idx-search-form]` | `[optima_express_search_form]` |
-| `[idx-map-search]` | `[optima_express_map_search]` |
-| `[idx-featured-listings]` | `[optima_express_toppicks]` |
-| `[idx-open-houses]` | `[optima_express_open_houses]` |
-| `[idx-property-detail]` | `[optima_express_property_details]` |
-
-## Rules
-- Always preview before applying — use dry-run / get_page before update_page
-- Never touch CSS, layouts, images, or copy unless it contains an IDX element
-- Commit nothing — all changes go through MCP tools only
-- Report completion with a summary of every change made
+---
+NOTE: Full CLAUDE.md template not found. Upload the master CLAUDE.md from the repository to the plugin directory.
 MD;
 }
 
