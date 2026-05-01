@@ -1,0 +1,5 @@
+/*
+ * Dropdown stacking fixes are handled in quick-search-dropdown-fix.js.
+ * Cosmetic .quick-search background/height are injected into the iHF shadow
+ * root by quick-search-dropdown-fix.js (v6.13.0+).
+ */
