@@ -274,6 +274,44 @@ Markets are pre-created in the iHF account before migration begins. Find them vi
 
 ---
 
+## Architecture Notes
+
+### How Migration Runs
+
+The plugin includes a server-side migration engine (`migration-runner.php`). Brandon runs the migration from the WordPress admin page — no Claude Code involvement at runtime. The admin page has a **Migration Control Panel** with:
+- **Dry Run** checkbox — preview changes without saving
+- **Migrate Menus** — replaces IDX Broker subdomain URLs in all nav menus
+- **Migrate Pages** — replaces IDX URLs, `/i/` saved links, Gutenberg blocks, and shortcodes in page content
+- **Migrate Posts** — same for posts
+- **Full Migration** — runs all three in sequence
+- **Verify** — queries DB for any remaining IDX patterns; should return clean
+
+Results are displayed as JSON on the admin page showing before/after for every change.
+
+### Why Not MCP
+
+Pressable's CDN (`x-deny-reason: host_not_allowed`) blocks HTTP requests from the Claude Code sandbox IP. The `@automattic/mcp-server-wordpress` also makes HTTP calls from the same IP, so it's blocked the same way. MCP also only loads at session startup — it cannot be activated mid-session.
+
+**Decision**: Migration execution lives in the plugin (PHP, server-side). Claude Code's role is building and maintaining the plugin, not running migrations at runtime.
+
+### Tested Sites
+
+| Site | URL | Status |
+|---|---|---|
+| Humboldt Home Guide | https://x-humboldthomeguide-ihf.mystagingwebsite.com | Staging — testing in progress |
+
+### Plugin Files
+
+| File | Purpose |
+|---|---|
+| `ihf-migration-setup.php` | Main plugin — activation, MCP user, markets fetch, AJAX handlers, admin UI |
+| `migration-runner.php` | Server-side migration engine — menu/page/post replacement, verify |
+| `idx-scanner.php` | AiDX Scanner — pre-migration inventory scan |
+| `assets/admin.js` | Admin page JS — all button handlers |
+| `assets/admin.css` | Admin page styles |
+
+---
+
 ## Client Market IDs
 
 <!-- MARKET_IDS_START -->
