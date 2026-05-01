@@ -375,8 +375,8 @@ add_action( 'wp_ajax_ims_create_user', function () {
         wp_send_json_error( $result->get_error_message() );
     }
 
-    // $result[0] is the plaintext password (shown only once by WP)
-    $plain = $result[0];
+    // $result[0] is the plaintext password — strip spaces WP adds for display formatting
+    $plain = str_replace( ' ', '', $result[0] );
 
     // Store the plain password temporarily in transient so config step can use it
     set_transient( 'ims_app_password_' . $user_id, $plain, HOUR_IN_SECONDS );
@@ -588,8 +588,7 @@ add_action( 'wp_ajax_ims_generate_claude_md', function () {
     check_ajax_referer( 'ims_nonce' );
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
 
-    $markets_raw = sanitize_text_field( wp_unslash( $_POST['markets'] ?? '' ) );
-    $markets     = json_decode( stripslashes( $_POST['markets'] ?? '[]' ), true );
+    $markets = json_decode( stripslashes( $_POST['markets'] ?? '[]' ), true );
     if ( ! is_array( $markets ) ) wp_send_json_error( 'Invalid markets data.' );
 
     $site_url    = get_site_url();
@@ -614,11 +613,13 @@ function ims_claude_md_template( string $site_name, string $site_url, string $ma
     $template_path = IMS_DIR . 'CLAUDE.md';
 
     if ( file_exists( $template_path ) ) {
-        $base = file_get_contents( $template_path );
+        $base         = file_get_contents( $template_path );
         $market_block = "### {$site_name}\n\nSite: {$site_url}\n\n{$market_table}";
-        $base = preg_replace(
+        $replacement  = "<!-- MARKET_IDS_START -->\n{$market_block}\n<!-- MARKET_IDS_END -->";
+        // Use callback so market names containing $0-$9 aren't treated as back-references
+        $base = preg_replace_callback(
             '/<!-- MARKET_IDS_START -->.*?<!-- MARKET_IDS_END -->/s',
-            "<!-- MARKET_IDS_START -->\n{$market_block}\n<!-- MARKET_IDS_END -->",
+            function() use ( $replacement ) { return $replacement; },
             $base
         );
         return $base;

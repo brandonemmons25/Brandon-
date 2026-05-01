@@ -32,7 +32,7 @@ Using the URL Redirect Map below, update every IDX Broker menu item to its iHF e
 Run `migration/search-content` for each of the following, post_type = page. Work through one at a time:
 - The site's IDX Broker subdomain (`search.[domain].com`)
 - `idx-broker-platinum` (catches all widget blocks wherever they appear)
-- `/i/` (catches saved-link URLs)
+- `search.[domain].com/i/` (catches saved-link URLs — use the full subdomain, not just `/i/`)
 - Any IDX shortcode patterns (`[IDX-`, `[impress_`)
 
 **Step 4: Replace page links**
@@ -62,7 +62,13 @@ IDX Broker widget blocks (`idx-broker-platinum/*`) can appear anywhere — homep
 5. Update the page
 
 **Step 9: Verify**
-Run `migration/search-content` for the IDX Broker subdomain across pages and posts. Confirm zero results in content bodies (postmeta matches are expected and harmless — they go away when the IDX Broker plugin is deactivated).
+Run `migration/search-content` for each of the following across both pages and posts. All should return zero content-body matches:
+- The site's IDX Broker subdomain (`search.[domain].com`)
+- `idx-broker-platinum`
+- `[IDX-`
+- `[impress_`
+
+Postmeta-only matches are expected and harmless — they go away when the IDX Broker plugin is deactivated. Pull the content of any match to confirm the IDX pattern is not in the content body before flagging it.
 
 **Step 10: Report**
 List everything you changed — menu items, pages, posts — with before/after for each one. Flag anything you couldn't resolve.
@@ -205,7 +211,7 @@ Markets are pre-created in the iHF account before migration begins. Find them vi
 2. **Match both URL formats.** IDX Broker URLs appear as both `https://search.domain.com/idx/...` and `//search.domain.com/idx/...`. Replace both.
 3. **Preserve query parameters.** If an IDX URL has `?start=5&per=10`, replace the base URL and keep the parameters.
 4. **Postmeta matches are not your problem.** The search-content ability may return posts that only have IDX URLs in postmeta (not visible content). Verify by pulling the post content — if there's no IDX URL in the content body, skip it.
-5. **Community pages need iHF Markets.** Don't replace community page widget blocks unless iHF Markets are available and you know which Market matches which community.
+5. **Widget blocks need the correct Market ID.** The Client Market IDs table is always present in this file. Use it to match every widget block to its Market before replacing.
 6. **The iHF account is always set up before you start.** All Markets, agents, leads are pre-migrated. You don't create Markets.
 7. **IDX Broker imported listings (custom post types like `idxbroker-featured`, `idxbroker-pending`) are orphaned data.** They become harmless when the IDX Broker plugin is deactivated. Leave them alone.
 8. **Always use listing report URLs** for Markets in nav menus and page links — not toppicks or embedded shortcodes.
