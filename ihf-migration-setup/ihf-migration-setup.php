@@ -601,11 +601,7 @@ add_action( 'wp_ajax_ims_generate_claude_md', function () {
     } else {
         $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n";
         foreach ( $markets as $m ) {
-            $id   = $m['id'] ?: 'NO_ID';
-            $name = $m['name'];
-            $slug = sanitize_title( $name );
-            $url  = $m['url'] ?: ( $id !== 'NO_ID' ? "/listing-report/{$slug}/{$id}/" : '—' );
-            $market_table .= "| {$name} | {$id} | {$url} |\n";
+            $market_table .= "| {$m['name']} | " . ( $m['id'] ?: '—' ) . " | " . ( $m['url'] ?: '—' ) . " |\n";
         }
     }
 

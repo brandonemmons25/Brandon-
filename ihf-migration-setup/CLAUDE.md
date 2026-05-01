@@ -41,16 +41,13 @@ Run `migration/search-content` with the same patterns, post_type = post. Focus o
 For each post found, use `migration/get-post-by-id` to pull the content, identify the IDX Broker URL, and use `migration/update-post` to replace it. Keep all other content exactly the same.
 
 **Step 7: Handle `/i/` saved-link URLs (community market links)**
-IDX Broker saved links use short URLs like `//search.[domain].com/i/aliso-viejo-homes-for-sale`. These appear in page content and blog posts as links, NOT as widget blocks.
-
-**Important:** The IDX saved-link slug and the iHF market slug are often different. Do NOT match by slug. Match by geography and intent — read the link text, surrounding content, or page context to identify which community/price range the link represents, then find the correct iHF market in the Client Market IDs table below.
+IDX Broker saved links use short URLs like `//search.[domain].com/i/aliso-viejo-homes-for-sale`. These appear in page content and blog posts as links, NOT as widget blocks. Use the Client Market IDs table at the bottom of this file to find the correct listing-report URL for each market.
 
 For each page/post found:
 1. Pull content via `migration/get-page-by-id` or `migration/get-post-by-id`
 2. Find all `//search.[domain].com/i/[slug]` links
-3. Identify what the link represents (community, price range, property type) from context
-4. Find the matching market in the Client Market IDs table and use its listing-report URL
-5. Update via `migration/update-page` or `migration/update-post`
+3. Look up the matching market in the Client Market IDs table and use its listing-report URL
+4. Update via `migration/update-page` or `migration/update-post`
 
 **Step 8: Handle community pages (IDX widget blocks)**
 Community pages have IDX Broker widget blocks that need to be replaced with iHF Market shortcodes. The iHF Markets are available in the Optima Express plugin data. For each community page:
