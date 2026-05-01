@@ -1,21 +1,293 @@
 <?php
 /**
  * Plugin Name: iHF Migration Setup
- * Description: One-click setup for the IDX → iHomeFinder migration: creates the claude-mcp user, installs WPCode snippets, generates Claude Desktop config, runs the AiDX Scanner, extracts Optima Express Market IDs, and generates the CLAUDE.md.
- * Version:     1.0.0
+ * Description: Auto-configures staging for IDX → iHomeFinder migration on activation. Exposes a REST endpoint so Claude Code can retrieve MCP credentials and run the migration autonomously.
+ * Version:     2.0.0
  * Author:      Brandon Emmons
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'IMS_VERSION', '1.0.0' );
+define( 'IMS_VERSION', '2.0.0' );
 define( 'IMS_FILE',    __FILE__ );
 define( 'IMS_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'IMS_URL',     plugin_dir_url( __FILE__ ) );
 
-// ── WPCode snippet definitions ────────────────────────────────────────────────
+// Option keys
+define( 'IMS_OPT_STATUS',   'ims_status' );
+define( 'IMS_OPT_APP_PASS', 'ims_app_password' );
+define( 'IMS_OPT_MARKETS',  'ims_markets' );
+define( 'IMS_OPT_CLAUDE_MD','ims_claude_md' );
 
-function ims_get_snippets() {
+// ── Activation: auto-run all setup ────────────────────────────────────────────
+
+register_activation_hook( IMS_FILE, 'ims_on_activation' );
+
+function ims_on_activation(): void {
+    $status = [ 'activated_at' => current_time( 'mysql' ) ];
+
+    $user_result             = ims_do_create_user();
+    $status['user']          = $user_result;
+
+    $snippet_result          = ims_do_install_snippets();
+    $status['snippets']      = $snippet_result;
+
+    $markets_result          = ims_do_fetch_markets();
+    $markets                 = is_array( $markets_result ) ? $markets_result : [];
+    $status['markets_count'] = count( $markets );
+    $status['markets_error'] = is_string( $markets_result ) ? $markets_result : null;
+
+    ims_do_generate_claude_md( $markets );
+
+    update_option( IMS_OPT_STATUS, $status, false );
+}
+
+// ── Internal setup functions ───────────────────────────────────────────────────
+
+function ims_do_create_user(): array {
+    $username = 'claude-mcp';
+    $existing = get_user_by( 'login', $username );
+
+    if ( $existing ) {
+        $user_id = $existing->ID;
+        $existing->set_role( 'administrator' );
+    } else {
+        $email   = $username . '@' . wp_parse_url( home_url(), PHP_URL_HOST );
+        $user_id = wp_create_user( $username, wp_generate_password( 32 ), $email );
+        if ( is_wp_error( $user_id ) ) {
+            return [ 'success' => false, 'error' => $user_id->get_error_message() ];
+        }
+        $user = new WP_User( $user_id );
+        $user->set_role( 'administrator' );
+    }
+
+    // Remove any existing 'Claude MCP' app password then create fresh
+    $app_name          = 'Claude MCP';
+    $existing_app_pws  = WP_Application_Passwords::get_user_application_passwords( $user_id );
+    foreach ( $existing_app_pws as $ap ) {
+        if ( $ap['name'] === $app_name ) {
+            WP_Application_Passwords::delete_application_password( $user_id, $ap['uuid'] );
+        }
+    }
+
+    $result = WP_Application_Passwords::create_new_application_password(
+        $user_id,
+        [ 'name' => $app_name ]
+    );
+
+    if ( is_wp_error( $result ) ) {
+        return [ 'success' => false, 'error' => $result->get_error_message() ];
+    }
+
+    // Strip spaces WP adds to the plaintext password for display formatting
+    $plain = str_replace( ' ', '', $result[0] );
+
+    update_option( IMS_OPT_APP_PASS, $plain, false );
+
+    return [
+        'success'  => true,
+        'user_id'  => $user_id,
+        'username' => $username,
+        'created'  => ! $existing,
+    ];
+}
+
+function ims_do_install_snippets(): array {
+    if ( ! post_type_exists( 'wpcode_snippet' ) ) {
+        return [ 'success' => false, 'error' => 'WPCode plugin is not active.' ];
+    }
+
+    $snippets  = ims_get_snippets();
+    $installed = [];
+    $skipped   = [];
+
+    foreach ( $snippets as $snippet ) {
+        $existing = get_posts( [
+            'post_type'      => 'wpcode_snippet',
+            'post_status'    => 'any',
+            'title'          => $snippet['title'],
+            'posts_per_page' => 1,
+        ] );
+
+        if ( $existing ) {
+            $skipped[] = $snippet['title'];
+            continue;
+        }
+
+        $post_id = wp_insert_post( [
+            'post_title'   => $snippet['title'],
+            'post_content' => $snippet['code'],
+            'post_type'    => 'wpcode_snippet',
+            'post_status'  => 'publish',
+        ] );
+
+        if ( is_wp_error( $post_id ) ) {
+            return [ 'success' => false, 'error' => 'Failed to install: ' . $snippet['title'] ];
+        }
+
+        update_post_meta( $post_id, '_wpcode_snippet_type',   'php' );
+        update_post_meta( $post_id, '_wpcode_snippet_status', 1 );
+        update_post_meta( $post_id, '_wpcode_snippet_scope',  'global' );
+
+        $installed[] = $snippet['title'];
+    }
+
+    return [ 'success' => true, 'installed' => $installed, 'skipped' => $skipped ];
+}
+
+function ims_do_fetch_markets() {
+    $auth_token = get_option( 'ihf_authentication_token', '' )
+               ?: get_option( 'ihf_activation_token', '' );
+
+    if ( ! $auth_token ) {
+        return 'No Optima Express authentication token found.';
+    }
+
+    $resp = wp_remote_get( add_query_arg( [
+        'method'              => 'handleRequest',
+        'requestType'         => 'hotsheet-list',
+        'viewType'            => 'json',
+        'phpStyle'            => 'true',
+        'authenticationToken' => $auth_token,
+    ], 'https://www.idxhome.com/service/wordpress' ), [ 'timeout' => 20 ] );
+
+    if ( is_wp_error( $resp ) ) {
+        return $resp->get_error_message();
+    }
+
+    $body    = wp_remote_retrieve_body( $resp );
+    $markets = ims_parse_markets( $body );
+
+    if ( is_array( $markets ) ) {
+        update_option( IMS_OPT_MARKETS, $markets, false );
+    }
+
+    return $markets;
+}
+
+function ims_do_generate_claude_md( array $markets ): void {
+    $site_name = get_bloginfo( 'name' );
+    $site_url  = get_site_url();
+
+    if ( empty( $markets ) ) {
+        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n| (no markets found — run Refresh Markets) | — | — |\n";
+    } else {
+        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n";
+        foreach ( $markets as $m ) {
+            $market_table .= "| {$m['name']} | " . ( $m['id'] ?: '—' ) . " | " . ( $m['url'] ?: '—' ) . " |\n";
+        }
+    }
+
+    $md = ims_claude_md_template( $site_name, $site_url, $market_table );
+    update_option( IMS_OPT_CLAUDE_MD, $md, false );
+}
+
+// ── REST API ───────────────────────────────────────────────────────────────────
+
+add_action( 'rest_api_init', function () {
+
+    // POST /wp-json/ims/v1/config
+    // Body: { "username": "admin", "password": "wp-admin-password" }
+    // Returns MCP config JSON, generated CLAUDE.md, and markets list
+    register_rest_route( 'ims/v1', '/config', [
+        'methods'             => 'POST',
+        'callback'            => 'ims_rest_config',
+        'permission_callback' => '__return_true',
+        'args'                => [
+            'username' => [ 'required' => true, 'type' => 'string' ],
+            'password' => [ 'required' => true, 'type' => 'string' ],
+        ],
+    ] );
+
+    // POST /wp-json/ims/v1/refresh
+    // Re-fetches markets from iHF and regenerates CLAUDE.md (for when Optima Express
+    // wasn't installed at activation time, or markets changed)
+    register_rest_route( 'ims/v1', '/refresh', [
+        'methods'             => 'POST',
+        'callback'            => 'ims_rest_refresh',
+        'permission_callback' => '__return_true',
+        'args'                => [
+            'username' => [ 'required' => true, 'type' => 'string' ],
+            'password' => [ 'required' => true, 'type' => 'string' ],
+        ],
+    ] );
+
+} );
+
+function ims_rest_validate_admin( WP_REST_Request $request ): WP_User|WP_Error {
+    $user = wp_authenticate(
+        sanitize_user( $request->get_param( 'username' ) ),
+        $request->get_param( 'password' )
+    );
+    if ( is_wp_error( $user ) ) {
+        return new WP_Error( 'unauthorized', 'Invalid credentials.', [ 'status' => 401 ] );
+    }
+    if ( ! user_can( $user, 'manage_options' ) ) {
+        return new WP_Error( 'forbidden', 'Administrator access required.', [ 'status' => 403 ] );
+    }
+    return $user;
+}
+
+function ims_rest_config( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+    $user = ims_rest_validate_admin( $request );
+    if ( is_wp_error( $user ) ) return $user;
+
+    $app_password = get_option( IMS_OPT_APP_PASS );
+    if ( ! $app_password ) {
+        return new WP_Error( 'not_configured', 'Plugin setup incomplete — re-activate the plugin.', [ 'status' => 500 ] );
+    }
+
+    $site_url  = get_site_url();
+    $mcp_config = [
+        'mcpServers' => [
+            'wordpress' => [
+                'command' => 'npx',
+                'args'    => [ '-y', '@automattic/mcp-server-wordpress' ],
+                'env'     => [
+                    'WP_SITE_URL'     => $site_url,
+                    'WP_USERNAME'     => 'claude-mcp',
+                    'WP_APP_PASSWORD' => $app_password,
+                ],
+            ],
+        ],
+    ];
+
+    $status = get_option( IMS_OPT_STATUS, [] );
+
+    return new WP_REST_Response( [
+        'mcp_config' => $mcp_config,
+        'claude_md'  => get_option( IMS_OPT_CLAUDE_MD, '' ),
+        'markets'    => get_option( IMS_OPT_MARKETS, [] ),
+        'site_url'   => $site_url,
+        'status'     => $status,
+    ], 200 );
+}
+
+function ims_rest_refresh( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+    $user = ims_rest_validate_admin( $request );
+    if ( is_wp_error( $user ) ) return $user;
+
+    $markets_result = ims_do_fetch_markets();
+    $markets        = is_array( $markets_result ) ? $markets_result : [];
+    ims_do_generate_claude_md( $markets );
+
+    $status = get_option( IMS_OPT_STATUS, [] );
+    $status['markets_refreshed_at'] = current_time( 'mysql' );
+    $status['markets_count']        = count( $markets );
+    $status['markets_error']        = is_string( $markets_result ) ? $markets_result : null;
+    update_option( IMS_OPT_STATUS, $status );
+
+    return new WP_REST_Response( [
+        'success'       => true,
+        'markets_count' => count( $markets ),
+        'error'         => is_string( $markets_result ) ? $markets_result : null,
+        'claude_md'     => get_option( IMS_OPT_CLAUDE_MD, '' ),
+    ], 200 );
+}
+
+// ── WPCode snippet definitions ─────────────────────────────────────────────────
+
+function ims_get_snippets(): array {
     return [
         [
             'title' => 'Enable Core Abilities for MCP',
@@ -296,232 +568,7 @@ PHP,
     ];
 }
 
-// ── Admin menu ─────────────────────────────────────────────────────────────────
-
-add_action( 'admin_menu', function () {
-    add_menu_page(
-        'iHF Migration Setup',
-        'Migration Setup',
-        'manage_options',
-        'ihf-migration-setup',
-        'ims_render_page',
-        'dashicons-migrate',
-        2
-    );
-} );
-
-// ── Admin assets ───────────────────────────────────────────────────────────────
-
-add_action( 'admin_enqueue_scripts', function ( $hook ) {
-    if ( $hook !== 'toplevel_page_ihf-migration-setup' ) return;
-    wp_enqueue_style(  'ims-admin', IMS_URL . 'assets/admin.css', [], IMS_VERSION );
-    wp_enqueue_script( 'ims-admin', IMS_URL . 'assets/admin.js',  [ 'jquery' ], IMS_VERSION, true );
-    wp_localize_script( 'ims-admin', 'IMS', [
-        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-        'nonce'   => wp_create_nonce( 'ims_nonce' ),
-        'siteUrl' => get_site_url(),
-    ] );
-} );
-
-// ── AJAX: Create claude-mcp user + app password ────────────────────────────────
-
-add_action( 'wp_ajax_ims_create_user', function () {
-    check_ajax_referer( 'ims_nonce' );
-    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
-
-    $username = 'claude-mcp';
-    $existing = get_user_by( 'login', $username );
-
-    if ( $existing ) {
-        $user_id = $existing->ID;
-        // Ensure administrator role
-        $existing->set_role( 'administrator' );
-    } else {
-        $email   = $username . '@' . wp_parse_url( home_url(), PHP_URL_HOST );
-        $user_id = wp_create_user( $username, wp_generate_password( 32 ), $email );
-        if ( is_wp_error( $user_id ) ) {
-            wp_send_json_error( $user_id->get_error_message() );
-        }
-        $user = new WP_User( $user_id );
-        $user->set_role( 'administrator' );
-    }
-
-    // Generate alphanumeric-only application password
-    $app_name = 'Claude MCP';
-
-    // Remove any existing app password with same name
-    $existing_passwords = WP_Application_Passwords::get_user_application_passwords( $user_id );
-    foreach ( $existing_passwords as $ap ) {
-        if ( $ap['name'] === $app_name ) {
-            WP_Application_Passwords::delete_application_password( $user_id, $ap['uuid'] );
-        }
-    }
-
-    // Generate 24-char alphanumeric password (no special chars, no spaces)
-    $chars    = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    $raw_pass = '';
-    for ( $i = 0; $i < 24; $i++ ) {
-        $raw_pass .= $chars[ random_int( 0, strlen( $chars ) - 1 ) ];
-    }
-
-    // Store via WP Application Passwords — we supply the raw password
-    add_filter( 'wp_application_passwords_expire_passwords', '__return_false' );
-    $result = WP_Application_Passwords::create_new_application_password(
-        $user_id,
-        [ 'name' => $app_name ]
-    );
-
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( $result->get_error_message() );
-    }
-
-    // $result[0] is the plaintext password — strip spaces WP adds for display formatting
-    $plain = str_replace( ' ', '', $result[0] );
-
-    // Store the plain password temporarily in transient so config step can use it
-    set_transient( 'ims_app_password_' . $user_id, $plain, HOUR_IN_SECONDS );
-
-    wp_send_json_success( [
-        'user_id'      => $user_id,
-        'username'     => $username,
-        'app_password' => $plain,
-        'message'      => $existing ? 'Existing user updated.' : 'User created.',
-    ] );
-} );
-
-// ── AJAX: Install WPCode snippets ──────────────────────────────────────────────
-
-add_action( 'wp_ajax_ims_install_snippets', function () {
-    check_ajax_referer( 'ims_nonce' );
-    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
-
-    if ( ! post_type_exists( 'wpcode_snippet' ) ) {
-        wp_send_json_error( 'WPCode plugin is not active. Please install and activate WPCode first.' );
-    }
-
-    $snippets  = ims_get_snippets();
-    $installed = [];
-    $skipped   = [];
-    $missing   = [];
-
-    foreach ( $snippets as $snippet ) {
-        if ( empty( $snippet['code'] ) ) {
-            $missing[] = $snippet['title'];
-            continue;
-        }
-
-        // Check if already exists
-        $existing = get_posts( [
-            'post_type'      => 'wpcode_snippet',
-            'post_status'    => 'any',
-            'title'          => $snippet['title'],
-            'posts_per_page' => 1,
-        ] );
-
-        if ( $existing ) {
-            $skipped[] = $snippet['title'];
-            continue;
-        }
-
-        $post_id = wp_insert_post( [
-            'post_title'   => $snippet['title'],
-            'post_content' => $snippet['code'],
-            'post_type'    => 'wpcode_snippet',
-            'post_status'  => 'publish',
-        ] );
-
-        if ( is_wp_error( $post_id ) ) {
-            wp_send_json_error( 'Failed to install: ' . $snippet['title'] );
-        }
-
-        update_post_meta( $post_id, '_wpcode_snippet_type',   'php' );
-        update_post_meta( $post_id, '_wpcode_snippet_status', 1 );
-        update_post_meta( $post_id, '_wpcode_snippet_scope',  'global' );
-
-        $installed[] = $snippet['title'];
-    }
-
-    wp_send_json_success( [
-        'installed' => $installed,
-        'skipped'   => $skipped,
-        'missing'   => $missing,
-    ] );
-} );
-
-// ── AJAX: Generate Claude Desktop config ───────────────────────────────────────
-
-add_action( 'wp_ajax_ims_get_config', function () {
-    check_ajax_referer( 'ims_nonce' );
-    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
-
-    $user = get_user_by( 'login', 'claude-mcp' );
-    if ( ! $user ) {
-        wp_send_json_error( 'claude-mcp user not found. Run Step 1 first.' );
-    }
-
-    $plain = get_transient( 'ims_app_password_' . $user->ID );
-    if ( ! $plain ) {
-        wp_send_json_error( 'App password not found in session. Re-run Step 1 to regenerate.' );
-    }
-
-    $site_url = get_site_url();
-
-    $config = [
-        'mcpServers' => [
-            'wordpress' => [
-                'command' => 'npx',
-                'args'    => [ '-y', '@automattic/mcp-server-wordpress' ],
-                'env'     => [
-                    'WP_SITE_URL'    => $site_url,
-                    'WP_USERNAME'    => 'claude-mcp',
-                    'WP_APP_PASSWORD'=> $plain,
-                ],
-            ],
-        ],
-    ];
-
-    wp_send_json_success( [
-        'config'   => wp_json_encode( $config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ),
-        'site_url' => $site_url,
-        'username' => 'claude-mcp',
-        'password' => $plain,
-    ] );
-} );
-
-// ── AJAX: Get Optima Express markets ───────────────────────────────────────────
-
-add_action( 'wp_ajax_ims_get_markets', function () {
-    check_ajax_referer( 'ims_nonce' );
-    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
-
-    $auth_token = get_option( 'ihf_authentication_token', '' )
-               ?: get_option( 'ihf_activation_token', '' );
-
-    if ( ! $auth_token ) {
-        wp_send_json_error( 'No Optima Express authentication token found. Make sure Optima Express is installed and registered.' );
-    }
-
-    $resp = wp_remote_get( add_query_arg( [
-        'method'              => 'handleRequest',
-        'requestType'         => 'hotsheet-list',
-        'viewType'            => 'json',
-        'phpStyle'            => 'true',
-        'authenticationToken' => $auth_token,
-    ], 'https://www.idxhome.com/service/wordpress' ), [ 'timeout' => 20 ] );
-
-    if ( is_wp_error( $resp ) ) {
-        wp_send_json_error( $resp->get_error_message() );
-    }
-
-    $body    = wp_remote_retrieve_body( $resp );
-    $markets = ims_parse_markets( $body );
-
-    if ( is_string( $markets ) ) {
-        wp_send_json_error( $markets );
-    }
-
-    wp_send_json_success( $markets );
-} );
+// ── Market parsing helpers ─────────────────────────────────────────────────────
 
 function ims_parse_markets( string $body ) {
     $trimmed = ltrim( $body );
@@ -560,7 +607,7 @@ function ims_parse_markets( string $body ) {
 }
 
 function ims_normalise_markets( array $data ): array {
-    $list = $data['hotsheets'] ?? $data['markets'] ?? $data['savedSearches'] ?? $data['data'] ?? $data;
+    $list   = $data['hotsheets'] ?? $data['markets'] ?? $data['savedSearches'] ?? $data['data'] ?? $data;
     $result = [];
     foreach ( (array) $list as $item ) {
         if ( ! is_array( $item ) ) continue;
@@ -568,7 +615,6 @@ function ims_normalise_markets( array $data ): array {
         $id   = (string) ( $item['id'] ?? $item['hotsheetId'] ?? $item['marketId'] ?? $item['savedSearchId'] ?? $item['hotsheet_id'] ?? '' );
         $url  = trim( $item['url'] ?? $item['link'] ?? $item['pageUrl'] ?? $item['permalink'] ?? '' );
 
-        // Strip domain from absolute URLs so CLAUDE.md uses relative paths
         if ( $url && preg_match( '#^https?://#', $url ) ) {
             $parsed = wp_parse_url( $url );
             $url    = ( $parsed['path'] ?? '/' ) . ( isset( $parsed['query'] ) ? '?' . $parsed['query'] : '' );
@@ -582,32 +628,7 @@ function ims_normalise_markets( array $data ): array {
     return $result;
 }
 
-// ── AJAX: Generate CLAUDE.md ───────────────────────────────────────────────────
-
-add_action( 'wp_ajax_ims_generate_claude_md', function () {
-    check_ajax_referer( 'ims_nonce' );
-    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
-
-    $markets = json_decode( stripslashes( $_POST['markets'] ?? '[]' ), true );
-    if ( ! is_array( $markets ) ) wp_send_json_error( 'Invalid markets data.' );
-
-    $site_url    = get_site_url();
-    $site_name   = get_bloginfo( 'name' );
-
-    // Build market table for CLAUDE.md
-    if ( empty( $markets ) ) {
-        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n| (no markets found — add manually) | — | — |\n";
-    } else {
-        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n";
-        foreach ( $markets as $m ) {
-            $market_table .= "| {$m['name']} | " . ( $m['id'] ?: '—' ) . " | " . ( $m['url'] ?: '—' ) . " |\n";
-        }
-    }
-
-    $md = ims_claude_md_template( $site_name, $site_url, $market_table );
-
-    wp_send_json_success( [ 'markdown' => $md ] );
-} );
+// ── CLAUDE.md template ─────────────────────────────────────────────────────────
 
 function ims_claude_md_template( string $site_name, string $site_url, string $market_table ): string {
     $template_path = IMS_DIR . 'CLAUDE.md';
@@ -619,24 +640,91 @@ function ims_claude_md_template( string $site_name, string $site_url, string $ma
         // Use callback so market names containing $0-$9 aren't treated as back-references
         $base = preg_replace_callback(
             '/<!-- MARKET_IDS_START -->.*?<!-- MARKET_IDS_END -->/s',
-            function() use ( $replacement ) { return $replacement; },
+            function () use ( $replacement ) { return $replacement; },
             $base
         );
         return $base;
     }
 
-    // Fallback if template file missing (shouldn't happen with bundled plugin)
     return "# CLAUDE.md — IDX Broker to iHomefinder Migration Agent\n\n"
          . "## Site: {$site_name}\n- **URL:** {$site_url}\n\n"
          . "## Client Market IDs\n{$market_table}\n\n"
          . "---\nNOTE: Full CLAUDE.md template not found in plugin directory.\n";
 }
 
-// ── Admin page ─────────────────────────────────────────────────────────────────
+// ── Admin menu ─────────────────────────────────────────────────────────────────
 
-function ims_render_page() {
-    $snippets = ims_get_snippets();
-    $missing_snippets = array_filter( $snippets, fn( $s ) => empty( $s['code'] ) );
+add_action( 'admin_menu', function () {
+    add_menu_page(
+        'iHF Migration Setup',
+        'Migration Setup',
+        'manage_options',
+        'ihf-migration-setup',
+        'ims_render_page',
+        'dashicons-migrate',
+        2
+    );
+} );
+
+add_action( 'admin_enqueue_scripts', function ( $hook ) {
+    if ( $hook !== 'toplevel_page_ihf-migration-setup' ) return;
+    wp_enqueue_style(  'ims-admin', IMS_URL . 'assets/admin.css', [], IMS_VERSION );
+    wp_enqueue_script( 'ims-admin', IMS_URL . 'assets/admin.js',  [ 'jquery' ], IMS_VERSION, true );
+    wp_localize_script( 'ims-admin', 'IMS', [
+        'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+        'nonce'    => wp_create_nonce( 'ims_nonce' ),
+        'siteUrl'  => get_site_url(),
+        'restUrl'  => rest_url( 'ims/v1' ),
+        'configEndpoint' => rest_url( 'ims/v1/config' ),
+    ] );
+} );
+
+// AJAX: Re-run full setup (for admin page "Re-run" button)
+add_action( 'wp_ajax_ims_rerun_setup', function () {
+    check_ajax_referer( 'ims_nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+    ims_on_activation();
+    $status = get_option( IMS_OPT_STATUS, [] );
+    wp_send_json_success( $status );
+} );
+
+// AJAX: Refresh markets only
+add_action( 'wp_ajax_ims_refresh_markets', function () {
+    check_ajax_referer( 'ims_nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+
+    $markets_result = ims_do_fetch_markets();
+    $markets        = is_array( $markets_result ) ? $markets_result : [];
+    ims_do_generate_claude_md( $markets );
+
+    $status = get_option( IMS_OPT_STATUS, [] );
+    $status['markets_refreshed_at'] = current_time( 'mysql' );
+    $status['markets_count']        = count( $markets );
+    $status['markets_error']        = is_string( $markets_result ) ? $markets_result : null;
+    update_option( IMS_OPT_STATUS, $status );
+
+    wp_send_json_success( [
+        'markets_count' => count( $markets ),
+        'error'         => is_string( $markets_result ) ? $markets_result : null,
+    ] );
+} );
+
+// ── Admin page (status dashboard) ─────────────────────────────────────────────
+
+function ims_render_page(): void {
+    $status       = get_option( IMS_OPT_STATUS, [] );
+    $app_password = get_option( IMS_OPT_APP_PASS, '' );
+    $markets      = get_option( IMS_OPT_MARKETS, [] );
+    $claude_md    = get_option( IMS_OPT_CLAUDE_MD, '' );
+    $site_url     = get_site_url();
+
+    $activated_at = $status['activated_at'] ?? null;
+    $user_ok      = ! empty( $status['user']['success'] );
+    $snippets_ok  = ! empty( $status['snippets']['success'] );
+    $markets_ok   = ! empty( $status['markets_count'] );
+    $markets_err  = $status['markets_error'] ?? null;
+
+    $config_endpoint = rest_url( 'ims/v1/config' );
     ?>
     <div class="wrap" id="ims-wrap">
         <h1>
@@ -644,77 +732,112 @@ function ims_render_page() {
             iHF Migration Setup
         </h1>
         <p class="description" style="max-width:700px;margin-bottom:24px;">
-            Automates the one-time staging setup for every IDX → iHomeFinder migration.
-            Complete each step in order.
+            Plugin activates autonomously — no clicking required. Below is the status from the last activation and the credentials Claude Code needs.
         </p>
 
-        <?php if ( $missing_snippets ) : ?>
-        <div class="notice notice-warning inline" style="max-width:700px;">
-            <p><strong><?php echo count( $missing_snippets ); ?> WPCode snippet(s) are missing their code</strong> and will be skipped during installation:
-            <?php echo implode( ', ', array_map( fn($s) => '<em>' . esc_html($s['title']) . '</em>', $missing_snippets ) ); ?></p>
+        <?php if ( ! $activated_at ) : ?>
+        <div class="notice notice-warning">
+            <p><strong>Setup has not run yet.</strong> Deactivate and re-activate the plugin to trigger automatic setup.</p>
         </div>
         <?php endif; ?>
 
-        <div id="ims-status" class="ims-status" style="display:none;"></div>
-
-        <!-- ── Step 1: MCP User ─────────────────────────────────────────────── -->
+        <!-- ── Setup Status ────────────────────────────────────────────────── -->
         <div class="ims-card">
-            <h2><span class="ims-step">1</span> Create MCP User &amp; Application Password</h2>
-            <p>Creates the <code>claude-mcp</code> WordPress user (Administrator) and generates an alphanumeric Application Password for Claude Desktop.</p>
-            <button id="ims-btn-user" class="button button-primary">Run Step 1</button>
-            <div id="ims-user-result" class="ims-result" style="display:none;"></div>
+            <h2>Setup Status</h2>
+            <?php if ( $activated_at ) : ?>
+            <table class="ims-status-table">
+                <tr><td>Activated</td><td><?php echo esc_html( $activated_at ); ?></td></tr>
+                <tr>
+                    <td>MCP User</td>
+                    <td class="<?php echo $user_ok ? 'ok' : 'err'; ?>">
+                        <?php echo $user_ok ? '✓ claude-mcp created' : ( '✗ ' . esc_html( $status['user']['error'] ?? 'failed' ) ); ?>
+                    </td>
+                </tr>
+                <tr>
+                    <td>WPCode Snippets</td>
+                    <td class="<?php echo $snippets_ok ? 'ok' : 'err'; ?>">
+                        <?php
+                        if ( $snippets_ok ) {
+                            $inst = count( $status['snippets']['installed'] ?? [] );
+                            $skip = count( $status['snippets']['skipped'] ?? [] );
+                            echo esc_html( "✓ {$inst} installed, {$skip} already existed" );
+                        } else {
+                            echo '✗ ' . esc_html( $status['snippets']['error'] ?? 'failed' );
+                        }
+                        ?>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Markets</td>
+                    <td class="<?php echo $markets_ok ? 'ok' : ( $markets_err ? 'err' : 'warn' ); ?>">
+                        <?php
+                        if ( $markets_ok ) {
+                            echo esc_html( '✓ ' . $status['markets_count'] . ' markets fetched' );
+                            if ( ! empty( $status['markets_refreshed_at'] ) ) {
+                                echo ' (refreshed ' . esc_html( $status['markets_refreshed_at'] ) . ')';
+                            }
+                        } elseif ( $markets_err ) {
+                            echo '⚠ ' . esc_html( $markets_err );
+                        } else {
+                            echo '— no markets (Optima Express may not be active yet)';
+                        }
+                        ?>
+                    </td>
+                </tr>
+            </table>
+            <?php else : ?>
+            <p style="color:#888;">Not yet activated.</p>
+            <?php endif; ?>
+
+            <div style="margin-top:16px;display:flex;gap:10px;">
+                <button id="ims-btn-rerun" class="button button-secondary">Re-run Full Setup</button>
+                <button id="ims-btn-markets" class="button button-secondary">Refresh Markets Only</button>
+            </div>
+            <div id="ims-ajax-result" class="ims-result" style="display:none;"></div>
         </div>
 
-        <!-- ── Step 2: WPCode Snippets ─────────────────────────────────────── -->
+        <!-- ── Claude Code Instructions ────────────────────────────────────── -->
         <div class="ims-card">
-            <h2><span class="ims-step">2</span> Install WPCode Snippets</h2>
-            <p>Installs all 4 MCP ability snippets into WPCode. Requires WPCode plugin to be active.</p>
-            <ul style="margin:0 0 12px 20px;color:#555;">
-                <?php foreach ( $snippets as $s ) : ?>
-                <li><?php echo esc_html( $s['title'] ); echo empty( $s['code'] ) ? ' <span style="color:#c00;">(code missing)</span>' : ''; ?></li>
-                <?php endforeach; ?>
-            </ul>
-            <button id="ims-btn-snippets" class="button button-primary">Run Step 2</button>
-            <div id="ims-snippets-result" class="ims-result" style="display:none;"></div>
+            <h2>Claude Code — How to Start a Migration</h2>
+            <p>Give Claude Code these three things and tell it to run the migration:</p>
+            <ol style="margin-left:20px;line-height:2;">
+                <li><strong>Site URL:</strong> <code><?php echo esc_html( $site_url ); ?></code></li>
+                <li><strong>Admin username</strong> (your WP admin login)</li>
+                <li><strong>Admin password</strong> (your WP admin password)</li>
+            </ol>
+            <p>Claude Code calls <code><?php echo esc_html( $config_endpoint ); ?></code> to self-configure MCP, then executes the full migration using the instructions in CLAUDE.md.</p>
+            <?php if ( ! $app_password ) : ?>
+            <div class="notice notice-error inline" style="margin:12px 0 0;">
+                <p>App password not generated yet — re-activate the plugin or click Re-run Full Setup.</p>
+            </div>
+            <?php endif; ?>
         </div>
 
-        <!-- ── Step 3: Claude Desktop Config ──────────────────────────────── -->
+        <!-- ── CLAUDE.md Preview ───────────────────────────────────────────── -->
+        <?php if ( $claude_md ) : ?>
         <div class="ims-card">
-            <h2><span class="ims-step">3</span> Generate Claude Desktop Config</h2>
-            <p>Generates the <code>claude_desktop_config.json</code> block to paste into your Claude Desktop configuration. Requires Step 1 to have been run in this session.</p>
-            <button id="ims-btn-config" class="button button-primary">Run Step 3</button>
-            <div id="ims-config-result" class="ims-result" style="display:none;"></div>
+            <h2>Generated CLAUDE.md Preview</h2>
+            <p style="color:#555;font-size:13px;">This is the site-specific migration instruction file Claude Code retrieves via the REST endpoint. It is regenerated whenever markets are refreshed.</p>
+            <textarea class="ims-output" rows="14" readonly><?php echo esc_textarea( mb_substr( $claude_md, 0, 2000 ) . ( mb_strlen( $claude_md ) > 2000 ? "\n\n[... truncated — full content served via REST endpoint ...]" : '' ) ); ?></textarea>
         </div>
-
-        <!-- ── Step 4: Markets ─────────────────────────────────────────────── -->
-        <div class="ims-card">
-            <h2><span class="ims-step">4</span> Extract Optima Express Market IDs</h2>
-            <p>Fetches all Markets from the iHomeFinder API using the Optima Express authentication token. Requires Optima Express to be installed and registered.</p>
-            <button id="ims-btn-markets" class="button button-primary">Run Step 4</button>
-            <div id="ims-markets-result" class="ims-result" style="display:none;"></div>
-        </div>
-
-        <!-- ── Step 5: CLAUDE.md ───────────────────────────────────────────── -->
-        <div class="ims-card">
-            <h2><span class="ims-step">5</span> Generate CLAUDE.md</h2>
-            <p>Generates the migration instruction file for Claude Desktop, pre-filled with this site's Market IDs. Run Step 4 first.</p>
-            <button id="ims-btn-claude-md" class="button button-primary" disabled>Run Step 5</button>
-            <div id="ims-claude-md-result" class="ims-result" style="display:none;"></div>
-        </div>
+        <?php endif; ?>
 
     </div>
 
     <style>
     #ims-wrap { max-width: 860px; }
     .ims-card { background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 20px 24px; margin-bottom: 16px; }
-    .ims-card h2 { margin-top: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; }
-    .ims-step { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: #2271b1; color: #fff; border-radius: 50%; font-size: 13px; font-weight: 700; flex-shrink: 0; }
-    .ims-result { margin-top: 14px; padding: 12px 16px; background: #f6f7f7; border-left: 4px solid #72aee6; border-radius: 2px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+    .ims-card h2 { margin-top: 0; font-size: 15px; }
+    .ims-status-table { border-collapse: collapse; width: 100%; max-width: 600px; }
+    .ims-status-table td { padding: 6px 10px; border: 1px solid #eee; font-size: 13px; }
+    .ims-status-table td:first-child { font-weight: 600; width: 160px; background: #fafafa; }
+    .ims-status-table .ok   { color: #1a7a1a; }
+    .ims-status-table .err  { color: #c00; }
+    .ims-status-table .warn { color: #996600; }
+    .ims-result { margin-top: 12px; padding: 10px 14px; background: #f6f7f7; border-left: 4px solid #72aee6; border-radius: 2px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
     .ims-result.success { border-color: #00a32a; }
     .ims-result.error   { border-color: #d63638; background: #fcf0f1; }
-    .ims-status { padding: 10px 16px; background: #f0f6fc; border-left: 4px solid #72aee6; margin-bottom: 16px; max-width: 700px; }
-    .ims-copy-btn { margin-top: 8px; }
-    textarea.ims-output { width: 100%; min-height: 180px; font-family: monospace; font-size: 11px; background: #1e1e2e; color: #cdd6f4; padding: 10px; box-sizing: border-box; border-radius: 3px; resize: vertical; }
+    textarea.ims-output { width: 100%; font-family: monospace; font-size: 11px; background: #1e1e2e; color: #cdd6f4; padding: 10px; box-sizing: border-box; border-radius: 3px; resize: vertical; }
     </style>
     <?php
 }

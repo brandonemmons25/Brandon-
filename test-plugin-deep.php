@@ -40,20 +40,32 @@ function wp_parse_url( $url, $component = -1 ) {
 function add_action()  {}
 function add_filter()  {}
 function wp_register_ability() {}
+function register_activation_hook() {}
+function sanitize_user( $s ) { return preg_replace( '/[^a-zA-Z0-9 _.\-@]/', '', $s ); }
+function rest_url( $path = '' ) { return 'http://localhost/wp-json/' . ltrim( $path, '/' ); }
+function admin_url( $path = '' ) { return 'http://localhost/wp-admin/' . ltrim( $path, '/' ); }
+function wp_create_nonce( $action ) { return 'test_nonce'; }
+function get_bloginfo( $show = '' ) { return 'Test Site'; }
+function get_site_url() { return 'http://localhost'; }
 
 // Constants the plugin needs (only define if not already defined)
-if ( ! defined( 'ABSPATH' ) )        define( 'ABSPATH', '/tmp/' );
-if ( ! defined( 'IMS_VERSION' ) )    define( 'IMS_VERSION', '1.0.0' );
-if ( ! defined( 'IMS_FILE' ) )       define( 'IMS_FILE', __DIR__ . '/ihf-migration-setup/ihf-migration-setup.php' );
-if ( ! defined( 'IMS_DIR' ) )        define( 'IMS_DIR',  __DIR__ . '/ihf-migration-setup/' );
-if ( ! defined( 'IMS_URL' ) )        define( 'IMS_URL',  'http://localhost/wp-content/plugins/ihf-migration-setup/' );
-if ( ! defined( 'HOUR_IN_SECONDS' ) ) define( 'HOUR_IN_SECONDS', 3600 );
+if ( ! defined( 'ABSPATH' ) )           define( 'ABSPATH', '/tmp/' );
+if ( ! defined( 'IMS_VERSION' ) )       define( 'IMS_VERSION', '2.0.0' );
+if ( ! defined( 'IMS_FILE' ) )          define( 'IMS_FILE', __DIR__ . '/ihf-migration-setup/ihf-migration-setup.php' );
+if ( ! defined( 'IMS_DIR' ) )           define( 'IMS_DIR',  __DIR__ . '/ihf-migration-setup/' );
+if ( ! defined( 'IMS_URL' ) )           define( 'IMS_URL',  'http://localhost/wp-content/plugins/ihf-migration-setup/' );
+if ( ! defined( 'HOUR_IN_SECONDS' ) )   define( 'HOUR_IN_SECONDS', 3600 );
+if ( ! defined( 'IMS_OPT_STATUS' ) )    define( 'IMS_OPT_STATUS',   'ims_status' );
+if ( ! defined( 'IMS_OPT_APP_PASS' ) )  define( 'IMS_OPT_APP_PASS', 'ims_app_password' );
+if ( ! defined( 'IMS_OPT_MARKETS' ) )   define( 'IMS_OPT_MARKETS',  'ims_markets' );
+if ( ! defined( 'IMS_OPT_CLAUDE_MD' ) ) define( 'IMS_OPT_CLAUDE_MD','ims_claude_md' );
 
 // Load plugin functions (skip the add_action hooks — only the functions matter)
 $plugin_src = file_get_contents( IMS_FILE );
 // Strip top-level calls and constant definitions that conflict with our stubs
 $plugin_src = preg_replace( '/^add_action\s*\(.*?^\}\s*\)\s*;/ms', '', $plugin_src );
 $plugin_src = preg_replace( '/^add_filter\s*\(.*?^\}\s*\)\s*;/ms', '', $plugin_src );
+$plugin_src = preg_replace( '/^register_activation_hook\s*\(.*?\)\s*;/ms', '', $plugin_src );
 $plugin_src = preg_replace( '/^define\s*\(.*?\)\s*;/m', '', $plugin_src );
 // Remove <?php opening tag for eval
 $plugin_src = preg_replace( '/<\?php/', '', $plugin_src, 1 );
