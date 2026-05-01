@@ -917,19 +917,24 @@ function ims_render_page(): void {
 
         <!-- ── Claude Code Instructions ────────────────────────────────────── -->
         <div class="ims-card">
-            <h2>Claude Code — How to Start a Migration</h2>
-            <p>Give Claude Code these three things and tell it to run the migration:</p>
-            <ol style="margin-left:20px;line-height:2;">
-                <li><strong>Site URL:</strong> <code><?php echo esc_html( $site_url ); ?></code></li>
-                <li><strong>Admin username</strong> (your WP admin login)</li>
-                <li><strong>Admin password</strong> (your WP admin password)</li>
-            </ol>
-            <p>Claude Code calls <code><?php echo esc_html( $config_endpoint ); ?></code> to self-configure MCP, then executes the full migration using the instructions in CLAUDE.md.</p>
-            <?php if ( ! $app_password ) : ?>
-            <div class="notice notice-error inline" style="margin:12px 0 0;">
-                <p>App password not generated yet — re-activate the plugin or click Re-run Full Setup.</p>
-            </div>
-            <?php endif; ?>
+            <h2>Claude Code — MCP Credentials</h2>
+            <p>Give Claude Code these values to connect and run the migration:</p>
+            <table class="ims-status-table" style="max-width:700px;">
+                <tr><td>Site URL</td><td><code><?php echo esc_html( $site_url ); ?></code></td></tr>
+                <tr><td>WP_USERNAME</td><td><code>claude-mcp</code></td></tr>
+                <tr>
+                    <td>WP_APP_PASSWORD</td>
+                    <td>
+                        <?php if ( $app_password ) : ?>
+                        <code id="ims-app-pass"><?php echo esc_html( $app_password ); ?></code>
+                        <button class="button" style="margin-left:8px;" onclick="navigator.clipboard.writeText('<?php echo esc_js( $app_password ); ?>');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);">Copy</button>
+                        <?php else : ?>
+                        <span style="color:#c00;">Not generated — click Re-run Full Setup</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            </table>
+            <p style="margin-top:14px;color:#555;font-size:13px;">Tell Claude Code: <em>"Write this to <code>.claude/settings.json</code> under mcpServers and connect to WordPress."</em></p>
         </div>
 
         <!-- ── CLAUDE.md Preview ───────────────────────────────────────────── -->
