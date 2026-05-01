@@ -588,55 +588,44 @@ add_action( 'wp_ajax_ims_generate_claude_md', function () {
     $site_url    = get_site_url();
     $site_name   = get_bloginfo( 'name' );
 
-    // Build market list for CLAUDE.md
-    $market_lines = '';
-    foreach ( $markets as $m ) {
-        $id_str = $m['id'] ? $m['id'] : 'NO_ID';
-        $market_lines .= "- **{$m['name']}** — id={$id_str}" . ( $m['url'] ? " — {$m['url']}" : '' ) . "\n";
+    // Build market table for CLAUDE.md
+    if ( empty( $markets ) ) {
+        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n| (no markets found — add manually) | — | — |\n";
+    } else {
+        $market_table = "| Market Name | ID | listing-report URL |\n|---|---|---|\n";
+        foreach ( $markets as $m ) {
+            $id   = $m['id'] ?: 'NO_ID';
+            $name = $m['name'];
+            $slug = sanitize_title( $name );
+            $url  = $m['url'] ?: ( $id !== 'NO_ID' ? "/listing-report/{$slug}/{$id}/" : '—' );
+            $market_table .= "| {$name} | {$id} | {$url} |\n";
+        }
     }
-    if ( ! $market_lines ) $market_lines = "- (no markets found — add manually)\n";
 
-    $md = ims_claude_md_template( $site_name, $site_url, $market_lines );
+    $md = ims_claude_md_template( $site_name, $site_url, $market_table );
 
     wp_send_json_success( [ 'markdown' => $md ] );
 } );
 
-function ims_claude_md_template( string $site_name, string $site_url, string $market_lines ): string {
-    // Load the master CLAUDE.md template and inject site-specific market IDs
-    $template_path = plugin_dir_path( dirname( __FILE__ ) ) . 'CLAUDE.md';
+function ims_claude_md_template( string $site_name, string $site_url, string $market_table ): string {
+    $template_path = IMS_DIR . 'CLAUDE.md';
 
     if ( file_exists( $template_path ) ) {
         $base = file_get_contents( $template_path );
-        // Replace the placeholder section with the real market data
-        $market_block = "## Client Market IDs — {$site_name}\n\nSite URL: {$site_url}\n\n{$market_lines}";
+        $market_block = "### {$site_name}\n\nSite: {$site_url}\n\n{$market_table}";
         $base = preg_replace(
-            '/<!-- MARKET_IDS_START -->.*<!-- MARKET_IDS_END -->/s',
+            '/<!-- MARKET_IDS_START -->.*?<!-- MARKET_IDS_END -->/s',
             "<!-- MARKET_IDS_START -->\n{$market_block}\n<!-- MARKET_IDS_END -->",
-            $base
-        );
-        // Also update the client section header if it has the Cesi Pagano placeholder
-        $base = preg_replace(
-            '/## Cesi Pagano Market IDs \(Client #\d+\).*$/s',
-            "## {$site_name} Market IDs\n\nSite URL: {$site_url}\n\n{$market_lines}",
             $base
         );
         return $base;
     }
 
-    // Fallback: inline template if CLAUDE.md not found on disk
-    return <<<MD
-# CLAUDE.md — IDX Broker to iHomefinder Migration Agent
-
-## Site: {$site_name}
-- **URL:** {$site_url}
-- **MCP User:** claude-mcp (Administrator)
-
-## Client Market IDs
-{$market_lines}
-
----
-NOTE: Full CLAUDE.md template not found. Upload the master CLAUDE.md from the repository to the plugin directory.
-MD;
+    // Fallback if template file missing (shouldn't happen with bundled plugin)
+    return "# CLAUDE.md — IDX Broker to iHomefinder Migration Agent\n\n"
+         . "## Site: {$site_name}\n- **URL:** {$site_url}\n\n"
+         . "## Client Market IDs\n{$market_table}\n\n"
+         . "---\nNOTE: Full CLAUDE.md template not found in plugin directory.\n";
 }
 
 // ── Admin page ─────────────────────────────────────────────────────────────────
