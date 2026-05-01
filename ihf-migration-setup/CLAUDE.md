@@ -28,8 +28,12 @@ Run `migration/get-menus`. Find every menu item with a URL containing `idx` or t
 **Step 2: Replace menu URLs**
 Using the URL Redirect Map below, update every IDX Broker menu item to its iHF equivalent using `migration/update-menu-item`.
 
-**Step 3: Scan pages for IDX links**
-Run `migration/search-content` with search patterns from the IDX Broker URL list below, post_type = page. Work through each pattern one at a time.
+**Step 3: Scan pages for IDX content**
+Run `migration/search-content` for each of the following, post_type = page. Work through one at a time:
+- The site's IDX Broker subdomain (`search.[domain].com`)
+- `idx-broker-platinum` (catches all widget blocks wherever they appear)
+- `/i/` (catches saved-link URLs)
+- Any IDX shortcode patterns (`[IDX-`, `[impress_`)
 
 **Step 4: Replace page links**
 For each page found, use `migration/get-page-by-id` to pull the content, identify the IDX Broker URL, and use `migration/update-page` to replace it with the iHF equivalent. Keep all other content exactly the same.
@@ -49,12 +53,13 @@ For each page/post found:
 3. Look up the matching market in the Client Market IDs table and use its listing-report URL
 4. Update via `migration/update-page` or `migration/update-post`
 
-**Step 8: Handle community pages (IDX widget blocks)**
-Community pages have IDX Broker widget blocks that need to be replaced with iHF Market shortcodes. The iHF Markets are available in the Optima Express plugin data. For each community page:
+**Step 8: Handle IDX widget blocks**
+IDX Broker widget blocks (`idx-broker-platinum/*`) can appear anywhere — homepage, community pages, landing pages, any page. Do not assume they are only on community pages. During Step 3 (scan pages), `migration/search-content` with pattern `idx-broker-platinum` will surface every page containing a block. For each:
 1. Get the page content
-2. Remove the IDX Broker widget block (`idx-broker-platinum/idx-widgets-block`)
-3. Insert the matching iHF Market shortcode (`[optima_express_toppicks id=MARKET_ID]`)
-4. Update the page
+2. Identify the block type and its parameters (saved_link_id, widget type, etc.)
+3. Replace it with the matching iHF shortcode from the IDX Broker Widget → iHF Shortcode Mapping table
+4. For community market blocks, use `[optima_express_toppicks id=MARKET_ID]` with the correct Market ID from the Client Market IDs table
+5. Update the page
 
 **Step 9: Verify**
 Run `migration/search-content` for the IDX Broker subdomain across pages and posts. Confirm zero results in content bodies (postmeta matches are expected and harmless — they go away when the IDX Broker plugin is deactivated).
