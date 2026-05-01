@@ -2731,3 +2731,208 @@ function idx_scanner_page() {
     </script>
     <?php
 }
+
+// ── Programmatic entry point (no nonce required) ───────────────────────────────
+// Called by ihf-migration-setup plugin during activation to pre-populate the
+// migration inventory in CLAUDE.md. Returns structured results for all 3 key scans.
+
+function idx_scanner_run_full_scan(): array {
+    global $wpdb;
+
+    $search_domain = idx_scanner_get_search_domain();
+    $site_host     = parse_url( home_url(), PHP_URL_HOST ) ?: '';
+    $scanned_at    = current_time( 'mysql' );
+
+    // ── Pages scan ─────────────────────────────────────────────────────────────
+    $domain_clause_pages = $search_domain
+        ? ' OR post_content LIKE ' . $wpdb->prepare( '%s', '%' . $wpdb->esc_like( $search_domain ) . '%' )
+        : '';
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $page_rows = $wpdb->get_results(
+        "SELECT ID, post_title, post_content
+         FROM {$wpdb->posts}
+         WHERE post_type = 'page' AND post_status = 'publish'
+           AND (  post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%[ihf%'
+               OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%idxbroker.com%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%/idx/%'
+               {$domain_clause_pages} )",
+        ARRAY_A
+    );
+
+    // Include pages that embed IDX content via Reusable Blocks (Synced Patterns).
+    $idx_block_ids = $wpdb->get_col(
+        "SELECT ID FROM {$wpdb->posts}
+         WHERE post_type = 'wp_block' AND post_status = 'publish'
+           AND (  post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%[impress%')"
+    );
+    $page_ids_seen = array_map( 'intval', array_column( $page_rows, 'ID' ) );
+    foreach ( $idx_block_ids as $block_id ) {
+        $extra = $wpdb->get_results( $wpdb->prepare(
+            "SELECT ID, post_title, post_content FROM {$wpdb->posts}
+             WHERE post_type = 'page' AND post_status = 'publish'
+               AND post_content LIKE %s",
+            '%"ref":' . (int) $block_id . '%'
+        ), ARRAY_A );
+        foreach ( $extra as $row ) {
+            if ( ! in_array( (int) $row['ID'], $page_ids_seen, true ) ) {
+                $page_rows[]     = $row;
+                $page_ids_seen[] = (int) $row['ID'];
+            }
+        }
+    }
+
+    $pages = [];
+    foreach ( $page_rows as $row ) {
+        $id      = (int) $row['ID'];
+        $content = idx_scanner_expand_block_refs( $row['post_content'] );
+        $elements = idx_scanner_extract_elements( $content, $search_domain, $site_host );
+        if ( empty( $elements ) ) continue;
+        $pages[] = [
+            'id'       => $id,
+            'title'    => $row['post_title'],
+            'url'      => get_permalink( $id ),
+            'elements' => $elements,
+        ];
+    }
+
+    // ── Posts scan ─────────────────────────────────────────────────────────────
+    $domain_clause_posts = $domain_clause_pages; // same logic
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $post_rows = $wpdb->get_results(
+        "SELECT ID, post_title, post_type, post_content
+         FROM {$wpdb->posts}
+         WHERE post_type = 'post' AND post_status = 'publish'
+           AND (  post_content LIKE '%idx-broker-platinum%'
+               OR post_content LIKE '%[IDX%'
+               OR post_content LIKE '%[idx%'
+               OR post_content LIKE '%[impress%'
+               OR post_content LIKE '%idxbroker.com%'
+               OR post_content LIKE '%idxre.com%'
+               OR post_content LIKE '%/idx/%'
+               {$domain_clause_posts} )",
+        ARRAY_A
+    );
+
+    $posts = [];
+    foreach ( $post_rows as $row ) {
+        $id       = (int) $row['ID'];
+        $content  = idx_scanner_expand_block_refs( $row['post_content'] );
+        $elements = idx_scanner_extract_elements( $content, $search_domain, $site_host );
+        if ( empty( $elements ) ) continue;
+        $posts[] = [
+            'id'       => $id,
+            'title'    => $row['post_title'],
+            'url'      => get_permalink( $id ),
+            'elements' => $elements,
+        ];
+    }
+
+    // ── Nav menu scan ──────────────────────────────────────────────────────────
+    $parts = [ 'idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '[?&]idxID=' ];
+    if ( $search_domain ) $parts[] = preg_quote( $search_domain, '/' );
+    $menu_pattern = '/' . implode( '|', $parts ) . '/i';
+
+    $like_terms = [ 'idxbroker.com', 'idxre.com', 'mlsfinder.com', 'idxID=', '/idx/' ];
+    if ( $search_domain ) $like_terms[] = $search_domain;
+    $like_parts = array_map(
+        fn( $t ) => 'pm.meta_value LIKE ' . $wpdb->prepare( '%s', '%' . $wpdb->esc_like( $t ) . '%' ),
+        $like_terms
+    );
+    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    $menu_rows = $wpdb->get_results(
+        "SELECT p.ID, p.post_title, pm.meta_value AS url, t.name AS menu_name
+         FROM {$wpdb->posts} p
+         JOIN {$wpdb->postmeta} pm      ON pm.post_id = p.ID AND pm.meta_key = '_menu_item_url'
+         JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+         JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+         JOIN {$wpdb->terms} t          ON t.term_id = tt.term_id
+         WHERE p.post_type = 'nav_menu_item' AND p.post_status = 'publish'
+           AND pm.meta_value != ''
+           AND (" . implode( ' OR ', $like_parts ) . ")",
+        ARRAY_A
+    );
+
+    $menus = [];
+    foreach ( $menu_rows as $row ) {
+        $url      = $row['url'];
+        $url_host = parse_url( $url, PHP_URL_HOST ) ?: '';
+        $is_idx   = preg_match( $menu_pattern, $url );
+        if ( ! $is_idx && $url_host && $url_host !== $site_host && strpos( $url, '/idx/' ) !== false ) {
+            $is_idx = true;
+        }
+        if ( $is_idx ) {
+            $menus[] = [
+                'menu'    => $row['menu_name'],
+                'item'    => $row['post_title'],
+                'url'     => $url,
+                'post_id' => (int) $row['ID'],
+            ];
+        }
+    }
+
+    return [
+        'search_domain' => $search_domain,
+        'scanned_at'    => $scanned_at,
+        'pages'         => $pages,
+        'posts'         => $posts,
+        'menus'         => $menus,
+    ];
+}
+
+// Helper: extract all IDX elements from a block of content (shared by pages + posts scan).
+function idx_scanner_extract_elements( string $content, string $search_domain, string $site_host ): array {
+    $elements = [];
+    $seen     = [];
+
+    $add = function ( string $match ) use ( &$elements, &$seen ) {
+        if ( ! isset( $seen[ $match ] ) ) {
+            $elements[]      = $match;
+            $seen[ $match ] = true;
+        }
+    };
+
+    // Custom IDX search subdomain URLs
+    if ( $search_domain ) {
+        $pat = '#https?://[^\s"\'<>\\\\]*' . preg_quote( $search_domain, '#' ) . '[^\s"\'<>\\\\]*#i';
+        if ( preg_match_all( $pat, $content, $m ) ) {
+            foreach ( $m[0] as $u ) $add( $u );
+        }
+        // Protocol-relative
+        if ( preg_match_all( '#//' . preg_quote( $search_domain, '#' ) . '[^\s"\'<>\\\\]*#i', $content, $m ) ) {
+            foreach ( $m[0] as $u ) $add( $u );
+        }
+    }
+
+    // Known IDX Broker domain URLs
+    if ( preg_match_all( '#https?://[^\s"\'<>\\\\]*(?:idxbroker\.com|idxre\.com|mlsfinder\.com)[^\s"\'<>\\\\]*#i', $content, $m ) ) {
+        foreach ( $m[0] as $u ) $add( $u );
+    }
+
+    // External /idx/ paths (skip own domain to avoid iHF false positives)
+    if ( preg_match_all( '#https?://[^\s"\'<>\\\\]+/idx/[^\s"\'<>\\\\]*#i', $content, $m ) ) {
+        foreach ( $m[0] as $u ) {
+            $uh = parse_url( $u, PHP_URL_HOST ) ?: '';
+            if ( $uh && $uh !== $site_host ) $add( $u );
+        }
+    }
+
+    // Shortcodes
+    if ( preg_match_all( '/\[(IDX|idx|ihf|impress)[^\]]*\]/i', $content, $m ) ) {
+        foreach ( $m[0] as $sc ) $add( $sc );
+    }
+
+    // Gutenberg IDX block names
+    if ( preg_match_all( '#<!-- wp:(idx-broker-platinum/[a-z-]+)#', $content, $m ) ) {
+        foreach ( $m[1] as $blk ) $add( 'wp:' . $blk );
+    }
+
+    return $elements;
+}
