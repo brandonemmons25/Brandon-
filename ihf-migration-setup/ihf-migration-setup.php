@@ -14,10 +14,11 @@ define( 'IMS_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'IMS_URL',     plugin_dir_url( __FILE__ ) );
 
 // Option keys
-define( 'IMS_OPT_STATUS',   'ims_status' );
-define( 'IMS_OPT_APP_PASS', 'ims_app_password' );
-define( 'IMS_OPT_MARKETS',  'ims_markets' );
-define( 'IMS_OPT_CLAUDE_MD','ims_claude_md' );
+define( 'IMS_OPT_STATUS',          'ims_status' );
+define( 'IMS_OPT_APP_PASS',        'ims_app_password' );
+define( 'IMS_OPT_MARKETS',         'ims_markets' );
+define( 'IMS_OPT_CLAUDE_MD',       'ims_claude_md' );
+define( 'IMS_OPT_SAVED_SEARCHES',  'ims_saved_searches' );
 
 // ── Activation: auto-run all setup ────────────────────────────────────────────
 
@@ -37,7 +38,12 @@ function ims_on_activation(): void {
     $status['markets_count'] = count( $markets );
     $status['markets_error'] = is_string( $markets_result ) ? $markets_result : null;
 
-    ims_do_generate_claude_md( $markets );
+    $ss_result                     = ims_do_fetch_saved_searches();
+    $saved_searches                = is_array( $ss_result ) ? $ss_result : [];
+    $status['saved_searches_count'] = count( $saved_searches );
+    $status['saved_searches_error'] = is_string( $ss_result ) ? $ss_result : null;
+
+    ims_do_generate_claude_md( $markets, $saved_searches );
 
     update_option( IMS_OPT_STATUS, $status, false );
 }
@@ -165,7 +171,61 @@ function ims_do_fetch_markets() {
     return $markets;
 }
 
-function ims_do_generate_claude_md( array $markets ): void {
+function ims_do_fetch_saved_searches() {
+    $api_key = get_option( 'isse_api_key', '' );
+    if ( ! $api_key ) {
+        return 'IDX Saved Searches Exporter API key not set (isse_api_key).';
+    }
+
+    $subdomain = get_option( 'isse_subdomain', '' );
+    if ( ! $subdomain ) {
+        // Fall back to AiDX Scanner's domain detection
+        $info = get_option( 'idxforza-info', [] );
+        if ( is_string( $info ) ) $info = json_decode( $info, true ) ?: [];
+        $subdomain = is_array( $info ) ? trim( $info['domain'] ?? '' ) : '';
+    }
+    if ( ! $subdomain ) {
+        return 'IDX search subdomain not configured (isse_subdomain).';
+    }
+
+    $resp = wp_remote_get( 'https://api.idxbroker.com/clients/savedlinks', [
+        'headers' => [ 'accesskey' => $api_key ],
+        'timeout' => 15,
+    ] );
+
+    if ( is_wp_error( $resp ) ) return $resp->get_error_message();
+
+    $code = wp_remote_retrieve_response_code( $resp );
+    if ( $code === 204 ) {
+        update_option( IMS_OPT_SAVED_SEARCHES, [], false );
+        return [];
+    }
+    if ( $code !== 200 ) return "IDX API returned HTTP {$code}.";
+
+    $data = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( ! is_array( $data ) ) return 'Unexpected response from IDX Broker saved links API.';
+
+    $rows = [];
+    foreach ( $data as $id => $info ) {
+        $name = $info['linkName'] ?? '';
+        if ( ! $name ) continue;
+        $slug = strtolower( trim( $name ) );
+        $slug = preg_replace( '/[^a-z0-9\s-]/', '', $slug );
+        $slug = preg_replace( '/[\s-]+/', '-', $slug );
+        $rows[] = [
+            'id'        => (string) $id,
+            'name'      => trim( $name ),
+            'slug'      => $slug,
+            'idx_url'   => $subdomain . '/i/' . $slug,
+        ];
+    }
+    usort( $rows, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
+
+    update_option( IMS_OPT_SAVED_SEARCHES, $rows, false );
+    return $rows;
+}
+
+function ims_do_generate_claude_md( array $markets, array $saved_searches = [] ): void {
     $site_name = get_bloginfo( 'name' );
     $site_url  = get_site_url();
 
@@ -178,7 +238,7 @@ function ims_do_generate_claude_md( array $markets ): void {
         }
     }
 
-    $md = ims_claude_md_template( $site_name, $site_url, $market_table );
+    $md = ims_claude_md_template( $site_name, $site_url, $market_table, $saved_searches );
     update_option( IMS_OPT_CLAUDE_MD, $md, false );
 }
 
@@ -255,11 +315,12 @@ function ims_rest_config( WP_REST_Request $request ): WP_REST_Response|WP_Error 
     $status = get_option( IMS_OPT_STATUS, [] );
 
     return new WP_REST_Response( [
-        'mcp_config' => $mcp_config,
-        'claude_md'  => get_option( IMS_OPT_CLAUDE_MD, '' ),
-        'markets'    => get_option( IMS_OPT_MARKETS, [] ),
-        'site_url'   => $site_url,
-        'status'     => $status,
+        'mcp_config'     => $mcp_config,
+        'claude_md'      => get_option( IMS_OPT_CLAUDE_MD, '' ),
+        'markets'        => get_option( IMS_OPT_MARKETS, [] ),
+        'saved_searches' => get_option( IMS_OPT_SAVED_SEARCHES, [] ),
+        'site_url'       => $site_url,
+        'status'         => $status,
     ], 200 );
 }
 
@@ -269,19 +330,26 @@ function ims_rest_refresh( WP_REST_Request $request ): WP_REST_Response|WP_Error
 
     $markets_result = ims_do_fetch_markets();
     $markets        = is_array( $markets_result ) ? $markets_result : [];
-    ims_do_generate_claude_md( $markets );
+
+    $ss_result      = ims_do_fetch_saved_searches();
+    $saved_searches = is_array( $ss_result ) ? $ss_result : [];
+
+    ims_do_generate_claude_md( $markets, $saved_searches );
 
     $status = get_option( IMS_OPT_STATUS, [] );
-    $status['markets_refreshed_at'] = current_time( 'mysql' );
-    $status['markets_count']        = count( $markets );
-    $status['markets_error']        = is_string( $markets_result ) ? $markets_result : null;
+    $status['markets_refreshed_at']      = current_time( 'mysql' );
+    $status['markets_count']             = count( $markets );
+    $status['markets_error']             = is_string( $markets_result ) ? $markets_result : null;
+    $status['saved_searches_count']      = count( $saved_searches );
+    $status['saved_searches_error']      = is_string( $ss_result ) ? $ss_result : null;
     update_option( IMS_OPT_STATUS, $status );
 
     return new WP_REST_Response( [
-        'success'       => true,
-        'markets_count' => count( $markets ),
-        'error'         => is_string( $markets_result ) ? $markets_result : null,
-        'claude_md'     => get_option( IMS_OPT_CLAUDE_MD, '' ),
+        'success'              => true,
+        'markets_count'        => count( $markets ),
+        'saved_searches_count' => count( $saved_searches ),
+        'error'                => is_string( $markets_result ) ? $markets_result : null,
+        'claude_md'            => get_option( IMS_OPT_CLAUDE_MD, '' ),
     ], 200 );
 }
 
@@ -630,19 +698,36 @@ function ims_normalise_markets( array $data ): array {
 
 // ── CLAUDE.md template ─────────────────────────────────────────────────────────
 
-function ims_claude_md_template( string $site_name, string $site_url, string $market_table ): string {
+function ims_claude_md_template( string $site_name, string $site_url, string $market_table, array $saved_searches = [] ): string {
     $template_path = IMS_DIR . 'CLAUDE.md';
 
     if ( file_exists( $template_path ) ) {
-        $base         = file_get_contents( $template_path );
+        $base = file_get_contents( $template_path );
+
+        // Inject iHF markets
         $market_block = "### {$site_name}\n\nSite: {$site_url}\n\n{$market_table}";
         $replacement  = "<!-- MARKET_IDS_START -->\n{$market_block}\n<!-- MARKET_IDS_END -->";
-        // Use callback so market names containing $0-$9 aren't treated as back-references
         $base = preg_replace_callback(
             '/<!-- MARKET_IDS_START -->.*?<!-- MARKET_IDS_END -->/s',
             function () use ( $replacement ) { return $replacement; },
             $base
         );
+
+        // Inject IDX saved searches if available
+        if ( $saved_searches ) {
+            $ss_table  = "| IDX Saved Search Name | /i/ URL |\n|---|---|\n";
+            foreach ( $saved_searches as $s ) {
+                $ss_table .= "| {$s['name']} | //{$s['idx_url']} |\n";
+            }
+            $ss_block   = $ss_table;
+            $ss_replace = "<!-- SAVED_SEARCHES_START -->\n{$ss_block}\n<!-- SAVED_SEARCHES_END -->";
+            $base = preg_replace_callback(
+                '/<!-- SAVED_SEARCHES_START -->.*?<!-- SAVED_SEARCHES_END -->/s',
+                function () use ( $ss_replace ) { return $ss_replace; },
+                $base
+            );
+        }
+
         return $base;
     }
 
@@ -688,19 +773,25 @@ add_action( 'wp_ajax_ims_rerun_setup', function () {
     wp_send_json_success( $status );
 } );
 
-// AJAX: Refresh markets only
+// AJAX: Refresh markets + saved searches
 add_action( 'wp_ajax_ims_refresh_markets', function () {
     check_ajax_referer( 'ims_nonce' );
     if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
 
     $markets_result = ims_do_fetch_markets();
     $markets        = is_array( $markets_result ) ? $markets_result : [];
-    ims_do_generate_claude_md( $markets );
+
+    $ss_result      = ims_do_fetch_saved_searches();
+    $saved_searches = is_array( $ss_result ) ? $ss_result : [];
+
+    ims_do_generate_claude_md( $markets, $saved_searches );
 
     $status = get_option( IMS_OPT_STATUS, [] );
-    $status['markets_refreshed_at'] = current_time( 'mysql' );
-    $status['markets_count']        = count( $markets );
-    $status['markets_error']        = is_string( $markets_result ) ? $markets_result : null;
+    $status['markets_refreshed_at']  = current_time( 'mysql' );
+    $status['markets_count']         = count( $markets );
+    $status['markets_error']         = is_string( $markets_result ) ? $markets_result : null;
+    $status['saved_searches_count']  = count( $saved_searches );
+    $status['saved_searches_error']  = is_string( $ss_result ) ? $ss_result : null;
     update_option( IMS_OPT_STATUS, $status );
 
     wp_send_json_success( [
