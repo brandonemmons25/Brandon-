@@ -566,9 +566,16 @@ function ims_normalise_markets( array $data ): array {
         if ( ! is_array( $item ) ) continue;
         $name = $item['name'] ?? $item['title'] ?? $item['hotsheetName'] ?? $item['linkName'] ?? '';
         $id   = (string) ( $item['id'] ?? $item['hotsheetId'] ?? $item['marketId'] ?? $item['savedSearchId'] ?? $item['hotsheet_id'] ?? '' );
-        $url  = $item['url'] ?? $item['link'] ?? $item['pageUrl'] ?? $item['permalink'] ?? '';
+        $url  = trim( $item['url'] ?? $item['link'] ?? $item['pageUrl'] ?? $item['permalink'] ?? '' );
+
+        // Strip domain from absolute URLs so CLAUDE.md uses relative paths
+        if ( $url && preg_match( '#^https?://#', $url ) ) {
+            $parsed = wp_parse_url( $url );
+            $url    = ( $parsed['path'] ?? '/' ) . ( isset( $parsed['query'] ) ? '?' . $parsed['query'] : '' );
+        }
+
         if ( $name ) {
-            $result[] = [ 'id' => $id, 'name' => trim( $name ), 'url' => trim( $url ) ];
+            $result[] = [ 'id' => $id, 'name' => trim( $name ), 'url' => $url ];
         }
     }
     usort( $result, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
