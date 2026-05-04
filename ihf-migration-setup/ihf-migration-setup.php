@@ -853,8 +853,8 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'nav_menu_item' AND post_status = 'publish'"
 	);
 
-	$raw_urls = $wpdb->get_col(
-		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+	$raw_urls = $wpdb->get_results(
+		"SELECT pm.meta_value AS url, p.post_status FROM {$wpdb->postmeta} pm
 		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
 		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
 		 AND p.post_type = 'nav_menu_item'
@@ -873,7 +873,7 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 		'ims_idx_domain' => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
 		'nav_item_count' => $nav_item_count,
 		'nav_menus'      => $menu_terms,
-		'raw_menu_urls'  => $raw_urls,
+		'raw_menu_items' => $raw_urls,
 	] );
 } );
 
