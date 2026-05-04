@@ -841,6 +841,54 @@ add_action( 'wp_ajax_ims_save_idx_domain', function () {
 	] );
 } );
 
+// AJAX: Diagnostics — raw DB data to debug scanner misses
+add_action( 'wp_ajax_ims_diagnostics', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	global $wpdb;
+
+	// What idx_scanner_get_search_domain() finds
+	$scanner_domain = function_exists( 'idx_scanner_get_search_domain' ) ? idx_scanner_get_search_domain() : 'AiDX Scanner not active';
+
+	// Raw idxforza-info option
+	$idxforza = get_option( 'idxforza-info', '(not set)' );
+
+	// All nav menus
+	$menus = wp_get_nav_menus();
+	$menu_summary = [];
+	foreach ( $menus as $m ) {
+		$items = wp_get_nav_menu_items( $m->term_id ) ?: [];
+		$menu_summary[] = [
+			'name'  => $m->name,
+			'count' => count( $items ),
+			'sample_urls' => array_slice( array_column( array_map( fn($i) => ['url' => $i->url], $items ), 'url' ), 0, 5 ),
+		];
+	}
+
+	// Direct DB count of nav_menu_items
+	$nav_item_count = (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'nav_menu_item' AND post_status = 'publish'"
+	);
+
+	// Sample raw _menu_item_url values
+	$raw_urls = $wpdb->get_col(
+		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
+		 AND p.post_type = 'nav_menu_item'
+		 LIMIT 20"
+	);
+
+	wp_send_json_success( [
+		'scanner_domain'  => $scanner_domain,
+		'idxforza_info'   => $idxforza,
+		'ims_idx_domain'  => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
+		'nav_item_count'  => $nav_item_count,
+		'menus'           => $menu_summary,
+		'raw_menu_urls'   => $raw_urls,
+	] );
+} );
+
 // ── Migration AJAX handlers ────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_ims_migrate_menus', function () {
@@ -973,9 +1021,10 @@ function ims_render_page(): void {
             <p style="color:#888;">Not yet activated.</p>
             <?php endif; ?>
 
-            <div style="margin-top:16px;display:flex;gap:10px;">
+            <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
                 <button id="ims-btn-rerun" class="button button-secondary">Re-run Full Setup</button>
                 <button id="ims-btn-markets" class="button button-secondary">Refresh + Re-scan</button>
+                <button id="ims-btn-diag" class="button button-secondary">Diagnostics</button>
             </div>
             <div id="ims-ajax-result" class="ims-result" style="display:none;"></div>
         </div>

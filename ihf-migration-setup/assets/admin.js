@@ -35,6 +35,11 @@
         ajaxAction( 'ims_refresh_markets', $( this ), 'Refresh + Re-scan' );
     } );
 
+    // Diagnostics
+    $( '#ims-btn-diag' ).on( 'click', function () {
+        ajaxAction( 'ims_diagnostics', $( this ), 'Diagnostics' );
+    } );
+
     // IDX domain override
     $( '#ims-btn-save-domain' ).on( 'click', function () {
         var $btn    = $( this );
