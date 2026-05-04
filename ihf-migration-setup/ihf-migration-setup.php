@@ -847,12 +847,17 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
 	global $wpdb;
 
+	$site_host      = parse_url( home_url(), PHP_URL_HOST ) ?: '';
 	$scanner_domain = function_exists( 'idx_scanner_get_search_domain' ) ? idx_scanner_get_search_domain() : '(AiDX Scanner not active)';
 
 	$nav_item_count = (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'nav_menu_item'"
+	);
+	$nav_item_count_publish = (int) $wpdb->get_var(
 		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'nav_menu_item' AND post_status = 'publish'"
 	);
 
+	// All menu items with full postmeta — no filtering
 	$raw_urls = $wpdb->get_results(
 		"SELECT p.ID, p.post_status, p.post_title,
 		        MAX(CASE WHEN pm.meta_key = '_menu_item_url'        THEN pm.meta_value END) AS item_url,
@@ -870,6 +875,58 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 		 ORDER BY t.name, p.menu_order"
 	);
 
+	// Auto-detect domain the same way the scanner does
+	$auto_detected_domain = '';
+	$all_menu_urls = $wpdb->get_col(
+		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
+		 AND p.post_type = 'nav_menu_item' LIMIT 200"
+	);
+	foreach ( $all_menu_urls as $u ) {
+		$h = parse_url( $u, PHP_URL_HOST ) ?: '';
+		if ( $h && $h !== $site_host && preg_match( '#/(?:idx|i)/#', $u ) ) {
+			$auto_detected_domain = $h;
+			break;
+		}
+	}
+
+	// Run the exact scanner LIKE query and show raw SQL results before PHP filter
+	$effective_domain = $scanner_domain ?: $auto_detected_domain;
+	$like_terms = [ 'idxbroker.com', 'idxre.com', 'mlsfinder.com', 'idxID=', '/idx/' ];
+	if ( $effective_domain ) $like_terms[] = $effective_domain;
+	$like_parts = array_map(
+		fn( $t ) => 'pm.meta_value LIKE ' . $wpdb->prepare( '%s', '%' . $wpdb->esc_like( $t ) . '%' ),
+		$like_terms
+	);
+	// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+	$scanner_raw_rows = $wpdb->get_results(
+		"SELECT p.ID, p.post_title, pm.meta_value AS url, t.name AS menu_name
+		 FROM {$wpdb->posts} p
+		 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_menu_item_url'
+		 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+		 JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+		 WHERE p.post_type = 'nav_menu_item'
+		   AND pm.meta_value != ''
+		   AND (" . implode( ' OR ', $like_parts ) . ")",
+		ARRAY_A
+	);
+
+	// All non-empty _menu_item_url values (no IDX filter) so we can see everything
+	$all_nonempty_urls = $wpdb->get_results(
+		"SELECT p.ID, p.post_title, pm.meta_value AS url, t.name AS menu_name
+		 FROM {$wpdb->posts} p
+		 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_menu_item_url'
+		 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+		 JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+		 WHERE p.post_type = 'nav_menu_item'
+		   AND pm.meta_value != ''
+		 ORDER BY t.name, p.menu_order",
+		ARRAY_A
+	);
+
 	$menu_terms = $wpdb->get_results(
 		"SELECT t.name, tt.count FROM {$wpdb->terms} t
 		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
@@ -877,12 +934,19 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 	);
 
 	wp_send_json_success( [
-		'scanner_domain' => $scanner_domain,
-		'idxforza_info'  => get_option( 'idxforza-info', '(not set)' ),
-		'ims_idx_domain' => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
-		'nav_item_count' => $nav_item_count,
-		'nav_menus'      => $menu_terms,
-		'raw_menu_items' => $raw_urls,
+		'site_host'              => $site_host,
+		'scanner_domain_from_options' => $scanner_domain,
+		'auto_detected_domain'   => $auto_detected_domain ?: '(none found)',
+		'effective_domain_used'  => $effective_domain ?: '(none)',
+		'idxforza_info'          => get_option( 'idxforza-info', '(not set)' ),
+		'ims_idx_domain'         => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
+		'nav_item_count_total'   => $nav_item_count,
+		'nav_item_count_publish' => $nav_item_count_publish,
+		'nav_menus'              => $menu_terms,
+		'all_items_with_meta'    => $raw_urls,
+		'all_nonempty_urls'      => $all_nonempty_urls,
+		'scanner_like_query_raw' => $scanner_raw_rows,
+		'like_terms_used'        => $like_terms,
 	] );
 } );
 
