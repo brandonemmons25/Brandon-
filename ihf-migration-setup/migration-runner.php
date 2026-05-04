@@ -39,10 +39,38 @@ function ims_get_url_redirect_map(): array {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function ims_get_idx_search_domain(): string {
+	// 1. Scanner result (most reliable)
 	$scan = get_option( IMS_OPT_SCAN, [] );
 	if ( ! empty( $scan['search_domain'] ) ) {
 		return $scan['search_domain'];
 	}
+
+	// 2. Detect from existing menu item URLs
+	foreach ( wp_get_nav_menus() as $menu ) {
+		$items = wp_get_nav_menu_items( $menu->term_id );
+		if ( ! $items ) continue;
+		foreach ( $items as $item ) {
+			if ( preg_match( '#(?:https?:)?//([\w.-]+)/idx/#', $item->url, $m ) ) {
+				return $m[1];
+			}
+			if ( preg_match( '#(?:https?:)?//([\w.-]+)/i/#', $item->url, $m ) ) {
+				return $m[1];
+			}
+		}
+	}
+
+	// 3. Detect from page/post content
+	global $wpdb;
+	$row = $wpdb->get_var(
+		"SELECT post_content FROM {$wpdb->posts}
+		 WHERE post_status = 'publish' AND post_content LIKE '%/idx/%'
+		 LIMIT 1"
+	);
+	if ( $row && preg_match( '#(?:https?:)?//([\w.-]+)/idx/#', $row, $m ) ) {
+		return $m[1];
+	}
+
+	// 4. Last resort: search.[production-host]
 	$host = parse_url( home_url(), PHP_URL_HOST ) ?: '';
 	return 'search.' . $host;
 }
