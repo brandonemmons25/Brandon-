@@ -847,45 +847,33 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
 	global $wpdb;
 
-	// What idx_scanner_get_search_domain() finds
-	$scanner_domain = function_exists( 'idx_scanner_get_search_domain' ) ? idx_scanner_get_search_domain() : 'AiDX Scanner not active';
+	$scanner_domain = function_exists( 'idx_scanner_get_search_domain' ) ? idx_scanner_get_search_domain() : '(AiDX Scanner not active)';
 
-	// Raw idxforza-info option
-	$idxforza = get_option( 'idxforza-info', '(not set)' );
-
-	// All nav menus
-	$menus = wp_get_nav_menus();
-	$menu_summary = [];
-	foreach ( $menus as $m ) {
-		$items = wp_get_nav_menu_items( $m->term_id ) ?: [];
-		$menu_summary[] = [
-			'name'  => $m->name,
-			'count' => count( $items ),
-			'sample_urls' => array_slice( array_column( array_map( fn($i) => ['url' => $i->url], $items ), 'url' ), 0, 5 ),
-		];
-	}
-
-	// Direct DB count of nav_menu_items
 	$nav_item_count = (int) $wpdb->get_var(
 		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'nav_menu_item' AND post_status = 'publish'"
 	);
 
-	// Sample raw _menu_item_url values
 	$raw_urls = $wpdb->get_col(
 		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
 		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
 		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
 		 AND p.post_type = 'nav_menu_item'
-		 LIMIT 20"
+		 LIMIT 30"
+	);
+
+	$menu_terms = $wpdb->get_results(
+		"SELECT t.name, tt.count FROM {$wpdb->terms} t
+		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+		 WHERE tt.taxonomy = 'nav_menu'"
 	);
 
 	wp_send_json_success( [
-		'scanner_domain'  => $scanner_domain,
-		'idxforza_info'   => $idxforza,
-		'ims_idx_domain'  => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
-		'nav_item_count'  => $nav_item_count,
-		'menus'           => $menu_summary,
-		'raw_menu_urls'   => $raw_urls,
+		'scanner_domain' => $scanner_domain,
+		'idxforza_info'  => get_option( 'idxforza-info', '(not set)' ),
+		'ims_idx_domain' => get_option( IMS_OPT_IDX_DOMAIN, '(not set)' ),
+		'nav_item_count' => $nav_item_count,
+		'nav_menus'      => $menu_terms,
+		'raw_menu_urls'  => $raw_urls,
 	] );
 } );
 
