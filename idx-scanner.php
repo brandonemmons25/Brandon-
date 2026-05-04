@@ -1947,6 +1947,24 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
     $search_domain = idx_scanner_get_search_domain();
     $site_host     = parse_url( home_url(), PHP_URL_HOST ) ?: '';
 
+    // If plugin options don't provide the search domain, detect it from existing menu URLs.
+    // This catches /i/ saved-link URLs which aren't found by the /idx/ LIKE term alone.
+    if ( ! $search_domain ) {
+        $all_urls = $wpdb->get_col(
+            "SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+             JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+             WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
+             AND p.post_type = 'nav_menu_item' LIMIT 200"
+        );
+        foreach ( $all_urls as $u ) {
+            $h = parse_url( $u, PHP_URL_HOST ) ?: '';
+            if ( $h && $h !== $site_host && preg_match( '#/(?:idx|i)/#', $u ) ) {
+                $search_domain = $h;
+                break;
+            }
+        }
+    }
+
     // Build pattern: known IDX Broker external domains + custom search subdomain + idxID= param.
     // /idx/ paths on external domains are handled separately below to avoid false positives
     // from iHF Optima Express which also uses /idx/ on the site's own domain.
@@ -2835,6 +2853,23 @@ function idx_scanner_run_full_scan(): array {
     }
 
     // ── Nav menu scan ──────────────────────────────────────────────────────────
+    // If search domain not yet known, detect from menu URLs (catches /i/ saved-link format)
+    if ( ! $search_domain ) {
+        $all_urls = $wpdb->get_col(
+            "SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+             JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+             WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
+             AND p.post_type = 'nav_menu_item' LIMIT 200"
+        );
+        foreach ( $all_urls as $u ) {
+            $h = parse_url( $u, PHP_URL_HOST ) ?: '';
+            if ( $h && $h !== $site_host && preg_match( '#/(?:idx|i)/#', $u ) ) {
+                $search_domain = $h;
+                break;
+            }
+        }
+    }
+
     $parts = [ 'idxbroker\.com', 'idxre\.com', 'mlsfinder\.com', '[?&]idxID=' ];
     if ( $search_domain ) $parts[] = preg_quote( $search_domain, '/' );
     $menu_pattern = '/' . implode( '|', $parts ) . '/i';
