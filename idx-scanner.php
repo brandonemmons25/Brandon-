@@ -1947,31 +1947,6 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
     $search_domain = idx_scanner_get_search_domain();
     $site_host     = parse_url( home_url(), PHP_URL_HOST ) ?: '';
 
-    // If the IDX Broker plugin isn't installed/configured, auto-detect the search subdomain
-    // from existing menu item URLs (handles /i/ saved-link format and /idx/ paths).
-    if ( ! $search_domain ) {
-        $detected = $wpdb->get_col(
-            "SELECT pm.meta_value FROM {$wpdb->postmeta} pm
-             JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-             WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
-             AND p.post_type = 'nav_menu_item' LIMIT 200"
-        );
-        foreach ( $detected as $url ) {
-            if ( preg_match( '#(?:https?:)?//([\w.-]+\.' . preg_quote( $site_host, '#' ) . '|search\.[\w.-]+)(?:/idx/|/i/)#i', $url, $dm ) ) {
-                $search_domain = $dm[1];
-                break;
-            }
-            // Generic: any subdomain URL with /idx/ or /i/ that isn't the site itself
-            if ( preg_match( '#(?:https?:)?//([\w-]+\.[\w.-]+)(?:/idx/|/i/)#i', $url, $dm ) ) {
-                $candidate = $dm[1];
-                if ( $candidate !== $site_host ) {
-                    $search_domain = $candidate;
-                    break;
-                }
-            }
-        }
-    }
-
     // Build pattern: known IDX Broker external domains + custom search subdomain + idxID= param.
     // /idx/ paths on external domains are handled separately below to avoid false positives
     // from iHF Optima Express which also uses /idx/ on the site's own domain.
@@ -2767,24 +2742,6 @@ function idx_scanner_run_full_scan(): array {
     $search_domain = idx_scanner_get_search_domain();
     $site_host     = parse_url( home_url(), PHP_URL_HOST ) ?: '';
     $scanned_at    = current_time( 'mysql' );
-
-    // Auto-detect search subdomain from menu URLs if not found via plugin options
-    if ( ! $search_domain ) {
-        $menu_urls = $wpdb->get_col(
-            "SELECT pm.meta_value FROM {$wpdb->postmeta} pm
-             JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-             WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
-             AND p.post_type = 'nav_menu_item' LIMIT 200"
-        );
-        foreach ( $menu_urls as $url ) {
-            if ( preg_match( '#(?:https?:)?//([\w-]+\.[\w.-]+)(?:/idx/|/i/)#i', $url, $dm ) ) {
-                if ( $dm[1] !== $site_host ) {
-                    $search_domain = $dm[1];
-                    break;
-                }
-            }
-        }
-    }
 
     // ── Pages scan ─────────────────────────────────────────────────────────────
     $domain_clause_pages = $search_domain
