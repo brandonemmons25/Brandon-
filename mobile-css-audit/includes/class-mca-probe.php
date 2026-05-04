@@ -174,7 +174,25 @@ class MCA_Probe {
 
             // ── Nav status ──────────────────────────────────────────────────
             function getNavInfo(vp) {
-                var nav = document.querySelector('nav, [role="navigation"], .nav-primary, header nav');
+                // Try specific site-nav selectors before generic 'nav' to avoid
+                // matching the WP admin toolbar (#wp-toolbar contains nav[role="navigation"]).
+                var navSelectors = [
+                    '.nav-primary', 'nav.nav-primary', 'header nav',
+                    '.site-header nav', '#site-navigation',
+                    'nav:not(#wp-toolbar nav):not([class*="admin"])',
+                    '[role="navigation"]:not(#wp-toolbar [role="navigation"])',
+                    'nav'
+                ];
+                var nav = null;
+                for (var ns = 0; ns < navSelectors.length; ns++) {
+                    try {
+                        var candidate = document.querySelector(navSelectors[ns]);
+                        if (candidate && !candidate.closest('#wp-toolbar, #wpadminbar')) {
+                            nav = candidate;
+                            break;
+                        }
+                    } catch(e) { /* unsupported :not() syntax in old browsers */ }
+                }
                 if (!nav) return '';
 
                 var rect     = nav.getBoundingClientRect();
