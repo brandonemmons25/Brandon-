@@ -2,13 +2,13 @@
 /**
  * Plugin Name: iHF Migration Setup
  * Description: Auto-configures staging for IDX → iHomeFinder migration on activation. Exposes a REST endpoint so Claude Code can retrieve MCP credentials and run the migration autonomously.
- * Version:     2.0.0
+ * Version:     2.2.0
  * Author:      Brandon Emmons
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'IMS_VERSION', '2.1.0' );
+define( 'IMS_VERSION', '2.2.0' );
 define( 'IMS_FILE',    __FILE__ );
 define( 'IMS_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'IMS_URL',     plugin_dir_url( __FILE__ ) );
