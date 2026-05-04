@@ -854,11 +854,20 @@ add_action( 'wp_ajax_ims_diagnostics', function () {
 	);
 
 	$raw_urls = $wpdb->get_results(
-		"SELECT pm.meta_value AS url, p.post_status FROM {$wpdb->postmeta} pm
-		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
-		 AND p.post_type = 'nav_menu_item'
-		 LIMIT 30"
+		"SELECT p.ID, p.post_status, p.post_title,
+		        MAX(CASE WHEN pm.meta_key = '_menu_item_url'        THEN pm.meta_value END) AS item_url,
+		        MAX(CASE WHEN pm.meta_key = '_menu_item_type'       THEN pm.meta_value END) AS item_type,
+		        MAX(CASE WHEN pm.meta_key = '_menu_item_object'     THEN pm.meta_value END) AS item_object,
+		        MAX(CASE WHEN pm.meta_key = '_menu_item_object_id'  THEN pm.meta_value END) AS item_object_id,
+		        t.name AS menu_name
+		 FROM {$wpdb->posts} p
+		 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+		 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+		 JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+		 WHERE p.post_type = 'nav_menu_item'
+		 GROUP BY p.ID, t.name
+		 ORDER BY t.name, p.menu_order"
 	);
 
 	$menu_terms = $wpdb->get_results(
