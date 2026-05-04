@@ -1973,8 +1973,7 @@ add_action('wp_ajax_idx_scan_navmenus', function () {
          JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
          JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
          JOIN {$wpdb->terms} t          ON t.term_id = tt.term_id
-         WHERE p.post_type   = 'nav_menu_item'
-           AND p.post_status  = 'publish'
+         WHERE p.post_type  = 'nav_menu_item'
            AND pm.meta_value != ''
            AND (" . implode( ' OR ', $like_parts ) . ")",
         ARRAY_A
@@ -2854,7 +2853,7 @@ function idx_scanner_run_full_scan(): array {
          JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
          JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
          JOIN {$wpdb->terms} t          ON t.term_id = tt.term_id
-         WHERE p.post_type = 'nav_menu_item' AND p.post_status = 'publish'
+         WHERE p.post_type = 'nav_menu_item'
            AND pm.meta_value != ''
            AND (" . implode( ' OR ', $like_parts ) . ")",
         ARRAY_A

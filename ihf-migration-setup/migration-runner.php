@@ -49,17 +49,21 @@ function ims_get_idx_search_domain(): string {
 		return $scan['search_domain'];
 	}
 
-	// 2. Detect from existing menu item URLs
-	foreach ( wp_get_nav_menus() as $menu ) {
-		$items = wp_get_nav_menu_items( $menu->term_id );
-		if ( ! $items ) continue;
-		foreach ( $items as $item ) {
-			if ( preg_match( '#(?:https?:)?//([\w.-]+)/idx/#', $item->url, $m ) ) {
-				return $m[1];
-			}
-			if ( preg_match( '#(?:https?:)?//([\w.-]+)/i/#', $item->url, $m ) ) {
-				return $m[1];
-			}
+	// 2. Detect from existing menu item URLs — direct DB query, no post_status filter
+	global $wpdb;
+	$all_menu_urls = $wpdb->get_col(
+		"SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+		 JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+		 WHERE pm.meta_key = '_menu_item_url' AND pm.meta_value != ''
+		 AND p.post_type = 'nav_menu_item' LIMIT 200"
+	);
+	$site_host = parse_url( home_url(), PHP_URL_HOST ) ?: '';
+	foreach ( $all_menu_urls as $menu_url ) {
+		if ( preg_match( '#(?:https?:)?//([\w.-]+)/idx/#', $menu_url, $m ) && $m[1] !== $site_host ) {
+			return $m[1];
+		}
+		if ( preg_match( '#(?:https?:)?//([\w.-]+)/i/#', $menu_url, $m ) && $m[1] !== $site_host ) {
+			return $m[1];
 		}
 	}
 
@@ -132,44 +136,51 @@ function ims_map_saved_link_slug( string $slug ): ?string {
 // ── Menu Migration ────────────────────────────────────────────────────────────
 
 function ims_run_menu_migration( bool $dry_run = false ): array {
-	$menus         = wp_get_nav_menus();
+	global $wpdb;
 	$search_domain = ims_get_idx_search_domain();
 	$changes       = [];
 	$unmapped      = [];
 
-	foreach ( $menus as $menu ) {
-		$items = wp_get_nav_menu_items( $menu->term_id );
-		if ( ! $items ) continue;
+	// Direct DB query — no post_status filter, same approach as AiDX Scanner
+	$rows = $wpdb->get_results(
+		"SELECT p.ID, p.post_title, pm.meta_value AS url, t.name AS menu_name
+		 FROM {$wpdb->posts} p
+		 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_menu_item_url'
+		 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+		 JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'nav_menu'
+		 JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+		 WHERE p.post_type = 'nav_menu_item' AND pm.meta_value != ''",
+		ARRAY_A
+	);
 
-		foreach ( $items as $item ) {
-			$url = trim( $item->url );
-			if ( strpos( $url, $search_domain ) === false ) continue;
+	foreach ( $rows as $row ) {
+		$url = trim( $row['url'] );
+		if ( ! $search_domain || strpos( $url, $search_domain ) === false ) continue;
 
-			$new_url = ims_map_idx_url( $url );
+		$new_url = ims_map_idx_url( $url );
 
-			if ( ! $new_url ) {
-				$unmapped[] = [
-					'menu'    => $menu->name,
-					'item'    => $item->title,
-					'item_id' => $item->ID,
-					'url'     => $url,
-				];
-				continue;
-			}
-
-			if ( ! $dry_run ) {
-				update_post_meta( $item->ID, '_menu_item_url', $new_url );
-				clean_post_cache( $item->ID );
-			}
-
-			$changes[] = [
-				'menu'    => $menu->name,
-				'item'    => $item->title,
-				'item_id' => $item->ID,
-				'before'  => $url,
-				'after'   => $new_url,
+		if ( ! $new_url ) {
+			$unmapped[] = [
+				'menu'    => $row['menu_name'],
+				'item'    => $row['post_title'],
+				'item_id' => (int) $row['ID'],
+				'url'     => $url,
 			];
+			continue;
 		}
+
+		if ( ! $dry_run ) {
+			update_post_meta( (int) $row['ID'], '_menu_item_url', $new_url );
+			clean_post_cache( (int) $row['ID'] );
+		}
+
+		$changes[] = [
+			'menu'    => $row['menu_name'],
+			'item'    => $row['post_title'],
+			'item_id' => (int) $row['ID'],
+			'before'  => $url,
+			'after'   => $new_url,
+		];
 	}
 
 	return [
