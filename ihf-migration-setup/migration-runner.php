@@ -39,7 +39,11 @@ function ims_get_url_redirect_map(): array {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function ims_get_idx_search_domain(): string {
-	// 1. Scanner result (most reliable)
+	// 1. Manual override (highest priority)
+	$override = get_option( IMS_OPT_IDX_DOMAIN, '' );
+	if ( $override ) return $override;
+
+	// 2. Scanner result
 	$scan = get_option( IMS_OPT_SCAN, [] );
 	if ( ! empty( $scan['search_domain'] ) ) {
 		return $scan['search_domain'];
@@ -303,7 +307,9 @@ function ims_run_content_migration( string $post_type, bool $dry_run ): array {
 
 	$scan_key = $post_type === 'page' ? 'pages' : 'posts';
 	foreach ( $scan[ $scan_key ] ?? [] as $entry ) {
-		if ( ! empty( $entry['ID'] ) ) $ids[] = (int) $entry['ID'];
+		// Scanner returns lowercase 'id'; accommodate both
+		$id = $entry['ID'] ?? $entry['id'] ?? null;
+		if ( $id ) $ids[] = (int) $id;
 	}
 
 	// Fallback: query DB directly

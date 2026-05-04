@@ -35,6 +35,21 @@
         ajaxAction( 'ims_refresh_markets', $( this ), 'Refresh + Re-scan' );
     } );
 
+    // IDX domain override
+    $( '#ims-btn-save-domain' ).on( 'click', function () {
+        var $btn    = $( this );
+        var domain  = $( '#ims-idx-domain' ).val().trim();
+        var $result = $( '#ims-domain-result' );
+        $btn.prop( 'disabled', true ).text( 'Saving…' );
+        $.post( IMS.ajaxUrl, { action: 'ims_save_idx_domain', _ajax_nonce: IMS.nonce, idx_domain: domain }, null, 'json' )
+            .done( function ( r ) {
+                showResult( $result, r.data, r.success );
+                if ( r.success ) setTimeout( function () { location.reload(); }, 1500 );
+            } )
+            .fail( function () { showResult( $result, 'Request failed.', false ); } )
+            .always( function () { $btn.prop( 'disabled', false ).text( 'Save' ); } );
+    } );
+
     // Migration buttons
     var $migResult = $( '#ims-migration-result' );
 

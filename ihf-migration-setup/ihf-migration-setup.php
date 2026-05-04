@@ -18,7 +18,8 @@ define( 'IMS_OPT_STATUS',   'ims_status' );
 define( 'IMS_OPT_APP_PASS', 'ims_app_password' );
 define( 'IMS_OPT_MARKETS',  'ims_markets' );
 define( 'IMS_OPT_CLAUDE_MD','ims_claude_md' );
-define( 'IMS_OPT_SCAN',     'ims_scan_results' );
+define( 'IMS_OPT_SCAN',       'ims_scan_results' );
+define( 'IMS_OPT_IDX_DOMAIN', 'ims_idx_search_domain' );
 
 require_once IMS_DIR . 'migration-runner.php';
 
@@ -816,6 +817,30 @@ add_action( 'wp_ajax_ims_refresh_markets', function () {
     ] );
 } );
 
+// AJAX: Save IDX search domain override then re-run scanner + regenerate CLAUDE.md
+add_action( 'wp_ajax_ims_save_idx_domain', function () {
+	check_ajax_referer( 'ims_nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+	$domain = sanitize_text_field( wp_unslash( $_POST['idx_domain'] ?? '' ) );
+	$domain = rtrim( trim( $domain ), '/' );
+	if ( strpos( $domain, '://' ) !== false ) {
+		$domain = parse_url( $domain, PHP_URL_HOST ) ?: $domain;
+	}
+	update_option( IMS_OPT_IDX_DOMAIN, $domain, false );
+
+	// Re-run scanner with correct domain now available
+	$scan_result = ims_do_run_scanner();
+	$markets     = get_option( IMS_OPT_MARKETS, [] );
+	ims_do_generate_claude_md( $markets, $scan_result['data'] ?? [] );
+
+	wp_send_json_success( [
+		'saved'      => $domain,
+		'scan_pages' => $scan_result['pages_count'] ?? 0,
+		'scan_posts' => $scan_result['posts_count'] ?? 0,
+		'scan_menus' => $scan_result['menus_count'] ?? 0,
+	] );
+} );
+
 // ── Migration AJAX handlers ────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_ims_migrate_menus', function () {
@@ -861,6 +886,7 @@ function ims_render_page(): void {
     $markets      = get_option( IMS_OPT_MARKETS, [] );
     $claude_md    = get_option( IMS_OPT_CLAUDE_MD, '' );
     $site_url     = get_site_url();
+    $idx_domain   = get_option( IMS_OPT_IDX_DOMAIN, '' );
 
     $activated_at = $status['activated_at'] ?? null;
     $user_ok      = ! empty( $status['user']['success'] );
@@ -974,6 +1000,23 @@ function ims_render_page(): void {
                 </tr>
             </table>
             <p style="margin-top:14px;color:#555;font-size:13px;">Tell Claude Code: <em>"Write this to <code>.claude/settings.json</code> under mcpServers and connect to WordPress."</em></p>
+        </div>
+
+        <!-- ── IDX Search Domain ───────────────────────────────────────────── -->
+        <div class="ims-card">
+            <h2>IDX Search Domain</h2>
+            <p style="color:#555;font-size:13px;margin-top:0;">The IDX Broker subdomain for this site (e.g. <code>search.humboldthomeguide.com</code>). Auto-detected from IDX Broker plugin options — override here if the scanner or migration finds nothing.</p>
+            <div style="display:flex;align-items:center;gap:8px;max-width:600px;">
+                <input type="text" id="ims-idx-domain" class="regular-text" placeholder="search.yourdomain.com"
+                    value="<?php echo esc_attr( $idx_domain ); ?>" style="flex:1;" />
+                <button id="ims-btn-save-domain" class="button button-secondary">Save</button>
+            </div>
+            <?php if ( $idx_domain ) : ?>
+            <p style="margin-top:8px;font-size:12px;color:#1a7a1a;">✓ Override active: <code><?php echo esc_html( $idx_domain ); ?></code></p>
+            <?php else : ?>
+            <p style="margin-top:8px;font-size:12px;color:#888;">No override set — using auto-detection.</p>
+            <?php endif; ?>
+            <div id="ims-domain-result" class="ims-result" style="display:none;"></div>
         </div>
 
         <!-- ── Migration Control Panel ────────────────────────────────────── -->
