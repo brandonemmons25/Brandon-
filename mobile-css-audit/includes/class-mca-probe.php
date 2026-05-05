@@ -106,6 +106,9 @@ class MCA_Probe {
                     var cs = getComputedStyle(el);
                     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
                     if (rect.width === 0 && rect.height === 0) continue;
+                    // Skip elements inside intentional scroll containers — their
+                    // overflow is user-scrollable, not a page-level layout bug.
+                    if (isInsideScrollContainer(el)) continue;
 
                     var sel  = makeSel(el);
                     var key  = sel + right;
@@ -124,6 +127,17 @@ class MCA_Probe {
                 // Sort by largest excess first, cap at 20 results.
                 results.sort(function (a, b) { return b.excess - a.excess; });
                 return results.slice(0, 20);
+            }
+
+            // ── True if any ancestor (up to body) clips via overflow scroll ───
+            function isInsideScrollContainer(el) {
+                var node = el.parentElement;
+                while (node && node !== document.body) {
+                    var ox = getComputedStyle(node).overflowX;
+                    if (ox === 'auto' || ox === 'scroll') return true;
+                    node = node.parentElement;
+                }
+                return false;
             }
 
             // ── Detect collapsed (0-height) visible elements in main content ─

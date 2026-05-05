@@ -2,20 +2,21 @@
  * Mobile CSS Fixes — Cesi Pagano & Associates
  * Site: x-cesipagano-ihf.mystagingwebsite.com
  * Viewport target: 375px
- * Updated: 2026-05-05 (v2.3.1 scan)
+ * Updated: 2026-05-05 (v2.4.1 scan)
  *
  * Paste into: Appearance → Customize → Additional CSS
  *
- * Issues addressed (from MCA scan 2026-05-04T21:53:42Z):
+ * Issues addressed:
  *  1. div.cp-sticky-bar        — universal overflow (root cause of horizontal scroll)
  *  2. main.content             — 269px narrow column (Genesis float layout)
  *  3. div.grecaptcha-badge     — reCAPTCHA badge overflowing right edge on FAQ
- *  4. Blog tables              — overflow 100–675px on data-heavy posts (incl. custom wrappers)
+ *  4. Blog tables              — overflow on data-heavy posts (custom wrappers)
  *  5. Jetpack slideshow        — swiper-wrapper strips 2000–3257px wide on listing posts
  *  6. iHomeFinder widgets      — collapsed (0 height) containers on homepage
  *  7. div.wp-block-image       — collapsed on team/associate pages
  *  8. div.widget-wrap          — collapsed (0 height) home-top widgets
  *  9. IDX wrapper pages        — collapsed article/entry-content/idxStart containers
+ * 10. Agent info / related posts / KCM / disclaimer — collapsed sections
  */
 
 /* ─────────────────────────────────────────────────────────────
@@ -33,9 +34,13 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   2. Genesis content column — flex-column forces full-width stacking.
-      Float declarations on .content/.sidebar are ignored inside a
-      flex container, so this wins regardless of theme specificity.
+   2. Genesis content column — force full-width on mobile.
+      Belt-and-suspenders approach: block parent (creates BFC)
+      + direct float/width overrides on children using the
+      highest-specificity selectors likely to beat theme rules.
+      The full selector chain targets the exact Genesis DOM path:
+        body.content-sidebar > .site-inner > .wrap
+          > .content-sidebar-wrap > main.content
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
     .site-inner,
@@ -46,31 +51,41 @@
     }
 
     .content-sidebar-wrap {
-        display: flex !important;
-        flex-direction: column !important;
+        display: block !important;
         width: 100% !important;
         max-width: 100% !important;
+        box-sizing: border-box !important;
     }
 
-    main.content,
-    .content {
-        order: 1 !important;
+    /* High-specificity chain — beats theme rules even if they use !important */
+    body.content-sidebar .site-inner .wrap .content-sidebar-wrap main.content,
+    body.content-sidebar .site-inner .wrap .content-sidebar-wrap .content,
+    body .content-sidebar-wrap main.content,
+    body .content-sidebar-wrap > .content,
+    body main.content,
+    body .content {
         float: none !important;
         width: 100% !important;
         max-width: 100% !important;
         padding-left: 16px !important;
         padding-right: 16px !important;
         box-sizing: border-box !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
     }
 
-    .sidebar,
-    .sidebar-primary,
-    .sidebar-secondary {
-        order: 2 !important;
+    body.content-sidebar .site-inner .wrap .content-sidebar-wrap .sidebar-primary,
+    body.content-sidebar .site-inner .wrap .content-sidebar-wrap .sidebar-secondary,
+    body .content-sidebar-wrap .sidebar,
+    body .content-sidebar-wrap > aside,
+    body .sidebar,
+    body .sidebar-primary,
+    body .sidebar-secondary {
         float: none !important;
         width: 100% !important;
         max-width: 100% !important;
         margin-left: 0 !important;
+        margin-right: 0 !important;
         box-sizing: border-box !important;
     }
 }
@@ -94,7 +109,7 @@
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
 
-    /* — 4a. Custom table wrappers — */
+    /* — 4a. Custom table wrappers (including new ones found in 2026-05-05 scan) — */
     .wp-strategy-table-wrapper,
     .wp-hardened-table-container,
     .cesi-table-container,
@@ -102,7 +117,16 @@
     .entry-content .tablepress-table-description,
     .tablepress-table-description + table,
     .wp-block-table,
-    figure.wp-block-table {
+    figure.wp-block-table,
+    .wp-table-wrapper,
+    .wp-unbreakable-container,
+    .prop19-table-container,
+    .oc-comparison-wrapper,
+    .mv-table-wrapper,
+    .cesi-comparison-wrapper,
+    footer .cp-table-wrapper,
+    .wp-custom-table-container,
+    .gem-table {
         display: block !important;
         max-width: 100% !important;
         overflow-x: auto !important;
@@ -287,6 +311,49 @@
         display: block !important;
         min-height: 100px !important;
         width: 100% !important;
+        box-sizing: border-box !important;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   10. Collapsed content sections found in 2026-05-05 scan
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 782px) {
+    /* Agent info sections (listing detail pages) */
+    .agent-info-content,
+    .listing-agent-item,
+    .agent-info-item {
+        display: block !important;
+        min-height: 20px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Jetpack related posts */
+    .jp-relatedposts,
+    .jp-relatedposts-items {
+        display: block !important;
+        min-height: 40px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* KCM blog widget + blog disclaimer */
+    #kcm-daily-blog-ig,
+    #blog-disclaimer {
+        display: block !important;
+        min-height: 20px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* MediaElement.js player containers (legacy post embeds) */
+    .mejs-container,
+    .mejs-inner,
+    .mejs-layers {
+        min-height: 30px !important;
+        width: 100% !important;
+        max-width: 100% !important;
         box-sizing: border-box !important;
     }
 }
