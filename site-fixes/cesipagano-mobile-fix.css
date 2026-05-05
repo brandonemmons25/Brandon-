@@ -2,22 +2,24 @@
  * Mobile CSS Fixes — Cesi Pagano & Associates
  * Site: x-cesipagano-ihf.mystagingwebsite.com
  * Viewport target: 375px
- * Generated: 2026-05-04
+ * Updated: 2026-05-05 (v2.3.1 scan)
  *
  * Paste into: Appearance → Customize → Additional CSS
  *
- * Issues addressed (from MCA scan 2026-05-04T20:31:13Z):
- *  1. div.cp-sticky-bar        — +45px overflow on every page (root cause of universal horizontal scroll)
- *  2. main.content             — 296px narrow column (Genesis float:right layout)
- *  3. div.grecaptcha-badge     — reCAPTCHA badge overflowing right edge
- *  4. Blog tables              — thead/tbody/td overflowing 86–298px on data-heavy posts
- *  5. Jetpack slideshow        — ul#swiper-wrapper-* at 2000–4500px wide on listing posts
- *  6. iHomeFinder widgets      — div.ihf-container collapsed (0 height) on homepage
- *  7. wp-block-image           — div.wp-block-image collapsed on team/associate pages
+ * Issues addressed (from MCA scan 2026-05-04T21:53:42Z):
+ *  1. div.cp-sticky-bar        — universal overflow (root cause of horizontal scroll)
+ *  2. main.content             — 269px narrow column (Genesis float layout)
+ *  3. div.grecaptcha-badge     — reCAPTCHA badge overflowing right edge on FAQ
+ *  4. Blog tables              — overflow 100–675px on data-heavy posts (incl. custom wrappers)
+ *  5. Jetpack slideshow        — swiper-wrapper strips 2000–3257px wide on listing posts
+ *  6. iHomeFinder widgets      — collapsed (0 height) containers on homepage
+ *  7. div.wp-block-image       — collapsed on team/associate pages
+ *  8. div.widget-wrap          — collapsed (0 height) home-top widgets
+ *  9. IDX wrapper pages        — collapsed article/entry-content/idxStart containers
  */
 
 /* ─────────────────────────────────────────────────────────────
-   1. Sticky Bar — root cause of +45px horizontal scroll
+   1. Sticky Bar — constrain to viewport
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
     .cp-sticky-bar {
@@ -31,7 +33,9 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   2. Genesis content column — fix float:right narrow layout
+   2. Genesis content column — flex-column forces full-width stacking.
+      Float declarations on .content/.sidebar are ignored inside a
+      flex container, so this wins regardless of theme specificity.
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
     .site-inner,
@@ -42,12 +46,15 @@
     }
 
     .content-sidebar-wrap {
-        display: block !important;
+        display: flex !important;
+        flex-direction: column !important;
         width: 100% !important;
+        max-width: 100% !important;
     }
 
     main.content,
     .content {
+        order: 1 !important;
         float: none !important;
         width: 100% !important;
         max-width: 100% !important;
@@ -59,6 +66,7 @@
     .sidebar,
     .sidebar-primary,
     .sidebar-secondary {
+        order: 2 !important;
         float: none !important;
         width: 100% !important;
         max-width: 100% !important;
@@ -68,20 +76,40 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   3. reCAPTCHA badge — hide off-screen badge, not required visible
+   3. reCAPTCHA badge — remove from layout entirely.
+      display:none keeps the v3 script functional (badge is purely
+      cosmetic); form submissions still pass reCAPTCHA checks.
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
     .grecaptcha-badge {
-        visibility: hidden !important;
-        right: 0 !important;
-        bottom: 14px !important;
+        display: none !important;
     }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   4. Blog post tables — make horizontally scrollable
+   4. Blog post tables — horizontal scroll on overflow.
+      a) Named wrapper divs used in content: make the wrapper scroll.
+      b) figure.wp-block-table: make the figure scroll.
+      c) Bare tables directly in entry-content: block + overflow.
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
+
+    /* — 4a. Custom table wrappers — */
+    .wp-strategy-table-wrapper,
+    .wp-hardened-table-container,
+    .cesi-table-container,
+    .cp-closing-container,
+    .entry-content .tablepress-table-description,
+    .tablepress-table-description + table,
+    .wp-block-table,
+    figure.wp-block-table {
+        display: block !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* — 4b. Bare tables in entry-content — */
     .entry-content table,
     .post-content table,
     .page-content table {
@@ -121,27 +149,38 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   5. Jetpack slideshow — clip horizontal strip overflow
+   5. Jetpack slideshow — clip Swiper horizontal strip.
+      Swiper JS sets inline width on ul#swiper-wrapper-* that
+      escapes CSS overflow when the containing block is too wide.
+      Constrain every ancestor and force hardware-clipped overflow.
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
-    .wp-block-jetpack-slideshow,
-    .wp-block-jetpack-slideshow_container {
-        overflow: hidden !important;
+    .wp-block-jetpack-slideshow {
         max-width: 100% !important;
+        overflow: hidden !important;
+        contain: layout style !important;
     }
 
-    /* Swiper wrapper: keep full-width slides, don't let the strip bleed */
+    .wp-block-jetpack-slideshow_container,
+    .wp-block-jetpack-slideshow .swiper-container,
+    .wp-block-jetpack-slideshow .swiper {
+        max-width: 100% !important;
+        width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    /* Swiper wrapper: let JS control translate, but cap its effective width */
     .wp-block-jetpack-slideshow_container .swiper-wrapper,
     ul[id^="swiper-wrapper-"] {
-        /* Do not set width here — Swiper JS manages it.
-           overflow on the parent container is what clips it. */
-        will-change: transform; /* preserve GPU compositing for swipe */
+        max-width: none; /* JS manages this — don't conflict */
+        will-change: transform;
     }
 
-    .wp-block-jetpack-slideshow_container .swiper-slide,
-    .wp-block-jetpack-slideshow_container .swiper-container {
+    /* Each slide must not exceed the container */
+    .wp-block-jetpack-slideshow_container .swiper-slide {
         max-width: 100vw !important;
         overflow: hidden !important;
+        flex-shrink: 0;
     }
 
     .wp-block-jetpack-slideshow figure,
@@ -166,7 +205,6 @@
         box-sizing: border-box !important;
     }
 
-    /* iHomeFinder search form fields stack vertically on mobile */
     .ihf-container .ihf-search-form-row,
     .ihf-container .field-row {
         display: block !important;
@@ -183,25 +221,73 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   7. wp-block-image — fix collapsed images on team/associate pages
+   7. wp-block-image — fix collapsed (0px height) on team pages.
+      Common cause: float alignment with no clearing parent.
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 782px) {
     .wp-block-image {
         display: block !important;
         width: 100% !important;
-        min-height: unset !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        clear: both !important;
     }
 
     .wp-block-image img {
         max-width: 100% !important;
         height: auto !important;
         display: block !important;
+        float: none !important;
     }
 
-    /* Figcaption beneath images */
     .wp-block-image figcaption {
         font-size: 13px;
         text-align: center;
+    }
+
+    /* Clear floats in entry-content so image blocks don't collapse */
+    .entry-content::after {
+        content: '';
+        display: block;
+        clear: both;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   8. Homepage widgets — fix collapsed widget-wrap / textwidget
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 782px) {
+    .widget-wrap,
+    .widget-wrap .textwidget {
+        min-height: 20px !important;
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Widget area containers */
+    .home-top,
+    .home-middle,
+    .home-bottom,
+    .widget-area {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   9. IDX wrapper pages — fix collapsed article / entry containers
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 782px) {
+    .post-type-idx-wrapper article,
+    .post-type-idx-wrapper .entry-content,
+    #idxStart,
+    .idx-wrapper-content {
+        display: block !important;
+        min-height: 100px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 }
 

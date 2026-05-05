@@ -92,9 +92,10 @@ class MCA_Admin {
             <h1>Mobile CSS Audit <span style="font-size:13px;font-weight:400;color:#888;">v<?php echo MCA_VERSION; ?></span></h1>
             <p>Scans all published pages at <strong>375px</strong> viewport for overflow and layout issues. Output is compact — designed to be pasted into Claude.</p>
 
-            <div style="margin:16px 0;display:flex;gap:12px;align-items:center;">
-                <button id="mca-run" class="button button-primary button-large">▶ Run Full Site Scan</button>
+            <div style="margin:16px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                <button id="mca-run" class="button button-primary button-large">&#9654; Run Full Site Scan</button>
                 <button id="mca-copy" class="button button-large" disabled>Copy Output</button>
+                <button id="mca-copy-filtered" class="button button-large" disabled style="display:none;">Copy Filtered</button>
                 <span id="mca-status" style="color:#888;font-style:italic;"></span>
             </div>
 
@@ -105,6 +106,19 @@ class MCA_Admin {
                 <p id="mca-progress-label" style="font-size:12px;color:#666;margin-top:4px;"></p>
             </div>
 
+            <!-- Search / filter bar — shown after scan completes -->
+            <div id="mca-search-bar" style="display:none;margin-bottom:10px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+                <input id="mca-search" type="search" placeholder="Search URL or page title…"
+                    style="flex:1;min-width:220px;max-width:380px;padding:6px 10px;font-size:13px;border:1px solid #8c8f94;border-radius:4px;" />
+                <span style="font-size:13px;color:#666;">Filter:</span>
+                <button class="mca-filter button" data-filter="all">All</button>
+                <button class="mca-filter button" data-filter="overflow">Overflow only</button>
+                <button class="mca-filter button" data-filter="collapsed">Collapsed only</button>
+                <button class="mca-filter button" data-filter="issues">Issues only</button>
+                <button class="mca-filter button" data-filter="clean">Clean only</button>
+                <span id="mca-count" style="font-size:12px;color:#888;margin-left:4px;"></span>
+            </div>
+
             <textarea id="mca-output" readonly
                 style="width:100%;height:520px;font-family:monospace;font-size:12px;line-height:1.5;background:#0d1117;color:#e6edf3;border:1px solid #333;border-radius:4px;padding:12px;box-sizing:border-box;resize:vertical;"
                 placeholder="Scan results will appear here…"></textarea>
@@ -112,23 +126,30 @@ class MCA_Admin {
 
         <script>
         (function () {
-            var ajaxUrl  = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+            var ajaxUrl    = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
             var adminNonce = <?php echo wp_json_encode( $admin_nonce ); ?>;
             var probeNonce  = '';
-            var lines       = [];
+            var lines       = [];   // raw per-page report strings
+            var pageBlocks  = [];   // same reference, named for clarity
+            var scanHeader  = '';   // "MOBILE CSS AUDIT SUMMARY\n..." line
             var urls        = [];
             var current     = 0;
             var scanWindow  = null;
             var pageTimer   = null;
-            var PAGE_TIMEOUT = 10000; // ms before skipping a non-responsive page
+            var activeFilter = 'all';
+            var PAGE_TIMEOUT = 10000;
 
-            var $run    = document.getElementById('mca-run');
-            var $copy   = document.getElementById('mca-copy');
-            var $status = document.getElementById('mca-status');
-            var $out    = document.getElementById('mca-output');
-            var $prog   = document.getElementById('mca-progress');
-            var $bar    = document.getElementById('mca-bar');
-            var $label  = document.getElementById('mca-progress-label');
+            var $run          = document.getElementById('mca-run');
+            var $copy         = document.getElementById('mca-copy');
+            var $copyFiltered = document.getElementById('mca-copy-filtered');
+            var $status       = document.getElementById('mca-status');
+            var $out          = document.getElementById('mca-output');
+            var $prog         = document.getElementById('mca-progress');
+            var $bar          = document.getElementById('mca-bar');
+            var $label        = document.getElementById('mca-progress-label');
+            var $searchBar    = document.getElementById('mca-search-bar');
+            var $search       = document.getElementById('mca-search');
+            var $count        = document.getElementById('mca-count');
 
             // ── Listen for probe results ─────────────────────────────────────
             window.addEventListener('message', function (e) {
@@ -152,19 +173,22 @@ class MCA_Admin {
             $run.addEventListener('click', function () {
                 $run.disabled = true;
                 $copy.disabled = true;
+                $copyFiltered.disabled = true;
+                $copyFiltered.style.display = 'none';
+                $searchBar.style.display = 'none';
                 $status.textContent = 'Fetching URL list…';
                 $out.value = '';
                 lines  = [];
                 urls   = [];
                 current = 0;
+                activeFilter = 'all';
+                setActiveFilterBtn('all');
 
-                // Step 1: Get nonce value.
                 fetch(ajaxUrl + '?action=mca_get_nonce_val&nonce=' + adminNonce)
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
                         if (!res.success) throw new Error('Could not get nonce');
                         probeNonce = res.data;
-                        // Step 2: Get URLs.
                         return fetch(ajaxUrl + '?action=mca_get_urls&nonce=' + adminNonce);
                     })
                     .then(function (r) { return r.json(); })
@@ -195,7 +219,6 @@ class MCA_Admin {
 
                 $label.textContent = '(' + (current + 1) + '/' + urls.length + ') ' + urls[current];
 
-                // Skip this page if no postMessage arrives within PAGE_TIMEOUT ms.
                 clearTimeout(pageTimer);
                 pageTimer = setTimeout(function () {
                     lines.push('PAGE: (skipped — timeout)\nURL: ' + urls[current] + '\n--- SKIPPED: no response within ' + (PAGE_TIMEOUT / 1000) + 's ---\n------------------------------------------------------------');
@@ -209,30 +232,101 @@ class MCA_Admin {
                 $bar.style.width = pct + '%';
             }
 
-            // ── Finish: compile output ───────────────────────────────────────
+            // ── Finish: compile output and show search bar ───────────────────
             function finishScan() {
                 if (scanWindow && !scanWindow.closed) scanWindow.close();
 
-                var ts     = new Date().toISOString();
-                var header = 'MOBILE CSS AUDIT SUMMARY\nGenerated: ' + ts + '\n' +
+                var ts = new Date().toISOString();
+                scanHeader = 'MOBILE CSS AUDIT SUMMARY\nGenerated: ' + ts + '\n' +
                              '============================================================\n\n';
+                pageBlocks = lines.slice();
 
-                $out.value = header + lines.join('\n\n');
+                renderOutput();
 
-                $run.disabled   = false;
-                $copy.disabled  = false;
+                $run.disabled  = false;
+                $copy.disabled = false;
+                $copyFiltered.style.display = 'inline-block';
+                $copyFiltered.disabled = false;
                 $status.textContent = '✓ Done — ' + urls.length + ' pages scanned.';
                 $label.textContent  = '';
                 $bar.style.width    = '100%';
+
+                // Show search bar
+                $searchBar.style.display = 'flex';
             }
 
-            // ── Copy button ──────────────────────────────────────────────────
+            // ── Search and filter logic ──────────────────────────────────────
+            function renderOutput() {
+                var term    = ($search ? $search.value : '').toLowerCase().trim();
+                var filter  = activeFilter;
+                var total   = pageBlocks.length;
+
+                var matched = pageBlocks.filter(function (block) {
+                    if (term && block.toLowerCase().indexOf(term) === -1) return false;
+                    if (filter === 'overflow'  && block.indexOf('Overflow: YES')        === -1) return false;
+                    if (filter === 'collapsed' && block.indexOf('COLLAPSED ELEMENTS')   === -1) return false;
+                    if (filter === 'issues'    && block.indexOf('Overflow: YES')        === -1
+                                               && block.indexOf('COLLAPSED ELEMENTS')  === -1) return false;
+                    if (filter === 'clean'     && (block.indexOf('Overflow: YES')       !== -1
+                                               || block.indexOf('COLLAPSED ELEMENTS')  !== -1)) return false;
+                    return true;
+                });
+
+                var filterNote = '';
+                if (filter !== 'all' || term) {
+                    var parts = [];
+                    if (filter !== 'all') parts.push(filter);
+                    if (term) parts.push('"' + term + '"');
+                    filterNote = 'Filter: ' + parts.join(' + ') + '\n';
+                }
+                filterNote += 'Showing ' + matched.length + ' of ' + total + ' pages\n';
+
+                $out.value = scanHeader.replace(/\n\n$/, '\n') + filterNote + '\n' + matched.join('\n\n');
+
+                if ($count) $count.textContent = matched.length + ' / ' + total + ' pages';
+            }
+
+            // ── Filter buttons ───────────────────────────────────────────────
+            document.querySelectorAll('.mca-filter').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    activeFilter = this.getAttribute('data-filter');
+                    setActiveFilterBtn(activeFilter);
+                    renderOutput();
+                });
+            });
+
+            function setActiveFilterBtn(filter) {
+                document.querySelectorAll('.mca-filter').forEach(function (b) {
+                    b.classList.toggle('button-primary', b.getAttribute('data-filter') === filter);
+                });
+            }
+
+            // ── Search input ─────────────────────────────────────────────────
+            if ($search) {
+                $search.addEventListener('input', function () { renderOutput(); });
+            }
+
+            // ── Copy full output ─────────────────────────────────────────────
             $copy.addEventListener('click', function () {
+                var saved = $out.value;
+                $out.value = scanHeader + pageBlocks.join('\n\n');
                 $out.select();
                 document.execCommand('copy');
+                $out.value = saved;
                 $copy.textContent = 'Copied!';
                 setTimeout(function () { $copy.textContent = 'Copy Output'; }, 2000);
             });
+
+            // ── Copy filtered output (what's currently visible) ──────────────
+            $copyFiltered.addEventListener('click', function () {
+                $out.select();
+                document.execCommand('copy');
+                $copyFiltered.textContent = 'Copied!';
+                setTimeout(function () { $copyFiltered.textContent = 'Copy Filtered'; }, 2000);
+            });
+
+            // Initialise filter buttons: 'All' starts active
+            setActiveFilterBtn('all');
         }());
         </script>
         <?php
