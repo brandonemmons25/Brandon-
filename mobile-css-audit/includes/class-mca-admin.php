@@ -90,12 +90,13 @@ class MCA_Admin {
         ?>
         <div class="wrap">
             <h1>Mobile CSS Audit <span style="font-size:13px;font-weight:400;color:#888;">v<?php echo MCA_VERSION; ?></span></h1>
-            <p>Scans all published pages at <strong>375px</strong> viewport for overflow and layout issues. Output is compact — designed to be pasted into Claude.</p>
+            <p>Scans all published pages at <strong>375px</strong> viewport. Detects overflow, collapsed elements, and narrow content columns — then generates a ready-to-paste CSS fix via <strong>Fix Summary</strong>.</p>
 
             <div style="margin:16px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                 <button id="mca-run" class="button button-primary button-large">&#9654; Run Full Site Scan</button>
                 <button id="mca-copy" class="button button-large" disabled>Copy Output</button>
                 <button id="mca-copy-filtered" class="button button-large" disabled style="display:none;">Copy Filtered</button>
+                <button id="mca-fix-summary" class="button button-large" disabled style="display:none;">Fix Summary</button>
                 <span id="mca-status" style="color:#888;font-style:italic;"></span>
             </div>
 
@@ -142,6 +143,7 @@ class MCA_Admin {
             var $run          = document.getElementById('mca-run');
             var $copy         = document.getElementById('mca-copy');
             var $copyFiltered = document.getElementById('mca-copy-filtered');
+            var $fixSummary   = document.getElementById('mca-fix-summary');
             var $status       = document.getElementById('mca-status');
             var $out          = document.getElementById('mca-output');
             var $prog         = document.getElementById('mca-progress');
@@ -175,6 +177,8 @@ class MCA_Admin {
                 $copy.disabled = true;
                 $copyFiltered.disabled = true;
                 $copyFiltered.style.display = 'none';
+                $fixSummary.disabled = true;
+                $fixSummary.style.display = 'none';
                 $searchBar.style.display = 'none';
                 $status.textContent = 'Fetching URL list…';
                 $out.value = '';
@@ -247,6 +251,8 @@ class MCA_Admin {
                 $copy.disabled = false;
                 $copyFiltered.style.display = 'inline-block';
                 $copyFiltered.disabled = false;
+                $fixSummary.style.display = 'inline-block';
+                $fixSummary.disabled = false;
                 $status.textContent = '✓ Done — ' + urls.length + ' pages scanned.';
                 $label.textContent  = '';
                 $bar.style.width    = '100%';
@@ -323,6 +329,48 @@ class MCA_Admin {
                 document.execCommand('copy');
                 $copyFiltered.textContent = 'Copied!';
                 setTimeout(function () { $copyFiltered.textContent = 'Copy Filtered'; }, 2000);
+            });
+
+            // ── Fix Summary: aggregate unique Fix → lines into CSS output ─────
+            function buildFixSummary() {
+                var fixes = new Map(); // css → page count
+                pageBlocks.forEach(function (block) {
+                    var m = block.match(/^Fix → (.+)$/m);
+                    if (m) {
+                        var rule = m[1].trim();
+                        fixes.set(rule, (fixes.get(rule) || 0) + 1);
+                    }
+                });
+
+                if (!fixes.size) {
+                    return scanHeader + '/* No layout fix suggestions — all content appears full-width. */\n';
+                }
+
+                var rules = [], comments = [];
+                fixes.forEach(function (count, rule) {
+                    var annotation = count > 1 ? ' /* ' + count + ' pages */' : '';
+                    if (rule.startsWith('@media')) {
+                        rules.push(rule + annotation);
+                    } else {
+                        comments.push(rule + (count > 1 ? ' /* ' + count + 'x */' : ''));
+                    }
+                });
+
+                var ts  = new Date().toISOString();
+                var out = '/* MCA Fix Summary — ' + ts + ' */\n';
+                out    += '/* Paste into: Appearance → Customize → Additional CSS */\n\n';
+                if (rules.length)    out += rules.join('\n\n') + '\n';
+                if (comments.length) out += '\n/* Needs manual inspection: */\n' + comments.join('\n') + '\n';
+                return out;
+            }
+
+            $fixSummary.addEventListener('click', function () {
+                $out.value = buildFixSummary();
+                $out.select();
+                document.execCommand('copy');
+                $fixSummary.textContent = 'Copied!';
+                $status.textContent = 'Fix CSS copied — paste into Additional CSS. Click any filter to restore scan view.';
+                setTimeout(function () { $fixSummary.textContent = 'Fix Summary'; }, 2000);
             });
 
             // Initialise filter buttons: 'All' starts active

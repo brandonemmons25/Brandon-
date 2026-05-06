@@ -69,9 +69,9 @@ class MCA_Probe {
                     lines.push('--- NO OVERFLOW ---');
                 }
 
-                // ── Content width (main issue signal) ───────────────────────
-                var contentInfo = getContentWidth();
-                if (contentInfo) lines.push('--- CONTENT WIDTH: ' + contentInfo + ' ---');
+                // ── Layout diagnosis (only when content is narrow) ───────────
+                var diagLines = diagnoseLayout(vp);
+                if (diagLines) lines.push(diagLines);
 
                 // ── Navigation ──────────────────────────────────────────────
                 var navInfo = getNavInfo(vp);
@@ -167,23 +167,91 @@ class MCA_Probe {
                 return results;
             }
 
-            // ── Detect actual content column width ───────────────────────────
-            function getContentWidth() {
-                var candidates = [
-                    'main.content', '.content', '#content', 'main', '[role="main"]',
-                    '.site-inner', '.entry-content', '.page-content',
+            // ── Layout diagnosis: detect content element, why it's narrow,
+            //    and emit a ready-to-use CSS fix. Returns '' when full-width. ─
+            function diagnoseLayout(vp) {
+                // Collect theme/layout signals from body classes.
+                var bc = (document.body.className || '').trim().split(/\s+/);
+                var layoutClasses = bc.filter(function (c) {
+                    return /^(genesis|et-pb|ast-|elementor|oxy-|fl-builder|flatsome|ocean|avada|salient|porto|woodmart|storefront|hello-elementor|neve|generatepress|kadence|blocksy|twentytwenty|twentyone|twentytwo|twentythree|twentyfour|twentyfive)/.test(c)
+                        || c === 'full-width-content' || c === 'content-sidebar' || c === 'sidebar-content'
+                        || c === 'no-sidebar' || c === 'page-template-default';
+                }).slice(0, 4);
+
+                // Find the main content element (priority order).
+                var sels = [
+                    'main.content', 'main#main', '#main-content', '#content-area',
+                    '.site-content', 'main', '.content', '#content', '#main',
+                    '[role="main"]', '.entry-content'
                 ];
-                for (var i = 0; i < candidates.length; i++) {
-                    var el = document.querySelector(candidates[i]);
-                    if (!el) continue;
-                    var w = Math.round(el.getBoundingClientRect().width);
-                    if (w < 10) continue;
-                    var cs = getComputedStyle(el);
-                    var extra = '';
-                    if (cs.float && cs.float !== 'none') extra = ' float:' + cs.float;
-                    return candidates[i] + ' → ' + w + 'px' + extra;
+                var contentEl = null, contentSel = '';
+                for (var i = 0; i < sels.length; i++) {
+                    try {
+                        var el = document.querySelector(sels[i]);
+                        if (el && !el.closest('#wpadminbar') && el.getBoundingClientRect().width > 20) {
+                            contentEl = el; contentSel = sels[i]; break;
+                        }
+                    } catch(e) {}
                 }
-                return '';
+                if (!contentEl) return '';
+
+                var cs     = getComputedStyle(contentEl);
+                var rect   = contentEl.getBoundingClientRect();
+                var w      = Math.round(rect.width);
+                var floatV = cs.float || '';
+                var dispV  = cs.display;
+
+                // Only report when content is genuinely narrow.
+                if (w >= vp - 2) return '';
+
+                // Parent chain — up to 5 levels with layout hints.
+                var chain = [];
+                var nd = contentEl.parentElement;
+                for (var d = 0; nd && nd.tagName !== 'BODY' && d < 5; d++, nd = nd.parentElement) {
+                    var pr  = nd.getBoundingClientRect();
+                    var pcs = getComputedStyle(nd);
+                    var pw  = Math.round(pr.width);
+                    var ps  = makeSel(nd) + '[' + pw + 'px';
+                    if (pcs.display === 'flex')      ps += ',flex';
+                    else if (pcs.display === 'grid') ps += ',grid';
+                    if (pcs.overflowX === 'hidden')  ps += ',ovf:hidden';
+                    var pmx = pcs.maxWidth;
+                    if (pmx && pmx !== 'none' && pmx !== pw + 'px') ps += ',max:' + pmx;
+                    chain.push(ps + ']');
+                }
+
+                // Build a CSS fix suggestion (single line, parseable by admin).
+                var bodyPfx  = layoutClasses.length ? 'body.' + layoutClasses[0] : 'body';
+                var nearPar  = chain.length ? chain[0].split('[')[0] : '';
+                var fix = '';
+
+                if (floatV && floatV !== 'none') {
+                    // Classic float-column layout (Genesis, older themes).
+                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                } else if (dispV === 'flex' || dispV === 'inline-flex') {
+                    // Flex child that needs to go full-width.
+                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                } else if (dispV === 'grid' || dispV === 'inline-grid') {
+                    // Grid layout — collapse parent columns to single track.
+                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; } }';
+                } else {
+                    var mxSelf = cs.maxWidth;
+                    if (mxSelf && mxSelf !== 'none' && parseInt(mxSelf) < vp) {
+                        fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; } }';
+                    } else {
+                        fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
+                    }
+                }
+
+                var out = [];
+                out.push('--- LAYOUT DIAGNOSIS ---');
+                if (layoutClasses.length) out.push('Theme: ' + layoutClasses.join(' '));
+                out.push('Content: ' + contentSel + ' | ' + w + 'px NARROW' +
+                    (floatV && floatV !== 'none' ? ' | float:' + floatV + ' (' + cs.width + ')' : '') +
+                    (dispV !== 'block' ? ' | display:' + dispV : ''));
+                if (chain.length) out.push('Parents: ' + chain.join(' > '));
+                out.push('Fix → ' + fix);
+                return out.join('\n');
             }
 
             // ── Nav status ──────────────────────────────────────────────────
