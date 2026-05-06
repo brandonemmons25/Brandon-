@@ -331,36 +331,129 @@ class MCA_Admin {
                 setTimeout(function () { $copyFiltered.textContent = 'Copy Filtered'; }, 2000);
             });
 
-            // ── Fix Summary: aggregate unique Fix → lines into CSS output ─────
+            // ── Fix Summary: full CSS rewrite from scan data ──────────────────
+            // Parses every issue type (layout, overflow, collapsed) across all
+            // page blocks, deduplicates by selector, and emits a complete CSS
+            // file ready to paste into Additional CSS — replacing it entirely.
             function buildFixSummary() {
-                var fixes = new Map(); // css → page count
+                var layoutFixes  = new Map(); // @media rule → page count
+                var layoutManual = [];        // inspect comments
+                var overflowEls  = new Map(); // sel → { excess, count, type }
+                var collapsedEls = new Map(); // sel → count
+
                 pageBlocks.forEach(function (block) {
-                    var m = block.match(/^Fix → (.+)$/m);
-                    if (m) {
-                        var rule = m[1].trim();
-                        fixes.set(rule, (fixes.get(rule) || 0) + 1);
+                    // Layout fix line
+                    var lm = block.match(/^Fix → (.+)$/m);
+                    if (lm) {
+                        var rule = lm[1].trim();
+                        if (rule.startsWith('@media')) {
+                            layoutFixes.set(rule, (layoutFixes.get(rule) || 0) + 1);
+                        } else {
+                            if (layoutManual.indexOf(rule) === -1) layoutManual.push(rule);
+                        }
+                    }
+
+                    // Overflow culprits section
+                    var ofm = block.match(/--- OVERFLOW CULPRITS[^\n]*\n([\s\S]*?)(?=\n---)/);
+                    if (ofm) {
+                        ofm[1].split('\n').forEach(function (line) {
+                            var m = line.match(/^\s+(\S+)\s*\|[^|]*excess=\+(\d+)px/);
+                            if (!m) return;
+                            var sel = m[1], excess = parseInt(m[2], 10);
+                            var prev = overflowEls.get(sel) || { excess: 0, count: 0, type: ofType(sel) };
+                            overflowEls.set(sel, { excess: Math.max(excess, prev.excess), count: prev.count + 1, type: prev.type });
+                        });
+                    }
+
+                    // Collapsed elements section
+                    var colm = block.match(/--- COLLAPSED ELEMENTS[^\n]*\n([\s\S]*?)(?=\n---)/);
+                    if (colm) {
+                        colm[1].split('\n').forEach(function (line) {
+                            var m = line.match(/^\s+(\S+)\s*\|/);
+                            if (!m) return;
+                            collapsedEls.set(m[1], (collapsedEls.get(m[1]) || 0) + 1);
+                        });
                     }
                 });
 
-                if (!fixes.size) {
-                    return scanHeader + '/* No layout fix suggestions — all content appears full-width. */\n';
+                // Classify overflow element fix strategy by tag/class
+                function ofType(sel) {
+                    var tag = (sel.match(/^([a-z]+)/i) || ['',''])[1].toLowerCase();
+                    if (/^(table|figure)$/.test(tag) || /\.(wp-block-table|tablepress)/.test(sel)) return 'table';
+                    if (/^(img|video|iframe|embed)$/.test(tag)) return 'media';
+                    return 'block';
                 }
 
-                var rules = [], comments = [];
-                fixes.forEach(function (count, rule) {
-                    var annotation = count > 1 ? ' /* ' + count + ' pages */' : '';
-                    if (rule.startsWith('@media')) {
-                        rules.push(rule + annotation);
-                    } else {
-                        comments.push(rule + (count > 1 ? ' /* ' + count + 'x */' : ''));
-                    }
-                });
+                // Prefer .class or #id over bare tag for CSS selector
+                function asSel(raw) {
+                    var id  = raw.match(/#([^.]+)/);
+                    var cls = raw.match(/\.(.+)/);
+                    if (id)  return '#' + id[1];
+                    if (cls) return '.' + cls[1];
+                    return raw;
+                }
 
+                // ── Assemble output ──────────────────────────────────────────
                 var ts  = new Date().toISOString();
-                var out = '/* MCA Fix Summary — ' + ts + ' */\n';
-                out    += '/* Paste into: Appearance → Customize → Additional CSS */\n\n';
-                if (rules.length)    out += rules.join('\n\n') + '\n';
-                if (comments.length) out += '\n/* Needs manual inspection: */\n' + comments.join('\n') + '\n';
+                var out = '/*\n';
+                out    += ' * Mobile CSS — ' + location.hostname + '\n';
+                out    += ' * Generated: MCA v<?php echo MCA_VERSION; ?> — ' + ts + '\n';
+                out    += ' * Paste into: Appearance → Customize → Additional CSS\n';
+                out    += ' * Replace the entire contents — do not append.\n';
+                out    += ' */\n';
+
+                // 1. Layout
+                if (layoutFixes.size) {
+                    out += '\n/* ─── Layout ─────────────────────────────────────────── */\n';
+                    layoutFixes.forEach(function (cnt, rule) {
+                        out += rule + (cnt > 1 ? ' /* ' + cnt + ' pages */' : '') + '\n\n';
+                    });
+                }
+
+                // 2. Overflow culprits
+                if (overflowEls.size) {
+                    out += '\n/* ─── Overflow culprits ──────────────────────────────── */\n';
+                    out += '@media (max-width:782px) {\n';
+                    overflowEls.forEach(function (info, raw) {
+                        var s    = asSel(raw);
+                        var note = info.count > 1
+                            ? ' /* ' + info.count + ' pages, max +' + info.excess + 'px */'
+                            : ' /* +' + info.excess + 'px */';
+                        var props;
+                        if (info.type === 'table') {
+                            props = 'display:block!important; max-width:100%!important; overflow-x:auto!important; -webkit-overflow-scrolling:touch!important;';
+                        } else if (info.type === 'media') {
+                            props = 'max-width:100%!important; width:100%!important; height:auto!important;';
+                        } else {
+                            props = 'max-width:100%!important; overflow:hidden!important; box-sizing:border-box!important;';
+                        }
+                        out += '    ' + s + ' {' + note + '\n        ' + props + ' }\n';
+                    });
+                    out += '}\n';
+                }
+
+                // 3. Collapsed (0-height) elements
+                if (collapsedEls.size) {
+                    out += '\n/* ─── Collapsed (0-height) elements ─────────────────── */\n';
+                    out += '@media (max-width:782px) {\n';
+                    collapsedEls.forEach(function (cnt, raw) {
+                        var s    = asSel(raw);
+                        var note = cnt > 1 ? ' /* ' + cnt + ' pages */' : '';
+                        out += '    ' + s + ' {' + note + '\n        display:block!important; min-height:20px!important; width:100%!important; box-sizing:border-box!important; }\n';
+                    });
+                    out += '}\n';
+                }
+
+                // 4. Manual inspection needed
+                if (layoutManual.length) {
+                    out += '\n/* ─── Needs manual inspection ───────────────────────── */\n';
+                    layoutManual.forEach(function (c) { out += c + '\n'; });
+                }
+
+                // 5. Catch-all guard (always included)
+                out += '\n/* ─── Catch-all overflow guard ──────────────────────── */\n';
+                out += '@media (max-width:782px) {\n    html, body { overflow-x:hidden!important; max-width:100%!important; }\n}\n';
+
                 return out;
             }
 
@@ -369,7 +462,7 @@ class MCA_Admin {
                 $out.select();
                 document.execCommand('copy');
                 $fixSummary.textContent = 'Copied!';
-                $status.textContent = 'Fix CSS copied — paste into Additional CSS. Click any filter to restore scan view.';
+                $status.textContent = 'Complete CSS copied — replace Additional CSS entirely. Click any filter to restore scan view.';
                 setTimeout(function () { $fixSummary.textContent = 'Fix Summary'; }, 2000);
             });
 
