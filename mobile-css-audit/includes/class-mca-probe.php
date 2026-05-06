@@ -25,15 +25,14 @@ class MCA_Probe {
         (function () {
             'use strict';
 
-            var VP = <?php echo (int) $viewport; ?>;
+            var VP = <?php echo (int) $viewport; ?>; // measurement viewport
+            var BP = 782;                             // CSS breakpoint (WP mobile)
 
             function run() {
                 var report = buildReport(VP);
-                // Send compact data to the controller window via postMessage.
                 if (window.opener && !window.opener.closed) {
                     window.opener.postMessage({ mca: true, report: report }, '*');
                 } else {
-                    // Fallback: write to page so user can copy.
                     var pre = document.createElement('pre');
                     pre.id  = 'mca-output';
                     pre.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;overflow:auto;z-index:999999;background:#111;color:#0f0;font:12px/1.5 monospace;padding:16px;white-space:pre-wrap;';
@@ -50,7 +49,6 @@ class MCA_Probe {
                 var docH      = Math.round(document.documentElement.scrollHeight);
                 var overflow  = scrollW > vp ? 'YES +' + (scrollW - vp) + 'px' : 'no';
                 var bodyClass = (document.body.className || '').replace(/\s+/g, ' ').trim();
-                // Truncate body class list to save space.
                 if (bodyClass.length > 120) bodyClass = bodyClass.slice(0, 120) + '…';
 
                 lines.push('PAGE: ' + document.title);
@@ -64,6 +62,7 @@ class MCA_Probe {
                     lines.push('--- OVERFLOW CULPRITS (' + culprits.length + ') ---');
                     culprits.forEach(function (c) {
                         lines.push('  ' + c.sel + ' | right=' + c.right + 'px excess=+' + c.excess + 'px | w=' + c.w + 'px | ' + c.path);
+                        lines.push('Fix → ' + c.fix);
                     });
                 } else {
                     lines.push('--- NO OVERFLOW ---');
@@ -83,6 +82,7 @@ class MCA_Probe {
                     lines.push('--- COLLAPSED ELEMENTS (' + collapsed.length + ') ---');
                     collapsed.forEach(function (c) {
                         lines.push('  ' + c.sel + ' | ' + c.w + 'x0 | ' + c.path);
+                        lines.push('Fix → ' + c.fix);
                     });
                 }
 
@@ -101,17 +101,15 @@ class MCA_Probe {
                     var rect = el.getBoundingClientRect();
                     var right = Math.round(rect.right);
 
-                    if (right <= vp + 1) continue; // no overflow
+                    if (right <= vp + 1) continue;
 
                     var cs = getComputedStyle(el);
                     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
                     if (rect.width === 0 && rect.height === 0) continue;
-                    // Skip elements inside intentional scroll containers — their
-                    // overflow is user-scrollable, not a page-level layout bug.
                     if (isInsideScrollContainer(el)) continue;
 
-                    var sel  = makeSel(el);
-                    var key  = sel + right;
+                    var sel = makeSel(el);
+                    var key = sel + right;
                     if (seen.has(key)) continue;
                     seen.add(key);
 
@@ -121,15 +119,15 @@ class MCA_Probe {
                         excess: right - vp,
                         w:      Math.round(rect.width),
                         path:   cssPath(el, 4),
+                        fix:    generateOfFix(el),
                     });
                 }
 
-                // Sort by largest excess first, cap at 20 results.
                 results.sort(function (a, b) { return b.excess - a.excess; });
                 return results.slice(0, 20);
             }
 
-            // ── True if any ancestor (up to body) clips via overflow scroll ───
+            // ── True if any ancestor clips via overflow-x scroll ────────────
             function isInsideScrollContainer(el) {
                 var node = el.parentElement;
                 while (node && node !== document.body) {
@@ -138,6 +136,33 @@ class MCA_Probe {
                     node = node.parentElement;
                 }
                 return false;
+            }
+
+            // ── Generate CSS fix for an overflowing element ──────────────────
+            function generateOfFix(el) {
+                var cs  = getComputedStyle(el);
+                var tag = el.tagName.toLowerCase();
+                var s   = cssSel(el);
+                var mq  = '@media (max-width:' + BP + 'px) { ';
+
+                // Fixed/sticky — must stay within viewport bounds
+                if (cs.position === 'fixed' || cs.position === 'sticky') {
+                    return mq + s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; } }';
+                }
+                // Media — scale down
+                if (/^(img|video|iframe|embed|object)$/.test(tag)) {
+                    return mq + s + ' { max-width:100%!important; width:100%!important; height:auto!important; } }';
+                }
+                // Tables — horizontal scroll so content stays readable
+                if (tag === 'table') {
+                    return mq + s + ' { display:block!important; max-width:100%!important; overflow-x:auto!important; } }';
+                }
+                // Sliders / carousels — contain, JS manages inner width
+                if (/swiper|slider|carousel|glide|splide/.test(el.className || '')) {
+                    return mq + s + ' { max-width:100%!important; overflow:hidden!important; } }';
+                }
+                // Default block
+                return mq + s + ' { max-width:100%!important; box-sizing:border-box!important; } }';
             }
 
             // ── Detect collapsed (0-height) visible elements in main content ─
@@ -154,12 +179,13 @@ class MCA_Probe {
 
                     if (cs.display === 'none') continue;
                     if (rect.height > 0) continue;
-                    if (rect.width < 50) continue; // ignore tiny spacers
+                    if (rect.width < 50) continue;
 
                     results.push({
                         sel:  makeSel(el),
                         w:    Math.round(rect.width),
                         path: cssPath(el, 4),
+                        fix:  generateColFix(el),
                     });
 
                     if (results.length >= 10) break;
@@ -167,10 +193,19 @@ class MCA_Probe {
                 return results;
             }
 
+            // ── Generate CSS fix for a collapsed element ─────────────────────
+            function generateColFix(el) {
+                var tag  = el.tagName.toLowerCase();
+                var s    = cssSel(el);
+                var minH = /^(section|article|header|footer|aside|main)$/.test(tag) ? '60px' : '20px';
+                return '@media (max-width:' + BP + 'px) { ' + s + ' { display:block!important; min-height:' + minH + '!important; width:100%!important; box-sizing:border-box!important; } }';
+            }
+
             // ── Layout diagnosis: detect content element, why it's narrow,
             //    and emit a ready-to-use CSS fix. Returns '' when full-width. ─
             function diagnoseLayout(vp) {
-                // Collect theme/layout signals from body classes.
+                var out = [];
+
                 var bc = (document.body.className || '').trim().split(/\s+/);
                 var layoutClasses = bc.filter(function (c) {
                     return /^(genesis|et-pb|ast-|elementor|oxy-|fl-builder|flatsome|ocean|avada|salient|porto|woodmart|storefront|hello-elementor|neve|generatepress|kadence|blocksy|twentytwenty|twentyone|twentytwo|twentythree|twentyfour|twentyfive)/.test(c)
@@ -178,7 +213,6 @@ class MCA_Probe {
                         || c === 'no-sidebar' || c === 'page-template-default';
                 }).slice(0, 4);
 
-                // Find the main content element (priority order).
                 var sels = [
                     'main.content', 'main#main', '#main-content', '#content-area',
                     '.site-content', 'main', '.content', '#content', '#main',
@@ -201,10 +235,9 @@ class MCA_Probe {
                 var floatV = cs.float || '';
                 var dispV  = cs.display;
 
-                // Only report when content is genuinely narrow.
-                if (w >= vp - 2) return '';
+                if (w >= vp - 2) return ''; // full-width — nothing to report
 
-                // Parent chain — up to 5 levels with layout hints.
+                // Parent chain
                 var chain = [];
                 var nd = contentEl.parentElement;
                 for (var d = 0; nd && nd.tagName !== 'BODY' && d < 5; d++, nd = nd.parentElement) {
@@ -220,30 +253,25 @@ class MCA_Probe {
                     chain.push(ps + ']');
                 }
 
-                // Build a CSS fix suggestion (single line, parseable by admin).
-                var bodyPfx  = layoutClasses.length ? 'body.' + layoutClasses[0] : 'body';
-                var nearPar  = chain.length ? chain[0].split('[')[0] : '';
+                var bodyPfx = layoutClasses.length ? 'body.' + layoutClasses[0] : 'body';
+                var nearPar = chain.length ? chain[0].split('[')[0] : '';
                 var fix = '';
 
                 if (floatV && floatV !== 'none') {
-                    // Classic float-column layout (Genesis, older themes).
-                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
                 } else if (dispV === 'flex' || dispV === 'inline-flex') {
-                    // Flex child that needs to go full-width.
-                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
                 } else if (dispV === 'grid' || dispV === 'inline-grid') {
-                    // Grid layout — collapse parent columns to single track.
-                    fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; } }';
+                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; } }';
                 } else {
                     var mxSelf = cs.maxWidth;
                     if (mxSelf && mxSelf !== 'none' && parseInt(mxSelf) < vp) {
-                        fix = '@media (max-width:782px) { ' + bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; } }';
+                        fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; } }';
                     } else {
                         fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
                     }
                 }
 
-                var out = [];
                 out.push('--- LAYOUT DIAGNOSIS ---');
                 if (layoutClasses.length) out.push('Theme: ' + layoutClasses.join(' '));
                 out.push('Content: ' + contentSel + ' | ' + w + 'px NARROW' +
@@ -256,8 +284,6 @@ class MCA_Probe {
 
             // ── Nav status ──────────────────────────────────────────────────
             function getNavInfo(vp) {
-                // Try specific site-nav selectors before generic 'nav' to avoid
-                // matching the WP admin toolbar (#wp-toolbar contains nav[role="navigation"]).
                 var navSelectors = [
                     '.nav-primary', 'nav.nav-primary', 'header nav',
                     '.site-header nav', '#site-navigation',
@@ -273,23 +299,22 @@ class MCA_Probe {
                             nav = candidate;
                             break;
                         }
-                    } catch(e) { /* unsupported :not() syntax in old browsers */ }
+                    } catch(e) {}
                 }
                 if (!nav) return '';
 
-                var rect     = nav.getBoundingClientRect();
-                var cs       = getComputedStyle(nav);
-                var hidden   = cs.display === 'none' || rect.height === 0;
+                var rect      = nav.getBoundingClientRect();
+                var cs        = getComputedStyle(nav);
+                var hidden    = cs.display === 'none' || rect.height === 0;
                 var hamburger = !!document.querySelector(
                     '.menu-toggle, .hamburger, [aria-label*="menu" i], button.nav-toggle, .mobile-menu-toggle, #mobile-nav-primary'
                 );
                 var items = nav.querySelectorAll('li').length;
-                var tag   = makeSel(nav);
 
-                return tag + ' | ' + (hidden ? 'HIDDEN' : 'visible') + ' | items:' + items + ' | hamburger:' + (hamburger ? 'yes' : 'NO');
+                return makeSel(nav) + ' | ' + (hidden ? 'HIDDEN' : 'visible') + ' | items:' + items + ' | hamburger:' + (hamburger ? 'yes' : 'NO');
             }
 
-            // ── CSS path helper (max depth levels) ──────────────────────────
+            // ── CSS path helper ──────────────────────────────────────────────
             function cssPath(el, maxDepth) {
                 var parts = [];
                 var node  = el;
@@ -302,7 +327,7 @@ class MCA_Probe {
                 return parts.join(' > ');
             }
 
-            // ── Short selector: tag + id or first class ──────────────────────
+            // ── Short selector for display: tag + id or first class ──────────
             function makeSel(el) {
                 if (!el || !el.tagName) return '?';
                 var s = el.tagName.toLowerCase();
@@ -314,7 +339,17 @@ class MCA_Probe {
                 return s;
             }
 
-            // Wait for full paint before measuring.
+            // ── CSS selector for fix generation: prefer .class or #id ────────
+            function cssSel(el) {
+                if (!el || !el.tagName) return '';
+                if (el.id) return '#' + el.id;
+                if (el.className && typeof el.className === 'string') {
+                    var cls = el.className.trim().split(/\s+/)[0];
+                    if (cls) return '.' + cls;
+                }
+                return el.tagName.toLowerCase();
+            }
+
             if (document.readyState === 'complete') {
                 run();
             } else {
