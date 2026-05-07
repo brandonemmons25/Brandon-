@@ -14,7 +14,6 @@ class MCA_Probe {
         $nonce = get_option( 'mca_nonce' );
         if ( ! $nonce || $_GET['mca_nonce'] !== $nonce ) return;
 
-        // Inject at footer so full DOM is rendered.
         add_action( 'wp_footer', [ __CLASS__, 'inject_scanner' ], 9999 );
     }
 
@@ -25,8 +24,8 @@ class MCA_Probe {
         (function () {
             'use strict';
 
-            var VP = <?php echo (int) $viewport; ?>; // measurement viewport
-            var BP = 782;                             // CSS breakpoint (WP mobile)
+            var VP = <?php echo (int) $viewport; ?>;
+            var BP = 782;
 
             function run() {
                 var report = buildReport(VP);
@@ -60,9 +59,14 @@ class MCA_Probe {
                 var culprits = findOverflows(vp);
                 if (culprits.length) {
                     lines.push('--- OVERFLOW CULPRITS (' + culprits.length + ') ---');
+                    // Collect unique pattern-based fixes across all culprits.
+                    var fixSeen = new Set();
                     culprits.forEach(function (c) {
                         lines.push('  ' + c.sel + ' | right=' + c.right + 'px excess=+' + c.excess + 'px | w=' + c.w + 'px | ' + c.path);
-                        lines.push('Fix → ' + c.fix);
+                        if (c.fix && !fixSeen.has(c.fix)) {
+                            fixSeen.add(c.fix);
+                            lines.push('Fix → ' + c.fix);
+                        }
                     });
                 } else {
                     lines.push('--- NO OVERFLOW ---');
@@ -80,9 +84,13 @@ class MCA_Probe {
                 var collapsed = findCollapsed(vp);
                 if (collapsed.length) {
                     lines.push('--- COLLAPSED ELEMENTS (' + collapsed.length + ') ---');
+                    var colFixSeen = new Set();
                     collapsed.forEach(function (c) {
                         lines.push('  ' + c.sel + ' | ' + c.w + 'x0 | ' + c.path);
-                        lines.push('Fix → ' + c.fix);
+                        if (c.fix && !colFixSeen.has(c.fix)) {
+                            colFixSeen.add(c.fix);
+                            lines.push('Fix → ' + c.fix);
+                        }
                     });
                 }
 
@@ -98,9 +106,10 @@ class MCA_Probe {
 
                 for (var i = 0; i < all.length; i++) {
                     var el   = all[i];
-                    var rect = el.getBoundingClientRect();
-                    var right = Math.round(rect.right);
+                    if (isAdminEl(el)) continue;
 
+                    var rect  = el.getBoundingClientRect();
+                    var right = Math.round(rect.right);
                     if (right <= vp + 1) continue;
 
                     var cs = getComputedStyle(el);
@@ -114,12 +123,13 @@ class MCA_Probe {
                     seen.add(key);
 
                     results.push({
+                        el:     el,
                         sel:    sel,
                         right:  right,
                         excess: right - vp,
                         w:      Math.round(rect.width),
                         path:   cssPath(el, 4),
-                        fix:    generateOfFix(el),
+                        fix:    patternFix(el, cs),
                     });
                 }
 
@@ -127,45 +137,7 @@ class MCA_Probe {
                 return results.slice(0, 20);
             }
 
-            // ── True if any ancestor clips via overflow-x scroll ────────────
-            function isInsideScrollContainer(el) {
-                var node = el.parentElement;
-                while (node && node !== document.body) {
-                    var ox = getComputedStyle(node).overflowX;
-                    if (ox === 'auto' || ox === 'scroll') return true;
-                    node = node.parentElement;
-                }
-                return false;
-            }
-
-            // ── Generate CSS fix for an overflowing element ──────────────────
-            function generateOfFix(el) {
-                var cs  = getComputedStyle(el);
-                var tag = el.tagName.toLowerCase();
-                var s   = cssSel(el);
-                var mq  = '@media (max-width:' + BP + 'px) { ';
-
-                // Fixed/sticky — must stay within viewport bounds
-                if (cs.position === 'fixed' || cs.position === 'sticky') {
-                    return mq + s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; } }';
-                }
-                // Media — scale down
-                if (/^(img|video|iframe|embed|object)$/.test(tag)) {
-                    return mq + s + ' { max-width:100%!important; width:100%!important; height:auto!important; } }';
-                }
-                // Tables — horizontal scroll so content stays readable
-                if (tag === 'table') {
-                    return mq + s + ' { display:block!important; max-width:100%!important; overflow-x:auto!important; } }';
-                }
-                // Sliders / carousels — contain, JS manages inner width
-                if (/swiper|slider|carousel|glide|splide/.test(el.className || '')) {
-                    return mq + s + ' { max-width:100%!important; overflow:hidden!important; } }';
-                }
-                // Default block
-                return mq + s + ' { max-width:100%!important; box-sizing:border-box!important; } }';
-            }
-
-            // ── Detect collapsed (0-height) visible elements in main content ─
+            // ── Detect collapsed (0-height) elements in main content ─────────
             function findCollapsed(vp) {
                 var results = [];
                 var main    = document.querySelector('main, .content, #content, [role="main"]');
@@ -174,35 +146,107 @@ class MCA_Probe {
                 var els = main.querySelectorAll('section, article, div, iframe, video, img');
                 for (var i = 0; i < els.length; i++) {
                     var el   = els[i];
+                    if (isAdminEl(el)) continue;
+
                     var rect = el.getBoundingClientRect();
                     var cs   = getComputedStyle(el);
-
                     if (cs.display === 'none') continue;
                     if (rect.height > 0) continue;
                     if (rect.width < 50) continue;
 
+                    var fix = collapsedFix(el);
                     results.push({
                         sel:  makeSel(el),
                         w:    Math.round(rect.width),
                         path: cssPath(el, 4),
-                        fix:  generateColFix(el),
+                        fix:  fix,
                     });
-
                     if (results.length >= 10) break;
                 }
                 return results;
             }
 
-            // ── Generate CSS fix for a collapsed element ─────────────────────
-            function generateColFix(el) {
+            // ── Pattern-based fix for overflow — one rule covers many instances
+            // Instead of targeting individual elements (e.g. #gt-wrapper-12345),
+            // target the canonical block type or nearest stable class ancestor.
+            // This keeps Fix Summary output to ~10 rules regardless of page count.
+            function patternFix(el, cs) {
+                var tag = el.tagName.toLowerCase();
+                var mq  = '@media (max-width:' + BP + 'px) { ';
+
+                // Fixed/sticky — needs viewport-specific rule per named element
+                if (cs.position === 'fixed' || cs.position === 'sticky') {
+                    var s = stableSel(el);
+                    if (!s) return '';
+                    return mq + s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; } }';
+                }
+                // Tables — always scrollable
+                if (tag === 'table') {
+                    return mq + 'table { display:block!important; max-width:100%!important; overflow-x:auto!important; -webkit-overflow-scrolling:touch!important; } }';
+                }
+                // Images
+                if (tag === 'img') {
+                    return mq + 'img { max-width:100%!important; width:100%!important; height:auto!important; } }';
+                }
+                // iframes
+                if (tag === 'iframe') {
+                    return mq + 'iframe { max-width:100%!important; width:100%!important; } }';
+                }
+                // Jetpack slideshow — contain at block level
+                if (el.closest && el.closest('.wp-block-jetpack-slideshow')) {
+                    return mq + '.wp-block-jetpack-slideshow { overflow:hidden!important; max-width:100%!important; } }';
+                }
+                // Embedded blocks (GTM wrappers, oEmbed, etc.)
+                if (el.closest && el.closest('.wp-block-embed')) {
+                    return mq + '.wp-block-embed { overflow:hidden!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                }
+                // Inside post/page content — general content guard
+                if (el.closest && el.closest('.entry-content, .post-content, main.content')) {
+                    return mq + '.entry-content > *, .post-content > * { max-width:100%!important; box-sizing:border-box!important; } }';
+                }
+                // Outside content — target nearest stable class/ID ancestor
+                var s = stableSel(el);
+                if (!s) return '';
+                return mq + s + ' { max-width:100%!important; overflow:hidden!important; box-sizing:border-box!important; } }';
+            }
+
+            // ── Pattern-based fix for collapsed elements ──────────────────────
+            function collapsedFix(el) {
                 var tag  = el.tagName.toLowerCase();
-                var s    = cssSel(el);
                 var minH = /^(section|article|header|footer|aside|main)$/.test(tag) ? '60px' : '20px';
+                // Use stable class/ID if available; fall back to entry-content guard
+                var s = stableSel(el);
+                if (!s) return '';
                 return '@media (max-width:' + BP + 'px) { ' + s + ' { display:block!important; min-height:' + minH + '!important; width:100%!important; box-sizing:border-box!important; } }';
             }
 
-            // ── Layout diagnosis: detect content element, why it's narrow,
-            //    and emit a ready-to-use CSS fix. Returns '' when full-width. ─
+            // ── Return a stable, reusable CSS selector for an element.
+            //    Walks up the DOM until it finds an element with a class or
+            //    a non-dynamic ID. Skips randomly-generated IDs (GTM, Swiper).
+            function stableSel(el) {
+                var node = el, depth = 0;
+                while (node && node !== document.body && depth < 8) {
+                    var s = '';
+                    if (node.id && !isDynamicId(node.id)) {
+                        s = '#' + node.id;
+                    } else if (node.className && typeof node.className === 'string') {
+                        var cls = node.className.trim().split(/\s+/)[0];
+                        if (cls) s = '.' + cls;
+                    }
+                    if (s) return s;
+                    node = node.parentElement;
+                    depth++;
+                }
+                return '';
+            }
+
+            // Randomly-generated IDs that change per post/visit are useless in CSS
+            function isDynamicId(id) {
+                return /^(gt-wrapper|swiper-wrapper|block-[0-9])/i.test(id)
+                    || /^[a-f0-9]{8,}$/i.test(id); // pure hex strings
+            }
+
+            // ── Layout diagnosis: detect narrow content and suggest fix ───────
             function diagnoseLayout(vp) {
                 var out = [];
 
@@ -235,9 +279,8 @@ class MCA_Probe {
                 var floatV = cs.float || '';
                 var dispV  = cs.display;
 
-                if (w >= vp - 2) return ''; // full-width — nothing to report
+                if (w >= vp - 2) return '';
 
-                // Parent chain
                 var chain = [];
                 var nd = contentEl.parentElement;
                 for (var d = 0; nd && nd.tagName !== 'BODY' && d < 5; d++, nd = nd.parentElement) {
@@ -296,8 +339,7 @@ class MCA_Probe {
                     try {
                         var candidate = document.querySelector(navSelectors[ns]);
                         if (candidate && !candidate.closest('#wp-toolbar, #wpadminbar')) {
-                            nav = candidate;
-                            break;
+                            nav = candidate; break;
                         }
                     } catch(e) {}
                 }
@@ -309,29 +351,36 @@ class MCA_Probe {
                 var hamburger = !!document.querySelector(
                     '.menu-toggle, .hamburger, [aria-label*="menu" i], button.nav-toggle, .mobile-menu-toggle, #mobile-nav-primary'
                 );
-                var items = nav.querySelectorAll('li').length;
-
-                return makeSel(nav) + ' | ' + (hidden ? 'HIDDEN' : 'visible') + ' | items:' + items + ' | hamburger:' + (hamburger ? 'yes' : 'NO');
+                return makeSel(nav) + ' | ' + (hidden ? 'HIDDEN' : 'visible') + ' | items:' + nav.querySelectorAll('li').length + ' | hamburger:' + (hamburger ? 'yes' : 'NO');
             }
 
-            // ── CSS path helper ──────────────────────────────────────────────
+            function isInsideScrollContainer(el) {
+                var node = el.parentElement;
+                while (node && node !== document.body) {
+                    var ox = getComputedStyle(node).overflowX;
+                    if (ox === 'auto' || ox === 'scroll') return true;
+                    node = node.parentElement;
+                }
+                return false;
+            }
+
+            function isAdminEl(el) {
+                return !!(el.closest && el.closest('#wpadminbar, #wp-toolbar'));
+            }
+
             function cssPath(el, maxDepth) {
-                var parts = [];
-                var node  = el;
-                var depth = 0;
+                var parts = [], node = el, depth = 0;
                 while (node && node !== document.body && depth < maxDepth) {
                     parts.unshift(makeSel(node));
-                    node  = node.parentElement;
-                    depth++;
+                    node = node.parentElement; depth++;
                 }
                 return parts.join(' > ');
             }
 
-            // ── Short selector for display: tag + id or first class ──────────
             function makeSel(el) {
                 if (!el || !el.tagName) return '?';
                 var s = el.tagName.toLowerCase();
-                if (el.id)                          s += '#' + el.id;
+                if (el.id) s += '#' + el.id;
                 else if (el.className && typeof el.className === 'string') {
                     var first = el.className.trim().split(/\s+/)[0];
                     if (first) s += '.' + first;
@@ -339,22 +388,8 @@ class MCA_Probe {
                 return s;
             }
 
-            // ── CSS selector for fix generation: prefer .class or #id ────────
-            function cssSel(el) {
-                if (!el || !el.tagName) return '';
-                if (el.id) return '#' + el.id;
-                if (el.className && typeof el.className === 'string') {
-                    var cls = el.className.trim().split(/\s+/)[0];
-                    if (cls) return '.' + cls;
-                }
-                return el.tagName.toLowerCase();
-            }
-
-            if (document.readyState === 'complete') {
-                run();
-            } else {
-                window.addEventListener('load', run);
-            }
+            if (document.readyState === 'complete') { run(); }
+            else { window.addEventListener('load', run); }
         }());
         </script>
         <?php
