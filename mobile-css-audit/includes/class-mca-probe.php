@@ -265,21 +265,15 @@ class MCA_Probe {
                 var nearPar = chain.length ? chain[0].split('[')[0] : '';
                 var fix = '';
 
-                // No body-class prefix — inside @media + !important already wins specificity.
-                // Without it, the same fix deduplicates across pages with different body classes.
-                if (floatV && floatV !== 'none') {
-                    fix = contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
-                } else if (dispV === 'flex' || dispV === 'inline-flex') {
-                    fix = contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
-                } else if (dispV === 'grid' || dispV === 'inline-grid') {
+                // Always emit the same comprehensive rule regardless of which specific
+                // issue is detected (float vs max-width vs flex). This guarantees
+                // deduplication across pages that trigger different detection paths.
+                if (dispV === 'grid' || dispV === 'inline-grid') {
                     fix = (nearPar || contentSel) + ' { grid-template-columns:1fr!important; }';
+                } else if (w < vp - 2) {
+                    fix = contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else {
-                    var mxSelf = cs.maxWidth;
-                    if (mxSelf && mxSelf !== 'none' && parseInt(mxSelf) < vp) {
-                        fix = contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; }';
-                    } else {
-                        fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
-                    }
+                    fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
                 }
 
                 out.push('--- LAYOUT DIAGNOSIS ---');
