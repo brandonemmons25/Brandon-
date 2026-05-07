@@ -218,7 +218,7 @@ class MCA_Admin {
                 if (scanWindow && !scanWindow.closed) {
                     scanWindow.location.href = url;
                 } else {
-                    scanWindow = window.open(url, 'mca_scan', 'width=390,height=700,toolbar=0,menubar=0');
+                    scanWindow = window.open(url, 'mca_scan', 'width=375,height=700,toolbar=0,menubar=0');
                 }
 
                 $label.textContent = '(' + (current + 1) + '/' + urls.length + ') ' + urls[current];

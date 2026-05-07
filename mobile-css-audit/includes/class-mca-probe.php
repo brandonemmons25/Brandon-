@@ -247,7 +247,10 @@ class MCA_Probe {
 
                 if (w >= vp - 2) return '';
 
+                // Walk up and collect narrow ancestors so the fix rule actually works.
+                // Parents constrained to < vp must also be widened, not just the content el.
                 var chain = [];
+                var narrowParSels = [];
                 var nd = contentEl.parentElement;
                 for (var d = 0; nd && nd.tagName !== 'BODY' && d < 5; d++, nd = nd.parentElement) {
                     var pr  = nd.getBoundingClientRect();
@@ -260,18 +263,23 @@ class MCA_Probe {
                     var pmx = pcs.maxWidth;
                     if (pmx && pmx !== 'none' && pmx !== pw + 'px') ps += ',max:' + pmx;
                     chain.push(ps + ']');
+                    if (pw < vp - 2) {
+                        var pSel = stableSel(nd);
+                        if (pSel && narrowParSels.indexOf(pSel) === -1) narrowParSels.push(pSel);
+                    }
                 }
 
                 var nearPar = chain.length ? chain[0].split('[')[0] : '';
                 var fix = '';
 
-                // Always emit the same comprehensive rule regardless of which specific
-                // issue is detected (float vs max-width vs flex). This guarantees
-                // deduplication across pages that trigger different detection paths.
                 if (dispV === 'grid' || dispV === 'inline-grid') {
                     fix = (nearPar || contentSel) + ' { grid-template-columns:1fr!important; }';
                 } else if (w < vp - 2) {
-                    fix = contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
+                    // Include every narrow ancestor so widening them cascades down.
+                    var selGroup = narrowParSels.length
+                        ? narrowParSels.join(', ') + ', ' + contentSel
+                        : contentSel;
+                    fix = selGroup + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else {
                     fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
                 }
