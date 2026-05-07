@@ -166,59 +166,22 @@ class MCA_Probe {
                 return results;
             }
 
-            // ── Pattern-based fix for overflow — one rule covers many instances
-            // Instead of targeting individual elements (e.g. #gt-wrapper-12345),
-            // target the canonical block type or nearest stable class ancestor.
-            // This keeps Fix Summary output to ~10 rules regardless of page count.
+            // ── Fix for overflow — only fixed/sticky needs a specific rule.
+            // Tables, images, iframes, embeds are all covered by the universal
+            // rules that Fix Summary always outputs. Return '' for those so the
+            // generated CSS stays as small as possible.
             function patternFix(el, cs) {
-                var tag = el.tagName.toLowerCase();
-                var mq  = '@media (max-width:' + BP + 'px) { ';
-
-                // Fixed/sticky — needs viewport-specific rule per named element
                 if (cs.position === 'fixed' || cs.position === 'sticky') {
                     var s = stableSel(el);
                     if (!s) return '';
-                    return mq + s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; } }';
+                    // Return inner CSS only (no @media wrapper) — buildFixSummary groups everything
+                    return s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; }';
                 }
-                // Tables — always scrollable
-                if (tag === 'table') {
-                    return mq + 'table { display:block!important; max-width:100%!important; overflow-x:auto!important; -webkit-overflow-scrolling:touch!important; } }';
-                }
-                // Images
-                if (tag === 'img') {
-                    return mq + 'img { max-width:100%!important; width:100%!important; height:auto!important; } }';
-                }
-                // iframes
-                if (tag === 'iframe') {
-                    return mq + 'iframe { max-width:100%!important; width:100%!important; } }';
-                }
-                // Jetpack slideshow — contain at block level
-                if (el.closest && el.closest('.wp-block-jetpack-slideshow')) {
-                    return mq + '.wp-block-jetpack-slideshow { overflow:hidden!important; max-width:100%!important; } }';
-                }
-                // Embedded blocks (GTM wrappers, oEmbed, etc.)
-                if (el.closest && el.closest('.wp-block-embed')) {
-                    return mq + '.wp-block-embed { overflow:hidden!important; max-width:100%!important; box-sizing:border-box!important; } }';
-                }
-                // Inside post/page content — general content guard
-                if (el.closest && el.closest('.entry-content, .post-content, main.content')) {
-                    return mq + '.entry-content > *, .post-content > * { max-width:100%!important; box-sizing:border-box!important; } }';
-                }
-                // Outside content — target nearest stable class/ID ancestor
-                var s = stableSel(el);
-                if (!s) return '';
-                return mq + s + ' { max-width:100%!important; overflow:hidden!important; box-sizing:border-box!important; } }';
+                return ''; // covered by universal rules
             }
 
-            // ── Pattern-based fix for collapsed elements ──────────────────────
-            function collapsedFix(el) {
-                var tag  = el.tagName.toLowerCase();
-                var minH = /^(section|article|header|footer|aside|main)$/.test(tag) ? '60px' : '20px';
-                // Use stable class/ID if available; fall back to entry-content guard
-                var s = stableSel(el);
-                if (!s) return '';
-                return '@media (max-width:' + BP + 'px) { ' + s + ' { display:block!important; min-height:' + minH + '!important; width:100%!important; box-sizing:border-box!important; } }';
-            }
+            // Collapsed elements need manual investigation; no auto-CSS generated.
+            function collapsedFix(el) { return ''; }
 
             // ── Return a stable, reusable CSS selector for an element.
             //    Walks up the DOM until it finds an element with a class or
@@ -300,16 +263,18 @@ class MCA_Probe {
                 var nearPar = chain.length ? chain[0].split('[')[0] : '';
                 var fix = '';
 
+                // Emit inner CSS only (no @media wrapper) — buildFixSummary groups into one block.
+                // Comments start with /* so buildFixSummary routes them to "needs manual check".
                 if (floatV && floatV !== 'none') {
-                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                    fix = bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else if (dispV === 'flex' || dispV === 'inline-flex') {
-                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; } }';
+                    fix = bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else if (dispV === 'grid' || dispV === 'inline-grid') {
-                    fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; } }';
+                    fix = bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; }';
                 } else {
                     var mxSelf = cs.maxWidth;
                     if (mxSelf && mxSelf !== 'none' && parseInt(mxSelf) < vp) {
-                        fix = '@media (max-width:' + BP + 'px) { ' + bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; } }';
+                        fix = bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; }';
                     } else {
                         fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
                     }

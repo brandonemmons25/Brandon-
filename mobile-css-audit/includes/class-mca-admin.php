@@ -333,48 +333,46 @@ class MCA_Admin {
                 setTimeout(function () { $copyFiltered.textContent = 'Copy Filtered'; }, 2000);
             });
 
-            // ── Fix Summary: collect all Fix → lines emitted by the probe ────
-            // The probe generates a precise Fix → line per element (using full
-            // computed-style context). Admin just deduplicates and formats.
+            // ── Fix Summary: minimum possible CSS ────────────────────────────
+            // Universal rules cover tables, images, iframes, and body overflow.
+            // The probe only emits Fix → lines for fixed/sticky elements and
+            // narrow layout columns — everything else is handled universally.
+            // All rules land in one @media block to minimise output.
             function buildFixSummary() {
-                var rules   = new Map(); // @media rule → page count
-                var manual  = [];       // inspect comments (deduped)
+                var siteRules = []; // inner CSS rules (no @media wrapper), deduped
+                var manual    = []; // /* inspect: ... */ comments
 
                 pageBlocks.forEach(function (block) {
                     var re = /^Fix → (.+)$/mg, m;
                     while ((m = re.exec(block)) !== null) {
                         var rule = m[1].trim();
-                        if (rule.startsWith('@media')) {
-                            rules.set(rule, (rules.get(rule) || 0) + 1);
-                        } else if (manual.indexOf(rule) === -1) {
-                            manual.push(rule);
+                        if (rule.startsWith('/*')) {
+                            if (manual.indexOf(rule) === -1) manual.push(rule);
+                        } else {
+                            if (siteRules.indexOf(rule) === -1) siteRules.push(rule);
                         }
                     }
                 });
 
                 var ts  = new Date().toISOString();
-                var out = '/*\n';
-                out    += ' * Mobile CSS — ' + location.hostname + '\n';
-                out    += ' * Generated: MCA v<?php echo MCA_VERSION; ?> — ' + ts + '\n';
-                out    += ' * Paste into: Appearance → Customize → Additional CSS\n';
-                out    += ' * Replace the entire contents — do not append.\n';
-                out    += ' */\n';
+                var out = '/* Mobile CSS — ' + location.hostname + ' | MCA v<?php echo MCA_VERSION; ?> — ' + ts + '\n';
+                out    += '   Paste into: Appearance → Customize → Additional CSS */\n';
 
-                if (rules.size) {
-                    out += '\n/* ─── Fixes (' + rules.size + ' rules) ──────────────────────────── */\n';
-                    rules.forEach(function (cnt, rule) {
-                        out += rule + (cnt > 1 ? ' /* ' + cnt + ' pages */' : '') + '\n\n';
-                    });
-                }
+                out += '@media (max-width:782px) {\n';
+                out += '    html, body { overflow-x:hidden; max-width:100%; }\n';
+                out += '    img, video, iframe, embed, object { max-width:100%; height:auto; }\n';
+                out += '    table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }\n';
+
+                siteRules.forEach(function (rule) {
+                    out += '    ' + rule + '\n';
+                });
+
+                out += '}\n';
 
                 if (manual.length) {
-                    out += '\n/* ─── Needs manual inspection ───────────────────────── */\n';
+                    out += '\n/* needs manual check */\n';
                     manual.forEach(function (c) { out += c + '\n'; });
-                    out += '\n';
                 }
-
-                out += '\n/* ─── Catch-all overflow guard ──────────────────────── */\n';
-                out += '@media (max-width:782px) {\n    html, body { overflow-x:hidden!important; max-width:100%!important; }\n}\n';
 
                 return out;
             }
