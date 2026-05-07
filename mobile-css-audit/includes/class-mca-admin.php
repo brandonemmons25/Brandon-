@@ -353,6 +353,25 @@ class MCA_Admin {
                     }
                 });
 
+                // Merge rules with identical declaration blocks: union their selectors
+                // so pages with different parent chains collapse into one rule.
+                var declMap = {};
+                var unmerged = [];
+                siteRules.forEach(function (rule) {
+                    var brace = rule.indexOf('{');
+                    if (brace === -1) { unmerged.push(rule); return; }
+                    var selPart  = rule.slice(0, brace).trim();
+                    var declPart = rule.slice(brace).trim();
+                    if (!declMap[declPart]) declMap[declPart] = [];
+                    selPart.split(',').forEach(function (s) {
+                        var t = s.trim();
+                        if (t && declMap[declPart].indexOf(t) === -1) declMap[declPart].push(t);
+                    });
+                });
+                var merged = Object.keys(declMap).map(function (decl) {
+                    return declMap[decl].join(', ') + ' ' + decl;
+                }).concat(unmerged);
+
                 var ts  = new Date().toISOString();
                 var out = '/* Mobile CSS — ' + location.hostname + ' | MCA v<?php echo MCA_VERSION; ?> — ' + ts + '\n';
                 out    += '   Paste into: Appearance → Customize → Additional CSS */\n';
@@ -362,7 +381,7 @@ class MCA_Admin {
                 out += '    img, video, iframe, embed, object { max-width:100%; height:auto; }\n';
                 out += '    table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }\n';
 
-                siteRules.forEach(function (rule) {
+                merged.forEach(function (rule) {
                     out += '    ' + rule + '\n';
                 });
 
