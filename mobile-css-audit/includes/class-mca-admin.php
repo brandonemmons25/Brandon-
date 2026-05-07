@@ -387,9 +387,6 @@ class MCA_Admin {
 
             // Initialise filter buttons: 'All' starts active
             setActiveFilterBtn('all');
-
-            // Auto-start scan on page load
-            $run.click();
         }());
         </script>
         <?php
