@@ -99,12 +99,6 @@ class MCA_Admin {
                 <button id="mca-fix-summary" class="button button-large" disabled style="display:none;">Fix Summary</button>
                 <span id="mca-status" style="color:#888;font-style:italic;"></span>
             </div>
-            <div style="margin:0 0 14px;display:flex;gap:8px;align-items:center;">
-                <select id="mca-spot-sel" style="flex:1;max-width:480px;padding:5px 10px;font-size:13px;border:1px solid #8c8f94;border-radius:4px;">
-                    <option value="">— click to load page list —</option>
-                </select>
-                <button id="mca-spot" class="button">&#128269; Spot Check</button>
-            </div>
 
             <div id="mca-progress" style="display:none;margin-bottom:12px;">
                 <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;">
@@ -158,10 +152,6 @@ class MCA_Admin {
             var $searchBar    = document.getElementById('mca-search-bar');
             var $search       = document.getElementById('mca-search');
             var $count        = document.getElementById('mca-count');
-            var $spot         = document.getElementById('mca-spot');
-            var $spotSel      = document.getElementById('mca-spot-sel');
-            var spotListLoaded = false;
-
             // ── Listen for probe results ─────────────────────────────────────
             window.addEventListener('message', function (e) {
                 if (!e.data || !e.data.mca) return;
@@ -219,65 +209,6 @@ class MCA_Admin {
                     });
             });
 
-            // ── Spot Check: load page list on first focus ────────────────────
-            $spotSel.addEventListener('focus', function () {
-                if (spotListLoaded) return;
-                spotListLoaded = true;
-                $spotSel.disabled = true;
-                fetch(ajaxUrl + '?action=mca_get_urls&nonce=' + adminNonce)
-                    .then(function (r) { return r.json(); })
-                    .then(function (res) {
-                        if (!res.success) return;
-                        $spotSel.options[0].textContent = '— select a page —';
-                        res.data.forEach(function (u) {
-                            var opt = document.createElement('option');
-                            opt.value = u;
-                            opt.textContent = u.replace(/^https?:\/\/[^/]+/, '') || '/';
-                            $spotSel.appendChild(opt);
-                        });
-                        $spotSel.disabled = false;
-                    })
-                    .catch(function () { $spotSel.disabled = false; });
-            });
-
-            // ── Spot Check: probe a single URL ───────────────────────────────
-            $spot.addEventListener('click', function () {
-                var url = $spotSel.value;
-                if (!url) { $status.textContent = 'Select a page first.'; return; }
-
-                $spot.disabled = true;
-                $run.disabled  = true;
-                $status.textContent = 'Spot-checking…';
-                $out.value = '';
-                lines   = [];
-                current = 0;
-                activeFilter = 'all';
-
-                function runSpot(nonce) {
-                    probeNonce = nonce;
-                    urls = [url];
-                    current = 0;
-                    $prog.style.display = 'block';
-                    loadNext();
-                }
-
-                if (probeNonce) {
-                    runSpot(probeNonce);
-                } else {
-                    fetch(ajaxUrl + '?action=mca_get_nonce_val&nonce=' + adminNonce)
-                        .then(function (r) { return r.json(); })
-                        .then(function (res) {
-                            if (!res.success) throw new Error('Could not get nonce');
-                            runSpot(res.data);
-                        })
-                        .catch(function (err) {
-                            $status.textContent = 'Error: ' + err.message;
-                            $spot.disabled = false;
-                            $run.disabled  = false;
-                        });
-                }
-            });
-
             // ── Load next URL in popup window ────────────────────────────────
             function loadNext() {
                 var url = urls[current];
@@ -316,15 +247,12 @@ class MCA_Admin {
                 renderOutput();
 
                 $run.disabled  = false;
-                $spot.disabled = false;
                 $copy.disabled = false;
                 $copyFiltered.style.display = 'inline-block';
                 $copyFiltered.disabled = false;
                 $fixSummary.style.display = 'inline-block';
                 $fixSummary.disabled = false;
-                $status.textContent = urls.length === 1
-                    ? '✓ Spot check complete.'
-                    : '✓ Done — ' + urls.length + ' pages scanned.';
+                $status.textContent = '✓ Done — ' + urls.length + ' pages scanned.';
                 $label.textContent  = '';
                 $bar.style.width    = '100%';
 
@@ -459,6 +387,9 @@ class MCA_Admin {
 
             // Initialise filter buttons: 'All' starts active
             setActiveFilterBtn('all');
+
+            // Auto-start scan on page load
+            $run.click();
         }());
         </script>
         <?php
