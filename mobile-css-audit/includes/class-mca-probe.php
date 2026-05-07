@@ -174,7 +174,9 @@ class MCA_Probe {
                 if (cs.position === 'fixed' || cs.position === 'sticky') {
                     var s = stableSel(el);
                     if (!s) return '';
-                    // Return inner CSS only (no @media wrapper) — buildFixSummary groups everything
+                    // reCAPTCHA badge is a cosmetic fixed widget — hide it on mobile
+                    // (v3 script still fires; badge is purely decorative)
+                    if (s === '.grecaptcha-badge') return s + ' { display:none; }';
                     return s + ' { width:100%!important; max-width:100vw!important; left:0!important; right:0!important; box-sizing:border-box!important; }';
                 }
                 return ''; // covered by universal rules
@@ -219,6 +221,7 @@ class MCA_Probe {
                         || c === 'full-width-content' || c === 'content-sidebar' || c === 'sidebar-content'
                         || c === 'no-sidebar' || c === 'page-template-default';
                 }).slice(0, 4);
+                // layoutClasses used only for reporting (Theme: line) — not in the CSS rule
 
                 var sels = [
                     'main.content', 'main#main', '#main-content', '#content-area',
@@ -259,22 +262,21 @@ class MCA_Probe {
                     chain.push(ps + ']');
                 }
 
-                var bodyPfx = layoutClasses.length ? 'body.' + layoutClasses[0] : 'body';
                 var nearPar = chain.length ? chain[0].split('[')[0] : '';
                 var fix = '';
 
-                // Emit inner CSS only (no @media wrapper) — buildFixSummary groups into one block.
-                // Comments start with /* so buildFixSummary routes them to "needs manual check".
+                // No body-class prefix — inside @media + !important already wins specificity.
+                // Without it, the same fix deduplicates across pages with different body classes.
                 if (floatV && floatV !== 'none') {
-                    fix = bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
+                    fix = contentSel + ' { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else if (dispV === 'flex' || dispV === 'inline-flex') {
-                    fix = bodyPfx + ' ' + contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
+                    fix = contentSel + ' { flex:0 0 100%!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }';
                 } else if (dispV === 'grid' || dispV === 'inline-grid') {
-                    fix = bodyPfx + ' ' + (nearPar ? nearPar + ' ' : '') + '{ grid-template-columns:1fr!important; }';
+                    fix = (nearPar || contentSel) + ' { grid-template-columns:1fr!important; }';
                 } else {
                     var mxSelf = cs.maxWidth;
                     if (mxSelf && mxSelf !== 'none' && parseInt(mxSelf) < vp) {
-                        fix = bodyPfx + ' ' + contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; }';
+                        fix = contentSel + ' { max-width:100%!important; width:100%!important; box-sizing:border-box!important; }';
                     } else {
                         fix = '/* inspect: ' + contentSel + ' (' + w + 'px) inside ' + (nearPar || '?') + ' — cause unclear */';
                     }
