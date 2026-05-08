@@ -94,6 +94,30 @@ class MCA_Probe {
                     });
                 }
 
+                // ── YouTube iframe diagnostics ───────────────────────────────
+                var ytFrames = document.querySelectorAll('iframe[src*="youtube"]');
+                if (ytFrames.length) {
+                    lines.push('--- YOUTUBE IFRAMES (' + ytFrames.length + ') ---');
+                    for (var yi = 0; yi < Math.min(ytFrames.length, 3); yi++) {
+                        var yf   = ytFrames[yi];
+                        var yr   = yf.getBoundingClientRect();
+                        var ycs  = getComputedStyle(yf);
+                        var ypar = yf.parentElement;
+                        var yprect = ypar ? ypar.getBoundingClientRect() : null;
+                        var ypcls  = ypar ? (ypar.className || ypar.tagName) : '?';
+                        var ypcs   = ypar ? getComputedStyle(ypar) : null;
+                        lines.push(
+                            '  iframe: ' + Math.round(yr.width) + 'x' + Math.round(yr.height) +
+                            ' | pos:' + ycs.position +
+                            ' | inline-h:' + (yf.getAttribute('height') || 'none') +
+                            ' | computed-h:' + ycs.height +
+                            '\n  parent: ' + ypcls +
+                            (yprect ? ' ' + Math.round(yprect.width) + 'x' + Math.round(yprect.height) : '') +
+                            (ypcs ? ' pos:' + ypcs.position + ' overflow:' + ypcs.overflow : '')
+                        );
+                    }
+                }
+
                 lines.push('------------------------------------------------------------');
                 return lines.join('\n');
             }
