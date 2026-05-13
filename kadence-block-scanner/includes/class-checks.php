@@ -219,7 +219,11 @@ class KBS_Checks {
 		$attrs  = $block['attrs'] ?? array();
 		$name   = $block['blockName'] ?? '';
 
-		$img_id_keys = array( 'mediaID', 'imgID', 'imageID', 'id', 'mediaId' );
+		// 'id' on kadence/column is a CSS identifier, not an attachment — exclude it
+		$blocks_using_generic_id_as_css = array( 'kadence/column', 'kadence/advancedcolumn', 'kadence/rowlayout' );
+		$img_id_keys = in_array( $name, $blocks_using_generic_id_as_css, true )
+			? array( 'mediaID', 'imgID', 'imageID', 'mediaId' )
+			: array( 'mediaID', 'imgID', 'imageID', 'id', 'mediaId' );
 
 		foreach ( $img_id_keys as $key ) {
 			if ( ! isset( $attrs[ $key ] ) ) continue;
