@@ -349,15 +349,19 @@ class KBS_Checks {
 		foreach ( $url_attrs as $key ) {
 			if ( empty( $attrs[ $key ] ) || ! is_string( $attrs[ $key ] ) ) continue;
 			$url = $attrs[ $key ];
-			// Only flag internal links that 404
+			// Only flag internal links
 			if ( strpos( $url, home_url() ) === false && strpos( $url, site_url() ) === false ) continue;
-			$path    = str_replace( array( home_url(), site_url() ), '', $url );
+			$path = str_replace( array( home_url(), site_url() ), '', $url );
+			// Skip uploaded files — url_to_postid() can't validate these
+			if ( strpos( $path, '/wp-content/uploads/' ) !== false ) continue;
+			// Skip anchor-only links
+			if ( strpos( $path, '#' ) === 0 ) continue;
 			$post_id = url_to_postid( $url );
 			if ( ! $post_id && ! empty( $path ) && $path !== '/' ) {
 				$issues[] = array(
 					'type'    => 'broken_internal_link',
 					'block'   => $name,
-					'message' => "Internal link in attr '{$key}' may be broken (no matching post): {$url}",
+					'message' => "Internal link in attr '{$key}' may point to a missing page: {$url}",
 					'detail'  => $url,
 				);
 			}
