@@ -116,12 +116,11 @@ class KBS_Scanner {
 
 			if ( $name ) {
 				$issues = array_merge( $issues,
-					KBS_Checks::check_block_for_remote_assets( $block ),
 					KBS_Checks::check_block_for_missing_images( $block ),
-					KBS_Checks::check_block_attributes_valid( $block ),
-					KBS_Checks::check_deprecated_block( $block ),
 					KBS_Checks::check_kadence_element_reference( $block ),
-					KBS_Checks::check_broken_links( $block )
+					KBS_Checks::check_broken_links( $block ),
+					KBS_Checks::check_block_attributes_valid( $block ),
+					KBS_Checks::check_block_for_remote_assets( $block )
 				);
 			}
 
