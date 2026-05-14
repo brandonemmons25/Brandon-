@@ -390,8 +390,9 @@ class MCA_Admin {
                 out += '    html, body { overflow-x:hidden; max-width:100%; }\n';
                 out += '    img, video, embed, object { max-width:100%; height:auto; }\n';
                 out += '    table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }\n';
-                out += '    .embed-youtube { position:relative; padding-bottom:56.25%; height:0; overflow:hidden; }\n';
-                out += '    .embed-youtube iframe, .wp-block-embed__wrapper iframe { position:absolute!important; top:0!important; left:0!important; width:100%!important; height:100%!important; }\n';
+                out += '    .wp-block-embed__wrapper::before { display:none!important; }\n';
+                out += '    .wp-block-embed__wrapper, .embed-youtube { position:static!important; padding:0!important; height:auto!important; }\n';
+                out += '    .wp-block-embed__wrapper iframe, .embed-youtube iframe { position:static!important; display:block!important; width:100%!important; height:auto!important; aspect-ratio:16/9!important; }\n';
 
                 merged.forEach(function (rule) {
                     out += '    ' + rule + '\n';
