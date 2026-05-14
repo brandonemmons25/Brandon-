@@ -332,14 +332,13 @@ class MCA_Admin {
                 setTimeout(function () { $copyFiltered.textContent = 'Copy Filtered'; }, 2000);
             });
 
-            // ── Fix Summary: minimum possible CSS ────────────────────────────
-            // Universal rules cover tables, images, iframes, and body overflow.
-            // The probe only emits Fix → lines for fixed/sticky elements and
-            // narrow layout columns — everything else is handled universally.
-            // All rules land in one @media block to minimise output.
+            // ── Fix Summary ──────────────────────────────────────────────────
+            // Universal rules cover tables, images, and body overflow.
+            // YouTube embeds use targeted wrapper rules instead of a generic
+            // iframe height so classic-editor and Gutenberg embeds both work.
             function buildFixSummary() {
-                var siteRules = []; // inner CSS rules (no @media wrapper), deduped
-                var manual    = []; // /* inspect: ... */ comments
+                var siteRules = [];
+                var manual    = [];
 
                 pageBlocks.forEach(function (block) {
                     var re = /^Fix → (.+)$/mg, m;
@@ -353,8 +352,7 @@ class MCA_Admin {
                     }
                 });
 
-                // Merge rules with identical declaration blocks: union their selectors
-                // so pages with different parent chains collapse into one rule.
+                // Merge rules with identical declaration blocks
                 var declMap = {};
                 var unmerged = [];
                 siteRules.forEach(function (rule) {
@@ -378,8 +376,10 @@ class MCA_Admin {
 
                 out += '@media (max-width:782px) {\n';
                 out += '    html, body { overflow-x:hidden; max-width:100%; }\n';
-                out += '    img, video, iframe, embed, object { max-width:100%; height:auto; }\n';
+                out += '    img, video, embed, object { max-width:100%; height:auto; }\n';
                 out += '    table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }\n';
+                out += '    .embed-youtube { position:relative; padding-bottom:56.25%; height:0; overflow:hidden; }\n';
+                out += '    .embed-youtube iframe, .wp-block-embed__wrapper iframe { position:absolute!important; top:0!important; left:0!important; width:100%!important; height:100%!important; }\n';
 
                 merged.forEach(function (rule) {
                     out += '    ' + rule + '\n';
