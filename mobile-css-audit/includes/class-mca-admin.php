@@ -21,49 +21,47 @@ class MCA_Admin {
         );
     }
 
-    /** Return list of all published page/post URLs as JSON — same-host only. */
+    /** Return list of published URLs as JSON — filtered by group. */
     public static function ajax_get_urls() {
         check_ajax_referer( 'mca_admin', 'nonce' );
 
+        $group     = isset( $_GET['group'] ) ? sanitize_key( $_GET['group'] ) : 'all';
         $site_host = wp_parse_url( home_url(), PHP_URL_HOST );
         $urls      = [];
 
-        // Pages and posts.
-        $query = new WP_Query( [
-            'post_type'      => [ 'page', 'post' ],
-            'post_status'    => 'publish',
-            'posts_per_page' => 500,
-            'fields'         => 'ids',
-        ] );
-        foreach ( $query->posts as $id ) {
-            $url = get_permalink( $id );
-            if ( wp_parse_url( $url, PHP_URL_HOST ) === $site_host ) {
-                $urls[] = $url;
-            }
-        }
-
-        // Custom post types — skip any whose permalink resolves off-domain
-        // (e.g. IDX listing types that redirect to search.domain.com).
-        $cpts = get_post_types( [ 'public' => true, '_builtin' => false ], 'names' );
-        if ( $cpts ) {
-            $cpt_query = new WP_Query( [
-                'post_type'      => array_values( $cpts ),
-                'post_status'    => 'publish',
-                'posts_per_page' => 200,
-                'fields'         => 'ids',
-            ] );
-            foreach ( $cpt_query->posts as $id ) {
+        $collect = function ( $ids ) use ( $site_host, &$urls ) {
+            foreach ( $ids as $id ) {
                 $url = get_permalink( $id );
                 if ( wp_parse_url( $url, PHP_URL_HOST ) === $site_host ) {
                     $urls[] = $url;
                 }
             }
+        };
+
+        if ( in_array( $group, [ 'all', 'pages' ], true ) ) {
+            $q = new WP_Query( [ 'post_type' => 'page', 'post_status' => 'publish', 'posts_per_page' => 500, 'fields' => 'ids' ] );
+            $collect( $q->posts );
         }
 
-        // Homepage.
-        $home = home_url( '/' );
-        if ( ! in_array( $home, $urls, true ) ) {
-            array_unshift( $urls, $home );
+        if ( in_array( $group, [ 'all', 'posts' ], true ) ) {
+            $q = new WP_Query( [ 'post_type' => 'post', 'post_status' => 'publish', 'posts_per_page' => 300, 'fields' => 'ids' ] );
+            $collect( $q->posts );
+        }
+
+        if ( in_array( $group, [ 'all', 'cpt' ], true ) ) {
+            $cpts = get_post_types( [ 'public' => true, '_builtin' => false ], 'names' );
+            if ( $cpts ) {
+                $q = new WP_Query( [ 'post_type' => array_values( $cpts ), 'post_status' => 'publish', 'posts_per_page' => 200, 'fields' => 'ids' ] );
+                $collect( $q->posts );
+            }
+        }
+
+        // Homepage always included for 'all' or explicit 'home'.
+        if ( in_array( $group, [ 'all', 'home' ], true ) ) {
+            $home = home_url( '/' );
+            if ( ! in_array( $home, $urls, true ) ) {
+                array_unshift( $urls, $home );
+            }
         }
 
         wp_send_json_success( array_values( array_unique( array_filter( $urls ) ) ) );
@@ -92,8 +90,15 @@ class MCA_Admin {
             <h1>Mobile CSS Audit <span style="font-size:13px;font-weight:400;color:#888;">v<?php echo MCA_VERSION; ?></span></h1>
             <p>Scans all published pages at <strong>375px</strong> viewport. Detects overflow, collapsed elements, and narrow content columns — then generates a ready-to-paste CSS fix via <strong>Fix Summary</strong>.</p>
 
-            <div style="margin:16px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                <button id="mca-run" class="button button-primary button-large">&#9654; Run Full Site Scan</button>
+            <div style="margin:16px 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <strong style="font-size:13px;margin-right:4px;">Scan:</strong>
+                <button class="mca-run-group button button-primary" data-group="home">&#9654; Homepage</button>
+                <button class="mca-run-group button button-primary" data-group="pages">&#9654; Pages</button>
+                <button class="mca-run-group button button-primary" data-group="posts">&#9654; Posts</button>
+                <button class="mca-run-group button button-primary" data-group="cpt">&#9654; Custom Types</button>
+                <button class="mca-run-group button" data-group="all">&#9654; Full Site</button>
+            </div>
+            <div style="margin:0 0 12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                 <button id="mca-copy" class="button button-large" disabled>Copy Output</button>
                 <button id="mca-copy-filtered" class="button button-large" disabled style="display:none;">Copy Filtered</button>
                 <button id="mca-fix-summary" class="button button-large" disabled style="display:none;">Fix Summary</button>
@@ -140,7 +145,7 @@ class MCA_Admin {
             var activeFilter = 'all';
             var PAGE_TIMEOUT = 10000;
 
-            var $run          = document.getElementById('mca-run');
+            var $runBtns      = document.querySelectorAll('.mca-run-group');
             var $copy         = document.getElementById('mca-copy');
             var $copyFiltered = document.getElementById('mca-copy-filtered');
             var $fixSummary   = document.getElementById('mca-fix-summary');
@@ -170,9 +175,9 @@ class MCA_Admin {
                 }
             }
 
-            // ── Run button ───────────────────────────────────────────────────
-            $run.addEventListener('click', function () {
-                $run.disabled = true;
+            // ── Group scan buttons ───────────────────────────────────────────
+            function startScan(group) {
+                $runBtns.forEach(function (b) { b.disabled = true; });
                 $copy.disabled = true;
                 $copyFiltered.disabled = true;
                 $copyFiltered.style.display = 'none';
@@ -192,21 +197,28 @@ class MCA_Admin {
                     .then(function (res) {
                         if (!res.success) throw new Error('Could not get nonce');
                         probeNonce = res.data;
-                        return fetch(ajaxUrl + '?action=mca_get_urls&nonce=' + adminNonce);
+                        return fetch(ajaxUrl + '?action=mca_get_urls&nonce=' + adminNonce + '&group=' + encodeURIComponent(group));
                     })
                     .then(function (r) { return r.json(); })
                     .then(function (res) {
                         if (!res.success) throw new Error('Could not get URLs');
                         urls = res.data;
-                        if (!urls.length) throw new Error('No URLs found');
-                        $status.textContent = 'Scanning ' + urls.length + ' pages…';
+                        if (!urls.length) throw new Error('No URLs found for this group');
+                        var label = group === 'all' ? 'full site' : group;
+                        $status.textContent = 'Scanning ' + urls.length + ' URLs (' + label + ')…';
                         $prog.style.display = 'block';
                         loadNext();
                     })
                     .catch(function (err) {
                         $status.textContent = 'Error: ' + err.message;
-                        $run.disabled = false;
+                        $runBtns.forEach(function (b) { b.disabled = false; });
                     });
+            }
+
+            $runBtns.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    startScan(this.getAttribute('data-group'));
+                });
             });
 
             // ── Load next URL in popup window ────────────────────────────────
@@ -246,7 +258,7 @@ class MCA_Admin {
 
                 renderOutput();
 
-                $run.disabled  = false;
+                $runBtns.forEach(function (b) { b.disabled = false; });
                 $copy.disabled = false;
                 $copyFiltered.style.display = 'inline-block';
                 $copyFiltered.disabled = false;
@@ -406,9 +418,6 @@ class MCA_Admin {
 
             // Initialise filter buttons: 'All' starts active
             setActiveFilterBtn('all');
-
-            // Auto-start scan on page load
-            $run.click();
         }());
         </script>
         <?php
