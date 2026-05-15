@@ -1,0 +1,10 @@
+/* Mobile CSS — x-mingtreerealty-com-ihf.mystagingwebsite.com | MCA v2.6.0 — 2026-05-15T21:08:53.437Z
+   Paste into: Appearance → Customize → Additional CSS */
+@media (max-width:782px) {
+    html, body { overflow-x:hidden; max-width:100%; }
+    img, video, embed, object { max-width:100%; height:auto; }
+    table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .embed-youtube { position:relative; padding-bottom:56.25%; height:0; overflow:hidden; }
+    .embed-youtube iframe, .wp-block-embed__wrapper iframe { position:absolute!important; top:0!important; left:0!important; width:100%!important; height:100%!important; }
+    .content-sidebar-wrap, .wrap, main.content { float:none!important; width:100%!important; max-width:100%!important; box-sizing:border-box!important; }
+}
