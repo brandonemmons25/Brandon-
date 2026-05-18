@@ -1,11 +1,14 @@
 /* ── Hero search section video background ── */
 
-.home .property-search {
-    position: relative !important;
-    overflow: hidden !important;
+.property-search {
     background-image: none !important;
     background: none !important;
     background-color: transparent !important;
+}
+
+.home .property-search {
+    position: relative !important;
+    overflow: hidden !important;
 }
 
 /*
