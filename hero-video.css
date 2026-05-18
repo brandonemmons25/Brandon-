@@ -44,3 +44,9 @@
     object-fit: cover;
     display: block;
 }
+
+/* Keep site header above the video layer */
+header {
+    position: relative !important;
+    z-index: 9999 !important;
+}
