@@ -5,12 +5,13 @@
     overflow: hidden !important;
     background-image: none !important;
     background: none !important;
+    background-color: transparent !important;
 }
 
 /*
- * Neutralize intermediate WordPress widget wrapper positioning
- * so that .search-video-bg { position: absolute } anchors to
- * .property-search instead of a smaller inner container.
+ * Neutralize ALL intermediate WordPress widget wrappers so that
+ * .search-video-bg { position: absolute } anchors to .property-search
+ * and fills the entire hero section — not just the widget box.
  */
 .property-search .wrap,
 .property-search .widget,
@@ -22,6 +23,7 @@
     overflow: visible !important;
 }
 
+/* Video layer fills the full .property-search area */
 .search-video-bg {
     position: absolute;
     top: 0;
@@ -41,10 +43,4 @@
     height: 100%;
     object-fit: cover;
     display: block;
-}
-
-/* Raise all other content inside .property-search above the video */
-.property-search .wrap {
-    position: relative !important;
-    z-index: 1;
 }
