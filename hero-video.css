@@ -1,0 +1,50 @@
+/* ── Hero search section video background ── */
+
+.home .property-search {
+    position: relative !important;
+    overflow: hidden !important;
+    background-image: none !important;
+    background: none !important;
+}
+
+/*
+ * Neutralize intermediate WordPress widget wrapper positioning
+ * so that .search-video-bg { position: absolute } anchors to
+ * .property-search instead of a smaller inner container.
+ */
+.property-search .wrap,
+.property-search .widget,
+.property-search .widget_text,
+.property-search .widget-wrap,
+.property-search .textwidget,
+.property-search .custom-html-widget {
+    position: static !important;
+    overflow: visible !important;
+}
+
+.search-video-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.search-video-bg video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Raise all other content inside .property-search above the video */
+.property-search .wrap {
+    position: relative !important;
+    z-index: 1;
+}
