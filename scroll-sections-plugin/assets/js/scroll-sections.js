@@ -373,13 +373,38 @@
     }
 
     /* ==================================================================
+       Autoplay enforcer — covers videos outside scroll sections
+       (e.g. hero / widget background videos)
+       ================================================================== */
+
+    function playAllAutoplays() {
+        document.querySelectorAll('video[autoplay]').forEach(function (v) {
+            v.muted = true;
+            var p = v.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(function () {
+                    // Retry on first user gesture (mobile browsers)
+                    document.addEventListener('touchstart', function retry() {
+                        v.play();
+                        document.removeEventListener('touchstart', retry);
+                    }, { once: true, passive: true });
+                });
+            }
+        });
+    }
+
+    /* ==================================================================
        Boot
        ================================================================== */
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', function () {
+            init();
+            playAllAutoplays();
+        });
     } else {
         init();
+        playAllAutoplays();
     }
 
 })();
