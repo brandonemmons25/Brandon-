@@ -45,8 +45,9 @@
     display: block;
 }
 
-/* Keep site header above the video layer */
-header {
+/* Keep site header and nav above the video layer */
+header,
+nav {
     position: relative !important;
     z-index: 9999 !important;
 }
