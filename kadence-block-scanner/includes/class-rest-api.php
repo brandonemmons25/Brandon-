@@ -2,18 +2,19 @@
 /**
  * REST API endpoints for autonomous agent access.
  *
- * POST /wp-json/kbs/v1/setup   — create claude-mcp user + app password (admin auth required)
+ * POST /wp-json/kbs/v1/setup   — generate API key (admin Basic Auth required, one time)
  * POST /wp-json/kbs/v1/scan    — run a full scan, return results
  * GET  /wp-json/kbs/v1/results — return cached results from last scan
+ *
+ * After setup, all requests authenticate via X-KBS-Key header.
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 class KBS_Rest_API {
 
-	const NAMESPACE  = 'kbs/v1';
-	const MCP_USER   = 'claude-mcp';
-	const MCP_APP    = 'claude-agent';
+	const NAMESPACE = 'kbs/v1';
+	const KEY_OPTION = 'kbs_api_key';
 
 	public static function init() : void {
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
@@ -22,77 +23,49 @@ class KBS_Rest_API {
 	public static function register_routes() : void {
 		register_rest_route( self::NAMESPACE, '/setup', array(
 			'methods'             => 'POST',
-			'callback'            => array( __CLASS__, 'setup_mcp_user' ),
-			'permission_callback' => array( __CLASS__, 'check_permission' ),
+			'callback'            => array( __CLASS__, 'setup' ),
+			'permission_callback' => array( __CLASS__, 'check_admin' ),
 		) );
 
 		register_rest_route( self::NAMESPACE, '/scan', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'run_scan' ),
-			'permission_callback' => array( __CLASS__, 'check_permission' ),
+			'permission_callback' => array( __CLASS__, 'check_api_key' ),
 		) );
 
 		register_rest_route( self::NAMESPACE, '/results', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'get_results' ),
-			'permission_callback' => array( __CLASS__, 'check_permission' ),
+			'permission_callback' => array( __CLASS__, 'check_api_key' ),
 		) );
 	}
 
-	public static function check_permission() : bool {
+	/** Setup: requires admin Basic Auth, generates and stores a random API key. */
+	public static function check_admin() : bool {
 		return current_user_can( 'manage_options' );
 	}
 
+	/** Scan/results: authenticate via X-KBS-Key header. */
+	public static function check_api_key() : bool {
+		$stored = get_option( self::KEY_OPTION, '' );
+		if ( ! $stored ) return false;
+
+		$header = isset( $_SERVER['HTTP_X_KBS_KEY'] ) ? sanitize_text_field( $_SERVER['HTTP_X_KBS_KEY'] ) : '';
+		return hash_equals( $stored, $header );
+	}
+
 	/**
-	 * Creates the claude-mcp user and generates a fresh Application Password.
-	 * Returns the credentials — store them immediately, the password is shown once.
+	 * Generates a fresh API key, stores it in WP options, returns it once.
+	 * Called with admin Basic Auth — after this, use X-KBS-Key for everything.
 	 */
-	public static function setup_mcp_user( WP_REST_Request $request ) : WP_REST_Response {
-		if ( ! function_exists( 'wp_create_application_password' ) ) {
-			return new WP_REST_Response( array(
-				'success' => false,
-				'message' => 'Application Passwords require WordPress 5.6+.',
-			), 400 );
-		}
-
-		// Create or fetch the claude-mcp user.
-		$user_id = username_exists( self::MCP_USER );
-
-		if ( ! $user_id ) {
-			$user_id = wp_insert_user( array(
-				'user_login' => self::MCP_USER,
-				'user_pass'  => wp_generate_password( 32 ),
-				'user_email' => self::MCP_USER . '@' . parse_url( home_url(), PHP_URL_HOST ),
-				'role'       => 'administrator',
-				'first_name' => 'Claude',
-				'last_name'  => 'MCP',
-			) );
-
-			if ( is_wp_error( $user_id ) ) {
-				return new WP_REST_Response( array(
-					'success' => false,
-					'message' => $user_id->get_error_message(),
-				), 500 );
-			}
-		}
-
-		// Revoke any existing app password with the same name, then create a fresh one.
-		$existing = WP_Application_Passwords::get_user_application_passwords( $user_id );
-		foreach ( $existing as $app ) {
-			if ( $app['name'] === self::MCP_APP ) {
-				WP_Application_Passwords::delete_application_password( $user_id, $app['uuid'] );
-			}
-		}
-
-		[ $plain_password, $item ] = wp_create_application_password( $user_id, array(
-			'name' => self::MCP_APP,
-		) );
+	public static function setup( WP_REST_Request $request ) : WP_REST_Response {
+		$key = bin2hex( random_bytes( 32 ) );
+		update_option( self::KEY_OPTION, $key, false );
 
 		return new WP_REST_Response( array(
-			'success'    => true,
-			'username'   => self::MCP_USER,
-			'app_password' => $plain_password,
-			'note'       => 'Save app_password now — it will not be shown again. Add as WP_MCP_USERNAME and WP_MCP_PASSWORD in GitHub secrets.',
+			'success' => true,
+			'api_key' => $key,
+			'note'    => 'Save api_key now — it will not be shown again. Add as WP_API_KEY in GitHub secrets.',
 		), 200 );
 	}
 
