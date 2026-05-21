@@ -108,12 +108,9 @@ class KBS_Rest_API {
 			'posts'        => array(),
 		) );
 
-		// Only run heavy checks on first batch
+		// Skip heavy external HTTP checks — they cause 500s on some hosts
 		if ( $offset === 0 ) {
-			$existing['connectivity'] = KBS_Checks::check_kadence_connectivity();
-			$existing['plugins']      = KBS_Checks::get_kadence_plugins();
-			$existing['licenses']     = KBS_Checks::check_license_status();
-			$existing['asset_check']  = KBS_Checks::check_kadence_assets_enqueued();
+			$existing['plugins'] = KBS_Checks::get_kadence_plugins();
 		}
 
 		foreach ( $posts as $post ) {
