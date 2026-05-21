@@ -32,8 +32,6 @@ jobs:
 
           if [ "$COMMAND" = "wp-setup" ]; then
             echo "## Setting up API key on $SITE" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
             AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
@@ -56,48 +54,79 @@ jobs:
             echo '```json' >> $GITHUB_STEP_SUMMARY
             echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> **Next:** Copy \`api_key\` above and add it as \`WP_API_KEY\` in GitHub secrets." >> $GITHUB_STEP_SUMMARY
-
-            echo "$BODY"
+            echo "> **Next:** Copy \`api_key\` and add as \`WP_API_KEY\` in GitHub secrets." >> $GITHUB_STEP_SUMMARY
 
           elif [ "$COMMAND" = "kadence-scan" ]; then
             echo "## Running Kadence Block Scanner on $SITE" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
 
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            # Start scan
+            START=$(curl -s -w "\n%{http_code}" -X POST \
               -H "X-KBS-Key: $WP_API_KEY" \
               -H "Content-Type: application/json" \
-              "$SITE/wp-json/kbs/v1/scan")
+              "$SITE/wp-json/kbs/v1/scan/start")
 
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
+            START_CODE=$(echo "$START" | tail -n1)
+            START_BODY=$(echo "$START" | sed '$d')
 
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "### Error: HTTP $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$BODY" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
+            if [ "$START_CODE" != "200" ]; then
+              echo "### Error starting scan: HTTP $START_CODE" >> $GITHUB_STEP_SUMMARY
+              echo "$START_BODY" >> $GITHUB_STEP_SUMMARY
               exit 1
             fi
 
-            TOTAL=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d['results']['posts']))" 2>/dev/null || echo "unknown")
-            DURATION=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['meta'].get('duration','?'))" 2>/dev/null || echo "?")
-            SCANNED_AT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['meta'].get('scanned_at','?'))" 2>/dev/null || echo "?")
+            BATCHES=$(echo "$START_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['batches'])")
+            TOTAL=$(echo "$START_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])")
+            echo "Scanning $TOTAL posts in $BATCHES batches..." >> $GITHUB_STEP_SUMMARY
 
-            echo "**Scanned at:** $SCANNED_AT | **Duration:** ${DURATION}s | **Posts with issues:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+            # Run batches
+            DONE="false"
+            BATCH_NUM=0
+            while [ "$DONE" != "true" ]; do
+              BATCH_NUM=$((BATCH_NUM + 1))
+              echo "Running batch $BATCH_NUM of $BATCHES..."
+
+              BATCH=$(curl -s -w "\n%{http_code}" -X POST \
+                -H "X-KBS-Key: $WP_API_KEY" \
+                -H "Content-Type: application/json" \
+                "$SITE/wp-json/kbs/v1/scan/batch")
+
+              BATCH_CODE=$(echo "$BATCH" | tail -n1)
+              BATCH_BODY=$(echo "$BATCH" | sed '$d')
+
+              if [ "$BATCH_CODE" != "200" ]; then
+                echo "### Error on batch $BATCH_NUM: HTTP $BATCH_CODE" >> $GITHUB_STEP_SUMMARY
+                echo "$BATCH_BODY" >> $GITHUB_STEP_SUMMARY
+                exit 1
+              fi
+
+              DONE=$(echo "$BATCH_BODY" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['done']).lower())")
+            done
+
+            echo "Scan complete. Fetching results..." >> $GITHUB_STEP_SUMMARY
+
+            # Fetch results
+            RESULTS=$(curl -s -w "\n%{http_code}" -X GET \
+              -H "X-KBS-Key: $WP_API_KEY" \
+              "$SITE/wp-json/kbs/v1/results")
+
+            RESULTS_CODE=$(echo "$RESULTS" | tail -n1)
+            RESULTS_BODY=$(echo "$RESULTS" | sed '$d')
+
+            if [ "$RESULTS_CODE" != "200" ]; then
+              echo "### Error fetching results: HTTP $RESULTS_CODE" >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+
+            ISSUES=$(echo "$RESULTS_BODY" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['results']['posts']))" 2>/dev/null || echo "?")
+            echo "**Posts with issues: $ISSUES**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-
             echo "### Full Results" >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
+            echo "$RESULTS_BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$RESULTS_BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-
-            echo "$BODY"
 
           elif [ "$COMMAND" = "kadence-results" ]; then
             echo "## Fetching cached Kadence scan results from $SITE" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
               -H "X-KBS-Key: $WP_API_KEY" \
@@ -108,15 +137,11 @@ jobs:
 
             if [ "$HTTP_CODE" != "200" ]; then
               echo "### Error: HTTP $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
               echo "$BODY" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
               exit 1
             fi
 
             echo '```json' >> $GITHUB_STEP_SUMMARY
             echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-
-            echo "$BODY"
           fi

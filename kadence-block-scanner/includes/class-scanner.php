@@ -144,7 +144,7 @@ class KBS_Scanner {
 	/** ---------------------------------------------------------------
 	 * Fetch a batch of posts across all scanned post types.
 	 * --------------------------------------------------------------- */
-	private static function get_posts_batch( int $offset ) : array {
+	public static function get_posts_batch( int $offset, int $batch_size = self::BATCH_SIZE ) : array {
 		$post_types = array_filter(
 			self::SCAN_POST_TYPES,
 			fn( $pt ) => post_type_exists( $pt )
@@ -157,7 +157,7 @@ class KBS_Scanner {
 		return get_posts( array(
 			'post_type'      => array_values( $post_types ),
 			'post_status'    => array( 'publish', 'draft', 'private' ),
-			'posts_per_page' => self::BATCH_SIZE,
+			'posts_per_page' => $batch_size,
 			'offset'         => $offset,
 			'orderby'        => 'ID',
 			'order'          => 'ASC',
