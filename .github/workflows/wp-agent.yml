@@ -26,13 +26,15 @@ jobs:
           COMMAND: ${{ github.event.inputs.command }}
           WP_USER: ${{ secrets.WP_USERNAME }}
           WP_PASS: ${{ secrets.WP_PASSWORD }}
+          WP_API_KEY: ${{ secrets.WP_API_KEY }}
         run: |
-          AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
           SITE=$(echo "$SITE_URL" | sed 's:/*$::')
 
           if [ "$COMMAND" = "wp-setup" ]; then
-            echo "## Creating claude-mcp user on $SITE" >> $GITHUB_STEP_SUMMARY
+            echo "## Setting up API key on $SITE" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
+
+            AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Basic $AUTH" \
@@ -50,12 +52,12 @@ jobs:
               exit 1
             fi
 
-            echo "### MCP User Created" >> $GITHUB_STEP_SUMMARY
+            echo "### API Key Generated" >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
             echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> **Next:** Copy \`app_password\` from the output above and update \`WP_USERNAME\` -> \`claude-mcp\` and \`WP_PASSWORD\` -> the app password in GitHub secrets." >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Copy \`api_key\` above and add it as \`WP_API_KEY\` in GitHub secrets." >> $GITHUB_STEP_SUMMARY
 
             echo "$BODY"
 
@@ -64,7 +66,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "Authorization: Basic $AUTH" \
+              -H "X-KBS-Key: $WP_API_KEY" \
               -H "Content-Type: application/json" \
               "$SITE/wp-json/kbs/v1/scan")
 
@@ -98,7 +100,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
-              -H "Authorization: Basic $AUTH" \
+              -H "X-KBS-Key: $WP_API_KEY" \
               "$SITE/wp-json/kbs/v1/results")
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
