@@ -11,6 +11,7 @@ on:
         required: true
         type: choice
         options:
+          - wp-setup
           - kadence-scan
           - kadence-results
 
@@ -29,7 +30,36 @@ jobs:
           AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
           SITE=$(echo "$SITE_URL" | sed 's:/*$::')
 
-          if [ "$COMMAND" = "kadence-scan" ]; then
+          if [ "$COMMAND" = "wp-setup" ]; then
+            echo "## Creating claude-mcp user on $SITE" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Authorization: Basic $AUTH" \
+              -H "Content-Type: application/json" \
+              "$SITE/wp-json/kbs/v1/setup")
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "### Error: HTTP $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$BODY" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+
+            echo "### MCP User Created" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Copy \`app_password\` from the output above and update \`WP_USERNAME\` → \`claude-mcp\` and \`WP_PASSWORD\` → the app password in GitHub secrets." >> $GITHUB_STEP_SUMMARY
+
+            echo "$BODY"
+
+          elif [ "$COMMAND" = "kadence-scan" ]; then
             echo "## Running Kadence Block Scanner on $SITE" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
