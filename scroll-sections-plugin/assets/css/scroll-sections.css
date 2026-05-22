@@ -438,28 +438,59 @@
 }
 
 /* ==========================================================================
-   Responsive
+   Touch targets — fix 300ms delay on all interactive elements
+   ========================================================================== */
+
+.ss-dot {
+    touch-action: manipulation;
+}
+
+/* ==========================================================================
+   Responsive — tablet & mobile (≤768px)
    ========================================================================== */
 
 @media (max-width: 768px) {
-    .ss-nav { right: 0.5rem; }
+    /* Fix #2 — iOS safe areas for fixed nav */
+    .ss-nav {
+        right: max(0.5rem, env(safe-area-inset-right));
+        bottom: max(50%, env(safe-area-inset-bottom));
+    }
+
+    /* Fix #2 — iOS safe area for progress bar */
+    .ss-prog {
+        top: env(safe-area-inset-top, 0px);
+    }
+
+    /* Fix #1 — nav dot visual size */
     .ss-dot { width: 9px; height: 9px; }
+
     .ss-tip { display: none; }
 
-    .ss-cnt { padding: 2rem 1.25rem; }
-    .ss-bg { inset: -5%; }
+    .ss-cnt {
+        padding: 2rem 1.25rem;
+        margin: 0 auto;
+        /* Fix #6 — prevent inline admin max-width from breaking mobile padding */
+        max-width: calc(100% - 2.5rem) !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Fix #10 — parallax is disabled in JS at ≤768px; no need for oversized bg */
+    .ss-bg { inset: 0; }
 
     .ss-vl-grid-2,
     .ss-vl-grid-3 {
         grid-template-columns: 1fr;
+        gap: 1rem;
     }
 
     .ss-vl-featured .ss-vitem:not(:first-child) {
         flex: 0 0 100%;
     }
 
+    /* Fix #5 — mosaic stays 2-col at 768px (reduced but still usable) */
     .ss-vl-mosaic {
         grid-template-columns: 1fr 1fr;
+        gap: 1rem;
     }
 
     .ss-vl-mosaic .ss-vitem:nth-child(1) {
@@ -471,14 +502,69 @@
         grid-column: span 1;
     }
 
-    .ss-cnt {
-        margin: 0 auto;
-    }
-
     [data-anim="fade-up"]    .ss-child { transform: translateY(40px); }
     [data-anim="fade-down"]  .ss-child { transform: translateY(-40px); }
     [data-anim="fade-left"]  .ss-child { transform: translateX(40px); }
     [data-anim="fade-right"] .ss-child { transform: translateX(-40px); }
+}
+
+/* ==========================================================================
+   Responsive — small phones (≤480px)
+   Fix #4: dedicated small-phone breakpoint
+   ========================================================================== */
+
+@media (max-width: 480px) {
+    /* Fix #3 — title too large on narrow phones */
+    .ss-ttl {
+        font-size: clamp(1.6rem, 8vw, 2.8rem);
+    }
+
+    /* Fix #5 — mosaic drops to single column on small phones */
+    .ss-vl-mosaic {
+        grid-template-columns: 1fr;
+        grid-auto-rows: auto;
+    }
+
+    .ss-vl-mosaic .ss-vitem:nth-child(1),
+    .ss-vl-mosaic .ss-vitem:nth-child(4) {
+        grid-column: span 1;
+        grid-row: span 1;
+    }
+
+    /* Fix #9 — reduce video grid gap */
+    .ss-vl-stack,
+    .ss-vl-featured,
+    .ss-vl-mosaic {
+        gap: 0.75rem;
+    }
+
+    /* Fix #1 — enlarge nav dot tap area via padding without changing visual size */
+    .ss-nav ul {
+        gap: 10px;
+    }
+
+    .ss-dot {
+        /* Visual size stays 9px; padding creates 44×44 tap zone */
+        padding: 17px 17px;
+        margin: -17px -17px;
+        box-sizing: content-box;
+    }
+
+    /* Fix #8 — prevent 3D text from causing horizontal overflow */
+    .ss-3d-text {
+        white-space: normal;
+        max-width: 80vw;
+    }
+
+    /* Tighten content padding on very small screens */
+    .ss-cnt {
+        padding: 1.5rem 1rem;
+        max-width: calc(100% - 2rem) !important;
+    }
+
+    /* Reduce top/bottom section padding on small phones */
+    .ss-sec.ss-pos-top    { padding-top: 6vh; }
+    .ss-sec.ss-pos-bottom { padding-bottom: 6vh; }
 }
 
 /* ==========================================================================
