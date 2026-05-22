@@ -235,7 +235,9 @@ class KBS_Checks {
 			if ( strpos( $path, '/wp-content/uploads/' ) !== false ) continue;
 			if ( strpos( $path, '#' ) === 0 ) continue;
 
-			if ( ! url_to_postid( $url ) && ! empty( $path ) && $path !== '/' ) {
+			$path_trimmed = trim( $path, '/' );
+			$resolved     = url_to_postid( $url ) || get_page_by_path( $path_trimmed );
+			if ( ! $resolved && ! empty( $path ) && $path !== '/' ) {
 				$issues[] = array(
 					'type'    => 'broken_internal_link',
 					'block'   => $name,

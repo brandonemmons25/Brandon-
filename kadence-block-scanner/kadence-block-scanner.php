@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Kadence Block Scanner
  * Description: Scans all posts and pages for Kadence blocks and identifies broken or problematic elements.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Brandon
  * Text Domain: kadence-block-scanner
  * Requires at least: 5.8
@@ -11,7 +11,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'KBS_VERSION', '1.2.0' );
+define( 'KBS_VERSION', '1.2.1' );
 define( 'KBS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'KBS_URL', plugin_dir_url( __FILE__ ) );
 
