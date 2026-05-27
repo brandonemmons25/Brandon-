@@ -41,10 +41,6 @@ function ihf_fix_seo_title( $title ) {
 		}
 	}
 
-	if ( ! $is_ihf ) {
-		return $title;
-	}
-
 	// iHF's standard page slugs — identical across all Kestrel sites
 	$known_pages = array(
 		'homes-for-sale-search'    => 'Property Search',
@@ -62,6 +58,12 @@ function ihf_fix_seo_title( $title ) {
 	$path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
 	$slug = basename( $path );
 	$site = get_bloginfo( 'name' );
+
+	// Bail early if this isn't an iHF page at all
+	$is_ihf_path = isset( $known_pages[ $slug ] ) || preg_match( '#(?:^|/)i/#', $path );
+	if ( ! $is_ihf && ! $is_ihf_path ) {
+		return $title;
+	}
 
 	if ( isset( $known_pages[ $slug ] ) ) {
 		// Known main iHF page
