@@ -1,23 +1,31 @@
 <?php
 /**
- * Fix iHomefinder SEO Title Tags (Yoast SEO)
+ * iHomefinder Kestrel — SEO Title Fix (Yoast SEO)
  *
- * Paste into functions.php or add via Code Snippets plugin.
+ * Paste into functions.php or add via WPCode / Code Snippets.
  *
- * Problem: Yoast outputs URL query strings (boardId, status, sort, etc.)
- * as part of the <title> tag on iHomefinder-powered pages.
+ * Works on all iHF Kestrel sites with no per-site configuration.
  *
- * Fix: When iHomefinder params are detected, build the title from:
- *   1. The WordPress page title (set in the editor — the cleanest source)
- *   2. Optional location enrichment (city / zip from URL params)
- *   3. Site name
+ * Problem: iHF Kestrel routes all IDX URLs through one WordPress page,
+ * so Yoast always outputs that container page's title. Result: every
+ * iHF page shows the same title tag.
+ *
+ * Fix: read the real URL path from REQUEST_URI (which iHF does not
+ * modify), match it against iHF's standard page slugs, and build a
+ * unique title. City/area landing pages (/i/slug) are titled
+ * automatically from the slug — no manual list needed.
+ *
+ * Prerequisite: uncheck "Disable SEO Plugins on IDX Pages" in the
+ * iHomefinder plugin settings so Yoast is allowed to run.
  */
 
-add_filter( 'wpseo_title', 'ihf_clean_seo_title', 20 );
+add_filter( 'wpseo_title', 'ihf_fix_seo_title', 20 );
 
-function ihf_clean_seo_title( $title ) {
+function ihf_fix_seo_title( $title ) {
 
-	// Params that identify an iHomefinder-driven page request
+	// phpcs:disable WordPress.Security.NonceVerification.Recommended
+
+	// Only act when iHF query params are present
 	$ihf_params = array(
 		'boardId', 'listingId', 'propertyType', 'status', 'city',
 		'zipCode', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds',
@@ -25,45 +33,67 @@ function ihf_clean_seo_title( $title ) {
 		'startIndex', 'soldDaysBack',
 	);
 
-	$is_ihf_page = false;
-	foreach ( $ihf_params as $param ) {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		if ( isset( $_GET[ $param ] ) ) {
-			$is_ihf_page = true;
+	$is_ihf = false;
+	foreach ( $ihf_params as $p ) {
+		if ( isset( $_GET[ $p ] ) ) {
+			$is_ihf = true;
 			break;
 		}
 	}
 
-	if ( ! $is_ihf_page ) {
+	if ( ! $is_ihf ) {
 		return $title;
 	}
 
-	$segments = array();
+	// iHF's standard page slugs — identical across all Kestrel sites
+	$known_pages = array(
+		'homes-for-sale-search'    => 'Property Search',
+		'homes-for-sale-featured'  => 'Featured Properties',
+		'open-home-search'         => 'Open Houses',
+		'sold-featured-listing'    => 'Sold Properties',
+		'supplemental-listing'     => 'Supplemental Listings',
+		'mortgage-calculator'      => 'Mortgage Calculator',
+		'home-valuation'           => 'Home Valuation',
+		'agent-list'               => 'Agent Directory',
+		'property-organizer-login' => 'Property Organizer Login',
+		'contact-us'               => 'Contact Us',
+	);
 
-	// 1. WordPress page title — set this in Pages > Edit for each iHomefinder page
-	//    e.g. "Featured Homes for Sale", "Search Results", "Open Houses"
-	$post_title = get_the_title( get_queried_object_id() );
-	if ( $post_title ) {
-		$segments[] = $post_title;
+	$path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+	$slug = basename( $path );
+	$site = get_bloginfo( 'name' );
+
+	if ( isset( $known_pages[ $slug ] ) ) {
+		// Known main iHF page
+		$page_title = $known_pages[ $slug ];
+
+	} elseif ( preg_match( '#(?:^|/)i/#', $path ) ) {
+		// City / area landing page — auto-generate from slug
+		// e.g. "aliso-viejo-homes-for-sale" → "Aliso Viejo Homes for Sale"
+		$small_words = array( 'and', 'for', 'in', 'of', 'the', 'a', 'an', 'at', 'by', 'or' );
+		$words       = explode( '-', $slug );
+		$titled      = array();
+		foreach ( $words as $i => $word ) {
+			$titled[] = ( $i === 0 || ! in_array( $word, $small_words, true ) )
+				? ucfirst( $word )
+				: $word;
+		}
+		$page_title = implode( ' ', $titled );
+
+	} else {
+		// Unknown path — let Yoast handle it
+		return $title;
 	}
 
-	// 2. Location context (only appended when present in the URL)
-	// phpcs:disable WordPress.Security.NonceVerification.Recommended
+	// Append city or zip context when present in the URL
 	if ( ! empty( $_GET['city'] ) ) {
-		$city       = sanitize_text_field( wp_unslash( $_GET['city'] ) );
-		$segments[] = 'in ' . ucwords( strtolower( $city ) );
+		$city = sanitize_text_field( wp_unslash( $_GET['city'] ) );
+		$page_title .= ' in ' . ucwords( strtolower( $city ) );
 	} elseif ( ! empty( $_GET['zipCode'] ) ) {
-		$segments[] = sanitize_text_field( wp_unslash( $_GET['zipCode'] ) );
+		$page_title .= ' ' . sanitize_text_field( wp_unslash( $_GET['zipCode'] ) );
 	}
+
 	// phpcs:enable
 
-	// 3. Site name
-	$segments[] = get_bloginfo( 'name' );
-
-	// If we somehow have nothing, return the original Yoast title unchanged
-	if ( count( $segments ) < 2 ) {
-		return $title;
-	}
-
-	return implode( ' | ', $segments );
+	return $page_title . ' | ' . $site;
 }
