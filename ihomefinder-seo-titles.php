@@ -49,7 +49,6 @@ function ihf_fix_seo_title( $title ) {
 		'sold-featured-listing'    => 'Sold Properties',
 		'supplemental-listing'     => 'Supplemental Listings',
 		'mortgage-calculator'      => 'Mortgage Calculator',
-		'home-valuation'           => 'Home Valuation',
 		'valuation-form'           => 'Home Valuation',
 		'listing-report'           => 'Listing Report',
 		'agent-list'               => 'Agent Directory',
