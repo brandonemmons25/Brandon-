@@ -50,6 +50,8 @@ function ihf_fix_seo_title( $title ) {
 		'supplemental-listing'     => 'Supplemental Listings',
 		'mortgage-calculator'      => 'Mortgage Calculator',
 		'home-valuation'           => 'Home Valuation',
+		'valuation-form'           => 'Home Valuation',
+		'listing-report'           => 'Listing Report',
 		'agent-list'               => 'Agent Directory',
 		'property-organizer-login' => 'Property Organizer Login',
 		'contact-us'               => 'Contact Us',
