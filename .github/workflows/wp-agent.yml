@@ -49,10 +49,14 @@ jobs:
           }
 
           WP_USER=$(get_cred user)
-          WP_PASS=$(get_cred pass)
+          WP_PASS=$(get_cred pass)         # regular WP login password
+          WP_APP_PASS=$(get_cred app_pass) # Application Password for REST API
           SITE_KEY=$(get_cred api_key)
           KEY=${SITE_KEY:-$WP_API_KEY}
-          AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
+
+          # Use app_pass for REST auth if available, fall back to regular pass
+          REST_PASS=${WP_APP_PASS:-$WP_PASS}
+          REST_AUTH=$(echo -n "$WP_USER:$REST_PASS" | base64)
 
           kbs_post() {
             local endpoint="$1"; shift
@@ -82,6 +86,10 @@ jobs:
 
           # ══════════════════════════════════════════════════════════════════
           # install-kbs
+          #   1. Cookie login with regular WP password
+          #   2. Upload zip via admin UI
+          #   3. Activate plugin
+          #   4. Generate API key via REST (using Application Password)
           # ══════════════════════════════════════════════════════════════════
           if [ "$COMMAND" = "install-kbs" ]; then
             echo "## Installing Kadence Block Scanner on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
@@ -91,86 +99,108 @@ jobs:
               exit 1
             fi
 
+            # Step 1: Cookie login with regular password
             echo "### Step 1: Logging in as $WP_USER" >> $GITHUB_STEP_SUMMARY
-            curl -s -c /tmp/wp-cookies.txt \
+            curl -s \
+              -c /tmp/wp-cookies.txt \
+              -b "wordpress_test_cookie=WP+Cookie+check" \
               -X POST "$FULL_SITE/wp-login.php" \
-              -H "Cookie: wordpress_test_cookie=WP+Cookie+check" \
               --data-urlencode "log=$WP_USER" \
               --data-urlencode "pwd=$WP_PASS" \
-              -d "wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1" \
-              -L -o /tmp/login-response.html
-            if grep -q "wp-admin" /tmp/login-response.html || grep -q "Dashboard" /tmp/login-response.html; then
+              --data-urlencode "redirect_to=/wp-admin/" \
+              -d "wp-submit=Log+In&testcookie=1" \
+              -L -o /tmp/login-response.html -D /tmp/login-headers.txt
+
+            # Check cookies were set (wp_logged_in cookie means success)
+            if grep -q "wordpress_logged_in" /tmp/wp-cookies.txt; then
               echo "✅ Logged in" >> $GITHUB_STEP_SUMMARY
             else
-              echo "ℹ️ Login redirect followed — continuing" >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ Login failed — no session cookie received." >> $GITHUB_STEP_SUMMARY
+              echo "Check that **pass** in WP_SITES is your regular WP login password (not an Application Password)" >> $GITHUB_STEP_SUMMARY
+              exit 1
             fi
 
+            # Step 2: Get upload nonce
             echo "### Step 2: Fetching upload nonce" >> $GITHUB_STEP_SUMMARY
-            curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
-              "$FULL_SITE/wp-admin/plugin-install.php?tab=upload" -o /tmp/upload-page.html
+            curl -s \
+              -c /tmp/wp-cookies.txt \
+              -b /tmp/wp-cookies.txt \
+              "$FULL_SITE/wp-admin/plugin-install.php?tab=upload" \
+              -o /tmp/upload-page.html
+
             NONCE=$(grep -oP '(?<=name="_wpnonce" value=")[^"]+' /tmp/upload-page.html | head -1)
             if [ -z "$NONCE" ]; then
-              echo "### ❌ Could not get nonce — check credentials in WP_SITES secret" >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ Could not get nonce — session may have expired or security plugin is blocking access" >> $GITHUB_STEP_SUMMARY
               exit 1
             fi
             echo "✅ Got nonce" >> $GITHUB_STEP_SUMMARY
 
+            # Step 3: Upload zip
             echo "### Step 3: Uploading plugin zip" >> $GITHUB_STEP_SUMMARY
             cd kadence-block-scanner && zip -r /tmp/kadence-block-scanner.zip . -q && cd ..
-            curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+
+            curl -s \
+              -c /tmp/wp-cookies.txt \
+              -b /tmp/wp-cookies.txt \
               -X POST "$FULL_SITE/wp-admin/update.php?action=upload-plugin" \
               -F "_wpnonce=$NONCE" \
               -F "_wp_http_referer=/wp-admin/plugin-install.php?tab=upload" \
               -F "pluginzip=@/tmp/kadence-block-scanner.zip" \
               -L -o /tmp/upload-response.html
-            if grep -q "Plugin installed successfully\|activate-plugin\|already installed\|install_plugin_complete" /tmp/upload-response.html; then
+
+            if grep -qiE "Plugin installed successfully|activate-plugin|already installed|install_plugin_complete" /tmp/upload-response.html; then
               echo "✅ Plugin uploaded" >> $GITHUB_STEP_SUMMARY
             else
               echo "### ❌ Upload failed" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              grep -i "error\|notice\|warning" /tmp/upload-response.html | sed 's/<[^>]*>//g' | head -20 >> $GITHUB_STEP_SUMMARY
+              grep -iE "error|notice|warning" /tmp/upload-response.html \
+                | sed 's/<[^>]*>//g' | grep -v '^[[:space:]]*$' | head -20 \
+                >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
               exit 1
             fi
 
+            # Step 4: Activate plugin
             echo "### Step 4: Activating plugin" >> $GITHUB_STEP_SUMMARY
             ACTIVATE_NONCE=$(grep -oP '(?<=activate-plugin&_wpnonce=)[^"&]+' /tmp/upload-response.html | head -1)
             PLUGIN_SLUG=$(grep -oP '(?<=activate-plugin=)[^&"]+' /tmp/upload-response.html | head -1)
+
             if [ -n "$PLUGIN_SLUG" ] && [ -n "$ACTIVATE_NONCE" ]; then
-              curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+              curl -s \
+                -c /tmp/wp-cookies.txt \
+                -b /tmp/wp-cookies.txt \
                 "$FULL_SITE/wp-admin/plugins.php?action=activate&plugin=${PLUGIN_SLUG}&_wpnonce=${ACTIVATE_NONCE}" \
                 -L -o /tmp/activate-response.html
               echo "✅ Plugin activated" >> $GITHUB_STEP_SUMMARY
             else
-              echo "ℹ️ Plugin may already be active (no activation link found)" >> $GITHUB_STEP_SUMMARY
+              echo "ℹ️ No activation link found — plugin may already be active" >> $GITHUB_STEP_SUMMARY
             fi
 
+            # Step 5: Generate API key via REST (uses Application Password)
             echo "### Step 5: Generating API key" >> $GITHUB_STEP_SUMMARY
             SETUP=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "Authorization: Basic $AUTH" \
+              -H "Authorization: Basic $REST_AUTH" \
               -H "Content-Type: application/json" \
               "$FULL_SITE/wp-json/kbs/v1/setup")
             SETUP_CODE=$(echo "$SETUP" | tail -n1)
             SETUP_BODY=$(echo "$SETUP" | sed '$d')
             check_response "Setup" "$SETUP_BODY" "$SETUP_CODE"
+
             API_KEY=$(echo "$SETUP_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('api_key',''))" 2>/dev/null)
             echo "✅ API key generated" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "API Key: $API_KEY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "> **Next:** Add api_key to WP_SITES secret for $SITE, then run kadence-scan" >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Add \`\"api_key\": \"$API_KEY\"\` to WP_SITES for $SITE, then run **kadence-scan**" >> $GITHUB_STEP_SUMMARY
 
           # ══════════════════════════════════════════════════════════════════
-          # wp-setup
+          # wp-setup  — plugin already installed, just generate API key
           # ══════════════════════════════════════════════════════════════════
           elif [ "$COMMAND" = "wp-setup" ]; then
             echo "## Generating API key on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
-            if [ -z "$WP_USER" ] || [ -z "$WP_PASS" ]; then
-              echo "### ❌ No credentials for $SITE" >> $GITHUB_STEP_SUMMARY; exit 1
-            fi
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "Authorization: Basic $AUTH" \
+              -H "Authorization: Basic $REST_AUTH" \
               "$FULL_SITE/wp-json/kbs/v1/setup")
             CODE=$(echo "$RESPONSE" | tail -n1)
             BODY=$(echo "$RESPONSE" | sed '$d')
@@ -179,7 +209,7 @@ jobs:
             echo '```json' >> $GITHUB_STEP_SUMMARY
             echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "> **Next:** Update WP_SITES — add api_key: \"$API_KEY\" for $SITE" >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Add \`\"api_key\": \"$API_KEY\"\` to WP_SITES for $SITE" >> $GITHUB_STEP_SUMMARY
 
           # ══════════════════════════════════════════════════════════════════
           # kadence-scan
