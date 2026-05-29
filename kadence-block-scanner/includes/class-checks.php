@@ -39,7 +39,7 @@ class KBS_Checks {
 		foreach ( self::KADENCE_HOSTS as $url ) {
 			$host     = wp_parse_url( $url, PHP_URL_HOST );
 			$response = wp_remote_head( $url, array(
-				'timeout'    => 8,
+				'timeout'    => 3,
 				'user-agent' => 'KadenceBlockScanner/' . KBS_VERSION,
 				'sslverify'  => false,
 			) );

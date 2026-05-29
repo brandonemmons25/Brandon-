@@ -95,14 +95,24 @@ class KBS_API {
 
 		$batches = (int) ceil( $total / KBS_Scanner::BATCH_SIZE );
 
+		// Run checks with error suppression — don't let a connectivity timeout kill the scan
+		$connectivity = array();
+		$plugins      = array();
+		$licenses     = array();
+		$asset_check  = array();
+		try { $connectivity = KBS_Checks::check_kadence_connectivity(); } catch ( \Throwable $e ) {}
+		try { $plugins      = KBS_Checks::get_kadence_plugins(); }       catch ( \Throwable $e ) {}
+		try { $licenses     = KBS_Checks::check_license_status(); }      catch ( \Throwable $e ) {}
+		try { $asset_check  = KBS_Checks::check_kadence_assets_enqueued(); } catch ( \Throwable $e ) {}
+
 		update_option( self::BATCH_STATE, array(
 			'offset'       => 0,
 			'post_results' => array(),
 			'start'        => microtime( true ),
-			'connectivity' => KBS_Checks::check_kadence_connectivity(),
-			'plugins'      => KBS_Checks::get_kadence_plugins(),
-			'licenses'     => KBS_Checks::check_license_status(),
-			'asset_check'  => KBS_Checks::check_kadence_assets_enqueued(),
+			'connectivity' => $connectivity,
+			'plugins'      => $plugins,
+			'licenses'     => $licenses,
+			'asset_check'  => $asset_check,
 		), false );
 
 		return new WP_REST_Response( array(
