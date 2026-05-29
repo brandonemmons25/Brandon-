@@ -11,121 +11,316 @@ on:
         required: true
         type: choice
         options:
+          - install-kbs
           - wp-setup
           - kadence-scan
           - kadence-results
+          - kadence-fix
+          - list-plugins
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Run command
         env:
           SITE_URL: ${{ github.event.inputs.site_url }}
           COMMAND: ${{ github.event.inputs.command }}
           WP_SITES: ${{ secrets.WP_SITES }}
           WP_API_KEY: ${{ secrets.WP_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # ── Resolve site credentials ──────────────────────────────────────
           SITE=$(echo "$SITE_URL" | sed 's:/*$::' | sed 's|https\?://||' | sed 's|www\.||')
-          WP_USER=$(echo "$WP_SITES" | python3 -c "import sys,json; d=json.load(sys.stdin); s=next((v for k,v in d.items() if k in '$SITE' or '$SITE' in k), None); print(s['user'] if s else '')" 2>/dev/null)
-          WP_PASS=$(echo "$WP_SITES" | python3 -c "import sys,json; d=json.load(sys.stdin); s=next((v for k,v in d.items() if k in '$SITE' or '$SITE' in k), None); print(s.get('pass','') if s else '')" 2>/dev/null)
           FULL_SITE=$(echo "$SITE_URL" | sed 's:/*$::')
 
-          if [ "$COMMAND" = "wp-setup" ]; then
-            echo "## Setting up API key on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
-            if [ -z "$WP_USER" ] || [ -z "$WP_PASS" ]; then
-              echo "### Error: No credentials found for $SITE in WP_SITES secret." >> $GITHUB_STEP_SUMMARY
+          get_cred() {
+            echo "$WP_SITES" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          s = next((v for k, v in d.items() if k in '$SITE' or '$SITE' in k), None)
+          print(s.get('$1', '') if s else '')
+          " 2>/dev/null
+          }
+
+          WP_USER=$(get_cred user)
+          WP_PASS=$(get_cred pass)
+          SITE_KEY=$(get_cred api_key)
+          KEY=${SITE_KEY:-$WP_API_KEY}
+          AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
+
+          # ── Helper: call API with key ─────────────────────────────────────
+          kbs_post() {
+            local endpoint="$1"; shift
+            curl -s -w "\n%{http_code}" -X POST \
+              -H "X-KBS-Key: $KEY" \
+              -H "Content-Type: application/json" \
+              "$FULL_SITE/wp-json/kbs/v1/$endpoint" "$@"
+          }
+
+          kbs_get() {
+            local endpoint="$1"
+            curl -s -w "\n%{http_code}" -X GET \
+              -H "X-KBS-Key: $KEY" \
+              "$FULL_SITE/wp-json/kbs/v1/$endpoint"
+          }
+
+          check_response() {
+            local label="$1" body="$2" code="$3"
+            if [ "$code" != "200" ]; then
+              echo "### ❌ $label failed (HTTP $code)" >> $GITHUB_STEP_SUMMARY
+              echo '```json' >> $GITHUB_STEP_SUMMARY
+              echo "$body" | python3 -m json.tool 2>/dev/null || echo "$body" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
               exit 1
             fi
-            AUTH=$(echo -n "$WP_USER:$WP_PASS" | base64)
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          }
+
+          # ══════════════════════════════════════════════════════════════════
+          # install-kbs
+          #   1. Login to WP admin, get nonce
+          #   2. Upload kadence-block-scanner.zip via admin upload page
+          #   3. Activate the plugin
+          #   4. Run /setup to generate API key
+          # ══════════════════════════════════════════════════════════════════
+          if [ "$COMMAND" = "install-kbs" ]; then
+            echo "## Installing Kadence Block Scanner on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+
+            if [ -z "$WP_USER" ] || [ -z "$WP_PASS" ]; then
+              echo "### ❌ No credentials found for $SITE in WP_SITES secret." >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+
+            # Step 1: Login
+            echo "### Step 1: Logging in as $WP_USER" >> $GITHUB_STEP_SUMMARY
+            LOGIN=$(curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+              -X POST "$FULL_SITE/wp-login.php" \
+              -H "Cookie: wordpress_test_cookie=WP+Cookie+check" \
+              --data-urlencode "log=$WP_USER" \
+              --data-urlencode "pwd=$WP_PASS" \
+              -d "wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1" \
+              -w "\n%{http_code}" -L)
+            LOGIN_CODE=$(echo "$LOGIN" | tail -n1)
+            if [ "$LOGIN_CODE" != "200" ]; then
+              echo "### ❌ Login failed (HTTP $LOGIN_CODE)" >> $GITHUB_STEP_SUMMARY; exit 1
+            fi
+            echo "✅ Logged in" >> $GITHUB_STEP_SUMMARY
+
+            # Step 2: Get upload nonce
+            echo "### Step 2: Fetching upload nonce" >> $GITHUB_STEP_SUMMARY
+            UPLOAD_PAGE=$(curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+              "$FULL_SITE/wp-admin/plugin-install.php?tab=upload")
+            NONCE=$(echo "$UPLOAD_PAGE" | grep -oP '(?<=name="_wpnonce" value=")[^"]+' | head -1)
+            if [ -z "$NONCE" ]; then
+              echo "### ❌ Could not get upload nonce (are credentials correct?)" >> $GITHUB_STEP_SUMMARY; exit 1
+            fi
+            echo "✅ Got nonce" >> $GITHUB_STEP_SUMMARY
+
+            # Step 3: Upload zip
+            echo "### Step 3: Uploading plugin zip" >> $GITHUB_STEP_SUMMARY
+            cd kadence-block-scanner && zip -r /tmp/kadence-block-scanner.zip . -q && cd ..
+            UPLOAD=$(curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+              -X POST "$FULL_SITE/wp-admin/update.php?action=upload-plugin" \
+              -F "_wpnonce=$NONCE" \
+              -F "_wp_http_referer=/wp-admin/plugin-install.php?tab=upload" \
+              -F "pluginzip=@/tmp/kadence-block-scanner.zip" \
+              -w "\n%{http_code}" -L)
+            UPLOAD_CODE=$(echo "$UPLOAD" | tail -n1)
+            UPLOAD_BODY=$(echo "$UPLOAD" | sed '$d')
+
+            # Check for success or already-installed
+            if echo "$UPLOAD_BODY" | grep -q "Plugin installed successfully\|activate-plugin\|already installed"; then
+              echo "✅ Plugin uploaded" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ Upload may have failed (HTTP $UPLOAD_CODE)" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$UPLOAD_BODY" | grep -i "error\|notice\|warning" | head -20 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+
+            # Step 4: Activate plugin
+            echo "### Step 4: Activating plugin" >> $GITHUB_STEP_SUMMARY
+            ACTIVATE_NONCE=$(echo "$UPLOAD_BODY" | grep -oP '(?<=activate-plugin&_wpnonce=)[^"&]+' | head -1)
+            PLUGIN_SLUG=$(echo "$UPLOAD_BODY" | grep -oP '(?<=activate-plugin=)[^&"]+' | head -1)
+            if [ -n "$PLUGIN_SLUG" ] && [ -n "$ACTIVATE_NONCE" ]; then
+              ACTIVATE=$(curl -s -c /tmp/wp-cookies.txt -b /tmp/wp-cookies.txt \
+                "$FULL_SITE/wp-admin/plugins.php?action=activate&plugin=${PLUGIN_SLUG}&_wpnonce=${ACTIVATE_NONCE}" \
+                -w "\n%{http_code}" -L)
+              ACTIVATE_CODE=$(echo "$ACTIVATE" | tail -n1)
+              echo "✅ Activation request sent (HTTP $ACTIVATE_CODE)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ Could not extract activation link — plugin may already be active" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            # Step 5: Generate API key
+            echo "### Step 5: Generating API key" >> $GITHUB_STEP_SUMMARY
+            SETUP=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Basic $AUTH" \
               -H "Content-Type: application/json" \
               "$FULL_SITE/wp-json/kbs/v1/setup")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "### Error: HTTP $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$BODY" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              exit 1
-            fi
-            API_KEY=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['api_key'])" 2>/dev/null)
-            echo "### API Key Generated" >> $GITHUB_STEP_SUMMARY
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
+            SETUP_CODE=$(echo "$SETUP" | tail -n1)
+            SETUP_BODY=$(echo "$SETUP" | sed '$d')
+            check_response "Setup" "$SETUP_BODY" "$SETUP_CODE"
+            API_KEY=$(echo "$SETUP_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('api_key',''))" 2>/dev/null)
+            echo "✅ API key generated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "> **Next:** Update WP_SITES — replace pass with api_key: \"$API_KEY\" for $SITE" >> $GITHUB_STEP_SUMMARY
+            echo "API Key: $API_KEY" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Add this api_key to WP_SITES secret for $SITE" >> $GITHUB_STEP_SUMMARY
 
+          # ══════════════════════════════════════════════════════════════════
+          # wp-setup  — just generate/return API key (plugin already installed)
+          # ══════════════════════════════════════════════════════════════════
+          elif [ "$COMMAND" = "wp-setup" ]; then
+            echo "## Generating API key on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+            if [ -z "$WP_USER" ] || [ -z "$WP_PASS" ]; then
+              echo "### ❌ No credentials for $SITE" >> $GITHUB_STEP_SUMMARY; exit 1
+            fi
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Authorization: Basic $AUTH" \
+              "$FULL_SITE/wp-json/kbs/v1/setup")
+            CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            check_response "Setup" "$BODY" "$CODE"
+            API_KEY=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('api_key',''))")
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "> **Next:** Update WP_SITES — add api_key: \"$API_KEY\" for $SITE" >> $GITHUB_STEP_SUMMARY
+
+          # ══════════════════════════════════════════════════════════════════
+          # kadence-scan  — run full batched scan
+          # ══════════════════════════════════════════════════════════════════
           elif [ "$COMMAND" = "kadence-scan" ]; then
-            echo "## Running Kadence Block Scanner on $FULL_SITE" >> $GITHUB_STEP_SUMMARY
-            SITE_KEY=$(echo "$WP_SITES" | python3 -c "import sys,json; d=json.load(sys.stdin); s=next((v for k,v in d.items() if k in '$SITE' or '$SITE' in k), None); print(s.get('api_key','') if s else '')" 2>/dev/null)
-            KEY=${SITE_KEY:-$WP_API_KEY}
-            START=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "X-KBS-Key: $KEY" \
-              -H "Content-Type: application/json" \
-              "$FULL_SITE/wp-json/kbs/v1/scan/start")
+            echo "## Kadence Block Scan — $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+
+            START=$(kbs_post "scan/start")
             START_CODE=$(echo "$START" | tail -n1)
             START_BODY=$(echo "$START" | sed '$d')
-            if [ "$START_CODE" != "200" ]; then
-              echo "### Error starting scan: HTTP $START_CODE" >> $GITHUB_STEP_SUMMARY
-              echo "$START_BODY" >> $GITHUB_STEP_SUMMARY
-              exit 1
-            fi
+            check_response "Scan start" "$START_BODY" "$START_CODE"
+
             BATCHES=$(echo "$START_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['batches'])")
-            TOTAL=$(echo "$START_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])")
-            echo "Scanning $TOTAL posts in $BATCHES batches..." >> $GITHUB_STEP_SUMMARY
+            TOTAL=$(echo "$START_BODY"   | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])")
+            echo "Scanning **$TOTAL posts** in **$BATCHES batches**..." >> $GITHUB_STEP_SUMMARY
+
             DONE="false"
-            BATCH_NUM=0
+            N=0
             while [ "$DONE" != "true" ]; do
-              BATCH_NUM=$((BATCH_NUM + 1))
-              echo "Running batch $BATCH_NUM of $BATCHES..."
-              BATCH=$(curl -s -w "\n%{http_code}" -X POST \
-                -H "X-KBS-Key: $KEY" \
-                -H "Content-Type: application/json" \
-                "$FULL_SITE/wp-json/kbs/v1/scan/batch")
+              N=$((N+1))
+              echo "  Batch $N / $BATCHES"
+              BATCH=$(kbs_post "scan/batch")
               BATCH_CODE=$(echo "$BATCH" | tail -n1)
               BATCH_BODY=$(echo "$BATCH" | sed '$d')
-              if [ "$BATCH_CODE" != "200" ]; then
-                echo "### Error on batch $BATCH_NUM: HTTP $BATCH_CODE" >> $GITHUB_STEP_SUMMARY
-                echo "$BATCH_BODY" >> $GITHUB_STEP_SUMMARY
-                exit 1
-              fi
+              check_response "Batch $N" "$BATCH_BODY" "$BATCH_CODE"
               DONE=$(echo "$BATCH_BODY" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['done']).lower())")
             done
-            RESULTS=$(curl -s -w "\n%{http_code}" -X GET \
-              -H "X-KBS-Key: $KEY" \
-              "$FULL_SITE/wp-json/kbs/v1/results")
-            RESULTS_CODE=$(echo "$RESULTS" | tail -n1)
-            RESULTS_BODY=$(echo "$RESULTS" | sed '$d')
-            if [ "$RESULTS_CODE" != "200" ]; then
-              echo "### Error fetching results: HTTP $RESULTS_CODE" >> $GITHUB_STEP_SUMMARY
-              exit 1
-            fi
-            ISSUES=$(echo "$RESULTS_BODY" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['results']['posts']))" 2>/dev/null || echo "?")
-            echo "**Posts with issues: $ISSUES**" >> $GITHUB_STEP_SUMMARY
-            echo "### Full Results" >> $GITHUB_STEP_SUMMARY
+
+            # Pull and display results
+            RES=$(kbs_get "results")
+            RES_CODE=$(echo "$RES" | tail -n1)
+            RES_BODY=$(echo "$RES" | sed '$d')
+            check_response "Results" "$RES_BODY" "$RES_CODE"
+
+            echo "$RES_BODY" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          s = d.get('summary', {})
+          m = d.get('meta', {})
+          print(f\"### Results\")
+          print(f\"- Scanned at: {m.get('scanned_at','?')}\")
+          print(f\"- Duration: {m.get('duration','?')}s\")
+          print(f\"- Posts with issues: **{s.get('affected_posts',0)}**\")
+          print(f\"- Total block issues: **{s.get('total_issues',0)}**\")
+          print(f\"- Connectivity errors: {s.get('connectivity_errors',0)}\")
+          print(f\"- License issues: {s.get('license_issues',0)}\")
+          if s.get('issue_types'):
+            print('')
+            print('| Issue Type | Count |')
+            print('|-----------|-------|')
+            for t, c in sorted(s['issue_types'].items(), key=lambda x: -x[1]):
+              print(f'| {t.replace(\"_\",\" \")} | {c} |')
+          " >> $GITHUB_STEP_SUMMARY
+
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo "$RESULTS_BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$RESULTS_BODY" >> $GITHUB_STEP_SUMMARY
+            echo "$RES_BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$RES_BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
 
+          # ══════════════════════════════════════════════════════════════════
+          # kadence-results  — fetch cached results only
+          # ══════════════════════════════════════════════════════════════════
           elif [ "$COMMAND" = "kadence-results" ]; then
-            echo "## Fetching cached Kadence scan results from $FULL_SITE" >> $GITHUB_STEP_SUMMARY
-            SITE_KEY=$(echo "$WP_SITES" | python3 -c "import sys,json; d=json.load(sys.stdin); s=next((v for k,v in d.items() if k in '$SITE' or '$SITE' in k), None); print(s.get('api_key','') if s else '')" 2>/dev/null)
-            KEY=${SITE_KEY:-$WP_API_KEY}
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
-              -H "X-KBS-Key: $KEY" \
-              "$FULL_SITE/wp-json/kbs/v1/results")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "### Error: HTTP $HTTP_CODE" >> $GITHUB_STEP_SUMMARY
-              echo "$BODY" >> $GITHUB_STEP_SUMMARY
-              exit 1
-            fi
+            echo "## Kadence Scan Results — $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+            RES=$(kbs_get "results")
+            RES_CODE=$(echo "$RES" | tail -n1)
+            RES_BODY=$(echo "$RES" | sed '$d')
+            check_response "Results" "$RES_BODY" "$RES_CODE"
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo "$BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$BODY" >> $GITHUB_STEP_SUMMARY
+            echo "$RES_BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$RES_BODY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # ══════════════════════════════════════════════════════════════════
+          # kadence-fix  — auto-fix issues from last scan
+          # ══════════════════════════════════════════════════════════════════
+          elif [ "$COMMAND" = "kadence-fix" ]; then
+            echo "## Kadence Auto-Fix — $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+            FIX=$(kbs_post "fix")
+            FIX_CODE=$(echo "$FIX" | tail -n1)
+            FIX_BODY=$(echo "$FIX" | sed '$d')
+            check_response "Fix" "$FIX_BODY" "$FIX_CODE"
+
+            echo "$FIX_BODY" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f\"- Posts fixed: **{d.get('fixed',0)}**\")
+          print(f\"- Posts skipped (no fixable issues): {d.get('skipped',0)}\")
+          s = d.get('new_summary', {})
+          if s:
+            print('')
+            print('### After Fix')
+            print(f\"- Posts with remaining issues: {s.get('affected_posts',0)}\")
+            print(f\"- Total remaining block issues: {s.get('total_issues',0)}\")
+          log = d.get('log', [])
+          if log:
+            print('')
+            print('### Change Log')
+            print('| Post ID | Block | Action |')
+            print('|---------|-------|--------|')
+            for entry in log:
+              if entry.get('action') != 'post_updated':
+                print(f\"| {entry.get('post_id','')} | {entry.get('block','—')} | {entry.get('action','').replace('_',' ')} |\")
+          " >> $GITHUB_STEP_SUMMARY
+
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo "$FIX_BODY" | python3 -m json.tool >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "$FIX_BODY" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # ══════════════════════════════════════════════════════════════════
+          # list-plugins
+          # ══════════════════════════════════════════════════════════════════
+          elif [ "$COMMAND" = "list-plugins" ]; then
+            echo "## Installed Plugins — $FULL_SITE" >> $GITHUB_STEP_SUMMARY
+            RES=$(kbs_get "plugins")
+            RES_CODE=$(echo "$RES" | tail -n1)
+            RES_BODY=$(echo "$RES" | sed '$d')
+            check_response "List plugins" "$RES_BODY" "$RES_CODE"
+
+            echo "$RES_BODY" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          plugins = d.get('plugins', [])
+          print(f'Total: {len(plugins)} plugins')
+          print('')
+          print('| Plugin | Version | Active |')
+          print('|--------|---------|--------|')
+          for p in sorted(plugins, key=lambda x: x['name'].lower()):
+            status = '✅' if p['active'] else '—'
+            print(f\"| {p['name']} | {p['version']} | {status} |\")
+          " >> $GITHUB_STEP_SUMMARY
+
           fi

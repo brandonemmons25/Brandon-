@@ -1,0 +1,116 @@
+/* Kadence Block Scanner — Admin Styles */
+
+.kbs-wrap h1 .dashicons {
+	vertical-align: middle;
+	margin-right: 6px;
+}
+
+.kbs-toolbar {
+	margin: 16px 0 8px;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+#kbs-scan-status {
+	font-style: italic;
+	color: #555;
+}
+
+.kbs-meta {
+	color: #666;
+	font-size: 13px;
+	margin-bottom: 20px;
+}
+
+/* ---- Outage banner ---- */
+.kbs-outage-banner {
+	background: #fff3cd;
+	border-left: 5px solid #e0a800;
+	padding: 16px 20px;
+	margin: 16px 0;
+	border-radius: 3px;
+}
+.kbs-outage-banner h2 {
+	margin-top: 0;
+	font-size: 16px;
+}
+.kbs-outage-banner ul {
+	margin: 8px 0 0 1.4em;
+}
+
+/* ---- Tables ---- */
+.kbs-table {
+	margin: 8px 0 20px;
+	border-collapse: collapse;
+}
+.kbs-table th {
+	background: #f0f0f1;
+	font-weight: 600;
+}
+.kbs-table td,
+.kbs-table th {
+	padding: 7px 10px;
+	vertical-align: top;
+}
+.kbs-table tr.kbs-error td {
+	background: #fce8e8;
+}
+.kbs-table tr.kbs-warning td {
+	background: #fff8e1;
+}
+.kbs-table tr.kbs-ok td {
+	background: #e8f5e9;
+}
+
+/* ---- Inline status chips ---- */
+.kbs-ok    { color: #1e7e34; font-weight: 600; }
+.kbs-error { color: #c0392b; font-weight: 600; }
+.kbs-warning { color: #856404; font-weight: 600; }
+.kbs-ok-text { color: #1e7e34; font-size: 14px; }
+
+/* ---- Warning box ---- */
+.kbs-warning-box {
+	background: #fff8e1;
+	border-left: 4px solid #f0ad4e;
+	padding: 12px 16px;
+	margin-bottom: 20px;
+}
+
+/* ---- Post cards ---- */
+.kbs-post-card {
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	margin-bottom: 20px;
+	overflow: hidden;
+}
+.kbs-post-header {
+	background: #f6f7f7;
+	padding: 10px 14px;
+	border-bottom: 1px solid #ddd;
+	font-size: 14px;
+}
+.kbs-post-type {
+	display: inline-block;
+	background: #d0d5dd;
+	color: #333;
+	font-size: 11px;
+	padding: 1px 6px;
+	border-radius: 3px;
+	margin-left: 4px;
+}
+.kbs-issue-count {
+	display: inline-block;
+	background: #e0463a;
+	color: #fff;
+	font-size: 11px;
+	padding: 1px 6px;
+	border-radius: 10px;
+	margin-left: 4px;
+}
+.kbs-post-card .kbs-table {
+	margin: 0;
+}
+.kbs-post-card .kbs-table td:first-child {
+	width: 220px;
+}
