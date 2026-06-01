@@ -1,0 +1,197 @@
+/**
+ * OBX Listings — Mobile CSS Fixes
+ * Site: x-obxlistings-com-ihf.mystagingwebsite.com (obxlistings.com)
+ * Theme: Genesis / Mai Prosper child theme
+ * Audit: MCA v2.6.0 | Viewport: 375px | Overflow: +45px across all pages
+ *
+ * Deploy via: Appearance > Customize > Additional CSS
+ * or WPCode / Code Snippets (CSS type)
+ */
+
+@media (max-width: 782px) {
+
+/* ============================================================
+   1. GLOBAL OVERFLOW CONTAINMENT
+   Root cause: structural elements rendering at 420px on 375px viewport
+   ============================================================ */
+
+html,
+body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+div#top,
+header.site-header,
+div.site-inner,
+footer#site-footer {
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+/* ============================================================
+   2. BEFORE-HEADER BLOCK GROUP (+21px overflow)
+   section.before-header > div.wp-block-group > div.wp-block-group__inner-container
+   Measuring 396px on 375px viewport
+   ============================================================ */
+
+section.before-header,
+section.before-header > .wp-block-group,
+section.before-header > .wp-block-group > .wp-block-group__inner-container {
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+/* ============================================================
+   3. CORE BLOCK COLUMNS (+21px overflow)
+   div.wp-block-columns, div.wp-block-column measuring 396px
+   ============================================================ */
+
+.wp-block-columns {
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.wp-block-column {
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-basis: 100% !important;
+    min-width: 0;
+}
+
+/* ============================================================
+   4. GENESIS BLOCKS GB-COLUMNS (+26–28px overflow)
+   div.wp-block-genesis-blocks-gb-columns + div.gb-layout-column-wrap
+   Measuring 383–387px on location/real estate pages
+   ============================================================ */
+
+.wp-block-genesis-blocks-gb-columns,
+.gb-layout-column-wrap {
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.gb-layout-column-wrap > .gb-layout-column {
+    flex-basis: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+}
+
+/* ============================================================
+   5. IMPRESS CAROUSEL / OWL CAROUSEL (massive overflow: 1000–11000px+)
+   div.owl-stage causes horizontal scroll on For Buyers, For Sellers,
+   Luxury Homes pages — contain it at the outer wrapper
+   ============================================================ */
+
+.owl-stage-outer,
+.impress-carousel,
+.impress-carousel-property,
+div[class*="impress-carousel"] {
+    overflow: hidden !important;
+    max-width: 100%;
+}
+
+.owl-stage {
+    /* Carousel slides: allow internal scroll but clip visible area */
+    will-change: transform;
+}
+
+/* ============================================================
+   6. MAP IFRAME (+414px overflow on /outer-banks-maps/)
+   ============================================================ */
+
+.entry-content iframe,
+.wp-block-embed iframe,
+iframe {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: auto;
+    box-sizing: border-box;
+}
+
+.wp-block-embed__wrapper {
+    max-width: 100%;
+    overflow: hidden;
+}
+
+/* ============================================================
+   7. EMAIL NEWSLETTER TABLES (+824px overflow on postid-1350)
+   Old HTML email tables — make them horizontally scrollable
+   ============================================================ */
+
+.entry-content table,
+.post-1350 table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+}
+
+.entry-content table td,
+.entry-content table th {
+    word-break: break-word;
+}
+
+/* ============================================================
+   8. BLOG PAGINATION (+50px overflow)
+   ul in .archive-pagination
+   ============================================================ */
+
+.archive-pagination,
+.archive-pagination ul,
+.pagination,
+.pagination ul {
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+}
+
+.archive-pagination li,
+.pagination li {
+    flex-shrink: 1;
+}
+
+/* ============================================================
+   9. TESTIMONIALS — STAR RATING COLLAPSED (0px height)
+   div.TT_starRating_Left
+   ============================================================ */
+
+.TT_starRating_Left,
+.TT_starRating_Right,
+div[class*="TT_star"] {
+    min-height: 20px;
+    overflow: visible;
+    display: block;
+}
+
+/* ============================================================
+   10. COLLAPSED ARTICLE / ENTRY-CONTENT (older posts)
+   article.entry, div.entry-content collapsing to 0 on some posts
+   ============================================================ */
+
+article.entry,
+div.entry-content {
+    min-height: 1px;
+    display: block;
+}
+
+/* ============================================================
+   11. WORDPRESS ADMIN BAR
+   div#wpadminbar measures 420px — suppress on mobile to eliminate
+   false overflow readings (WP hides it below 600px by default,
+   but belt-and-suspenders for audit cleanliness)
+   ============================================================ */
+
+#wpadminbar {
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+} /* end @media (max-width: 782px) */
