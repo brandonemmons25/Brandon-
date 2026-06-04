@@ -41,19 +41,35 @@ function ihf_fix_seo_title( $title ) {
 		}
 	}
 
-	// Signal 2: iHF virtual page — WordPress renders the container page
+	// Signal 2: path contains a known iHF page slug (catches cases where
+	// the container page slug matches the URL — no virtual page offset to detect)
+	$ihf_slugs = array(
+		'homes-for-sale-search', 'homes-for-sale-featured', 'homes-for-sale-toppicks',
+		'open-home-search', 'sold-featured-listing', 'supplemental-listing',
+		'mortgage-calculator', 'valuation-form', 'listing-report',
+		'agent-list', 'property-organizer-login', 'contact-us',
+	);
+	$is_ihf_slug = false;
+	foreach ( $segments as $segment ) {
+		if ( in_array( $segment, $ihf_slugs, true ) ) {
+			$is_ihf_slug = true;
+			break;
+		}
+	}
+
+	// Signal 3: iHF virtual page — WordPress renders the container page
 	// but REQUEST_URI is deeper than the container page's own permalink.
 	// Handles both /container/virtual-page/ and /virtual-page/SubPage/123/.
 	global $post;
 	$is_ihf_virtual = false;
 	$container_slug = '';
-	if ( ! $is_ihf && $post && is_page() ) {
+	if ( ! $is_ihf && ! $is_ihf_slug && $post && is_page() ) {
 		$container_slug = $post->post_name;
 		$page_path      = trim( parse_url( get_permalink( $post->ID ), PHP_URL_PATH ), '/' );
 		$is_ihf_virtual = ( $path !== $page_path );
 	}
 
-	if ( ! $is_ihf && ! $is_ihf_virtual ) {
+	if ( ! $is_ihf && ! $is_ihf_slug && ! $is_ihf_virtual ) {
 		return $title;
 	}
 
