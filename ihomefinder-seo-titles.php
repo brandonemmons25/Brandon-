@@ -9,7 +9,7 @@
  * Problem: iHF Kestrel routes all IDX URLs through one WordPress page,
  * so Yoast always outputs that container page's title.
  *
- * Fix: detect iHF virtual pages via three signals and auto-generate
+ * Fix: detect iHF virtual pages via two signals and auto-generate
  * a unique title from the URL path — no hardcoded slug list needed.
  *
  * Prerequisite: uncheck "Disable SEO Plugins on IDX Pages" in the
@@ -41,27 +41,24 @@ function ihf_fix_seo_title( $title ) {
 		}
 	}
 
-	// Signal 2: city / area landing pages (/i/slug)
-	$is_city_page = (bool) preg_match( '#(?:^|/)i/#', $path );
-
-	// Signal 3: iHF virtual page — WordPress renders the container page
+	// Signal 2: iHF virtual page — WordPress renders the container page
 	// but REQUEST_URI is deeper than the container page's own permalink.
 	// Handles both /container/virtual-page/ and /virtual-page/SubPage/123/.
 	global $post;
 	$is_ihf_virtual = false;
 	$container_slug = '';
-	if ( ! $is_ihf && ! $is_city_page && $post && is_page() ) {
+	if ( ! $is_ihf && $post && is_page() ) {
 		$container_slug = $post->post_name;
 		$page_path      = trim( parse_url( get_permalink( $post->ID ), PHP_URL_PATH ), '/' );
 		$is_ihf_virtual = ( $path !== $page_path );
 	}
 
-	if ( ! $is_ihf && ! $is_city_page && ! $is_ihf_virtual ) {
+	if ( ! $is_ihf && ! $is_ihf_virtual ) {
 		return $title;
 	}
 
 	// Auto-generate title from meaningful URL segments.
-	// Skip: the container page slug, the /i/ city marker, and numeric IDs.
+	// Skip: the container page slug and numeric IDs.
 	$small_words = array( 'and', 'for', 'in', 'of', 'the', 'a', 'an', 'at', 'by', 'or' );
 
 	$to_title = function( $slug ) use ( $small_words ) {
@@ -77,7 +74,7 @@ function ihf_fix_seo_title( $title ) {
 
 	$parts = array();
 	foreach ( $segments as $segment ) {
-		if ( is_numeric( $segment ) || 'i' === $segment || $segment === $container_slug ) {
+		if ( is_numeric( $segment ) || $segment === $container_slug ) {
 			continue;
 		}
 		$parts[] = $to_title( $segment );
