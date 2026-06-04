@@ -7,14 +7,10 @@
  * Works on all iHF Kestrel sites with no per-site configuration.
  *
  * Problem: iHF Kestrel routes all IDX URLs through one WordPress page,
- * so Yoast always outputs that container page's title. Result: every
- * iHF page shows the same title tag.
+ * so Yoast always outputs that container page's title.
  *
- * Fix: read the real URL path from REQUEST_URI (which iHF does not
- * modify), match it against iHF's standard page slugs, and build a
- * unique title. City/area landing pages (/i/slug) and market sub-pages
- * (e.g. /listing-report/market-name/id/) are titled automatically from
- * the slug — no manual list needed.
+ * Fix: detect iHF virtual pages via three signals and auto-generate
+ * a unique title from the URL path — no hardcoded slug list needed.
  *
  * Prerequisite: uncheck "Disable SEO Plugins on IDX Pages" in the
  * iHomefinder plugin settings so Yoast is allowed to run.
@@ -26,14 +22,17 @@ function ihf_fix_seo_title( $title ) {
 
 	// phpcs:disable WordPress.Security.NonceVerification.Recommended
 
-	// Only act when iHF query params are present
+	$path     = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+	$segments = array_values( array_filter( explode( '/', $path ) ) );
+	$site     = get_bloginfo( 'name' );
+
+	// Signal 1: iHF query params (search results, filtered pages)
 	$ihf_params = array(
 		'boardId', 'listingId', 'propertyType', 'status', 'city',
 		'zipCode', 'minPrice', 'maxPrice', 'minBeds', 'maxBeds',
 		'featuredOnlyYn', 'openHouseYn', 'sort', 'searchType',
 		'startIndex', 'soldDaysBack',
 	);
-
 	$is_ihf = false;
 	foreach ( $ihf_params as $p ) {
 		if ( isset( $_GET[ $p ] ) ) {
@@ -42,54 +41,30 @@ function ihf_fix_seo_title( $title ) {
 		}
 	}
 
-	// iHF's standard page slugs — identical across all Kestrel sites
-	$known_pages = array(
-		'homes-for-sale-search'    => 'Property Search',
-		'homes-for-sale-featured'  => 'Featured Properties',
-		'open-home-search'         => 'Open Houses',
-		'sold-featured-listing'    => 'Sold Properties',
-		'supplemental-listing'     => 'Supplemental Listings',
-		'mortgage-calculator'      => 'Mortgage Calculator',
-		'valuation-form'           => 'Home Valuation',
-		'listing-report'           => 'Listing Report',
-		'agent-list'               => 'Agent Directory',
-		'property-organizer-login' => 'Property Organizer Login',
-		'contact-us'               => 'Contact Us',
-	);
+	// Signal 2: city / area landing pages (/i/slug)
+	$is_city_page = (bool) preg_match( '#(?:^|/)i/#', $path );
 
-	$small_words = array( 'and', 'for', 'in', 'of', 'the', 'a', 'an', 'at', 'by', 'or' );
-	$path        = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
-	$site        = get_bloginfo( 'name' );
-	$page_title  = null;
-
-	// Scan all path segments for a known iHF page slug.
-	// Handles top-level pages (/listing-report/) and market sub-pages
-	// (/listing-report/Market-Name/2979423/).
-	$segments = array_values( array_filter( explode( '/', $path ) ) );
-	foreach ( $segments as $idx => $segment ) {
-		if ( isset( $known_pages[ $segment ] ) ) {
-			$next = isset( $segments[ $idx + 1 ] ) ? $segments[ $idx + 1 ] : '';
-			if ( $next && ! is_numeric( $next ) ) {
-				// Sub-page / market name — format from slug
-				$words  = explode( '-', strtolower( $next ) );
-				$titled = array();
-				foreach ( $words as $i => $word ) {
-					$titled[] = ( $i === 0 || ! in_array( $word, $small_words, true ) )
-						? ucfirst( $word )
-						: $word;
-				}
-				$page_title = $known_pages[ $segment ] . ': ' . implode( ' ', $titled );
-			} else {
-				$page_title = $known_pages[ $segment ];
-			}
-			break;
-		}
+	// Signal 3: iHF virtual page — WordPress renders the container page
+	// but REQUEST_URI is deeper than the container page's own permalink.
+	// Handles both /container/virtual-page/ and /virtual-page/SubPage/123/.
+	global $post;
+	$is_ihf_virtual = false;
+	$container_slug = '';
+	if ( ! $is_ihf && ! $is_city_page && $post && is_page() ) {
+		$container_slug = $post->post_name;
+		$page_path      = trim( parse_url( get_permalink( $post->ID ), PHP_URL_PATH ), '/' );
+		$is_ihf_virtual = ( $path !== $page_path );
 	}
 
-	// City / area landing pages (/i/slug)
-	// e.g. "aliso-viejo-homes-for-sale" → "Aliso Viejo Homes for Sale"
-	if ( ! $page_title && preg_match( '#(?:^|/)i/#', $path ) ) {
-		$slug   = basename( $path );
+	if ( ! $is_ihf && ! $is_city_page && ! $is_ihf_virtual ) {
+		return $title;
+	}
+
+	// Auto-generate title from meaningful URL segments.
+	// Skip: the container page slug, the /i/ city marker, and numeric IDs.
+	$small_words = array( 'and', 'for', 'in', 'of', 'the', 'a', 'an', 'at', 'by', 'or' );
+
+	$to_title = function( $slug ) use ( $small_words ) {
 		$words  = explode( '-', strtolower( $slug ) );
 		$titled = array();
 		foreach ( $words as $i => $word ) {
@@ -97,19 +72,27 @@ function ihf_fix_seo_title( $title ) {
 				? ucfirst( $word )
 				: $word;
 		}
-		$page_title = implode( ' ', $titled );
+		return implode( ' ', $titled );
+	};
+
+	$parts = array();
+	foreach ( $segments as $segment ) {
+		if ( is_numeric( $segment ) || 'i' === $segment || $segment === $container_slug ) {
+			continue;
+		}
+		$parts[] = $to_title( $segment );
+		if ( count( $parts ) >= 2 ) {
+			break;
+		}
 	}
 
-	// Bail if this isn't an iHF page at all
-	if ( ! $page_title && ! $is_ihf ) {
+	if ( empty( $parts ) ) {
 		return $title;
 	}
 
-	if ( ! $page_title ) {
-		$page_title = 'Properties';
-	}
+	$page_title = implode( ': ', $parts );
 
-	// Append city or zip context when present in the URL
+	// Append city or zip context when present
 	if ( ! empty( $_GET['city'] ) ) {
 		$city        = sanitize_text_field( wp_unslash( $_GET['city'] ) );
 		$page_title .= ' in ' . ucwords( strtolower( $city ) );
