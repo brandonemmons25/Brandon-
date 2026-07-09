@@ -43,6 +43,14 @@ class MDG_Generator {
             return [ 'success' => false, 'error' => 'Could not parse API response as JSON.', 'raw' => $result['text'] ];
         }
 
+        // Claude can't reliably count characters — enforce the caps ourselves.
+        if ( ! empty( $fields['seo_title'] ) ) {
+            $fields['seo_title'] = self::enforce_max_length( $fields['seo_title'], MDG_TITLE_MAX );
+        }
+        if ( ! empty( $fields['meta_description'] ) ) {
+            $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX );
+        }
+
         $filled = self::apply_fields_to_yoast( $post_id, $fields, $missing );
 
         return [
@@ -77,6 +85,7 @@ class MDG_Generator {
         }
 
         $description = self::clean_text( $result['text'] );
+        $description = self::enforce_max_length( $description, MDG_META_MAX );
 
         return [
             'success'     => true,
@@ -339,6 +348,26 @@ class MDG_Generator {
         $text = trim( $text, '"' );
         $text = preg_replace( '/^(Meta description:|Description:)\s*/i', '', $text );
         return trim( $text );
+    }
+
+    /**
+     * Hard-cap generated text at $max characters without cutting mid-word.
+     * Claude is asked to count characters in the prompt, but LLMs count
+     * unreliably — this is the actual guarantee that the limit is respected.
+     */
+    private static function enforce_max_length( string $text, int $max ): string {
+        $text = trim( $text );
+        if ( mb_strlen( $text ) <= $max ) {
+            return $text;
+        }
+
+        $truncated  = mb_substr( $text, 0, $max );
+        $last_space = mb_strrpos( $truncated, ' ' );
+        if ( $last_space !== false ) {
+            $truncated = mb_substr( $truncated, 0, $last_space );
+        }
+
+        return rtrim( $truncated, " \t\n\r\0\x0B,;:–—-" );
     }
 
     // -------------------------------------------------------------------------
