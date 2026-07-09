@@ -61,6 +61,14 @@
             <button id="mdg-clear-selected" class="button" disabled>
                 <?php esc_html_e( 'Clear Selected', 'meta-description-generator' ); ?>
             </button>
+            <button id="mdg-clear-all-matching" class="button"
+                    data-status="<?php echo esc_attr( $filters['status'] ); ?>"
+                    data-post-type="<?php echo esc_attr( $filters['post_type'] ); ?>"
+                    data-search="<?php echo esc_attr( $filters['search'] ); ?>"
+                    data-total="<?php echo (int) $total; ?>"
+                    <?php echo empty( $rows ) ? 'disabled' : ''; ?>>
+                <?php esc_html_e( 'Clear All Matching Filter', 'meta-description-generator' ); ?>
+            </button>
             <span id="mdg-bulk-status" class="mdg-status"></span>
         </div>
     </div>

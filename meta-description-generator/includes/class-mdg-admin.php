@@ -158,6 +158,7 @@ class MDG_Admin {
                 'cleared'       => __( 'Cleared ✓', 'meta-description-generator' ),
                 'confirm_clear_one'  => __( 'Clear the current Yoast meta description for this post? This cannot be undone.', 'meta-description-generator' ),
                 'confirm_clear_bulk' => __( 'Clear the Yoast meta description for %d selected post(s)? This cannot be undone.', 'meta-description-generator' ),
+                'confirm_clear_all'  => __( 'Clear the Yoast meta description for ALL %d post(s) matching the current filter, including any written outside this plugin? This cannot be undone.', 'meta-description-generator' ),
                 'no_selection'  => __( 'Check at least one row first.', 'meta-description-generator' ),
             ],
             'has_api_key' => ! empty( MDG_Generator::get_api_key() ),

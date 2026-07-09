@@ -294,6 +294,36 @@
     });
 
     // -------------------------------------------------------------------------
+    // Clear All Matching Filter — ignores pagination, clears every post the
+    // current status/post_type/search filter matches, then reloads so the
+    // table reflects reality (rows can move between "missing" and "has").
+    // -------------------------------------------------------------------------
+
+    $('#mdg-clear-all-matching').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#mdg-bulk-status');
+        var total   = parseInt($btn.data('total'), 10) || 0;
+
+        if (!total) return;
+        if (!confirm(MDG.strings.confirm_clear_all.replace('%d', total))) return;
+
+        $btn.prop('disabled', true);
+        setStatus($status, MDG.strings.clearing + spinner(), '');
+
+        ajax('mdg_clear_all_matching', {
+            status: $btn.data('status'),
+            post_type: $btn.data('post-type'),
+            search: $btn.data('search')
+        }, function (data) {
+            setStatus($status, data.cleared + ' description' + (data.cleared !== 1 ? 's' : '') + ' cleared. Reloading…', 'ok');
+            location.reload();
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, MDG.strings.error + ': ' + err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // Enable/disable "Clear Selected" based on checkbox state
     // -------------------------------------------------------------------------
 
