@@ -18,6 +18,7 @@ class MDG_Admin {
         add_action( 'wp_ajax_mdg_apply_bulk',       [ __CLASS__, 'ajax_apply_bulk' ] );
         add_action( 'wp_ajax_mdg_clear_one',        [ __CLASS__, 'ajax_clear_one' ] );
         add_action( 'wp_ajax_mdg_clear_bulk',       [ __CLASS__, 'ajax_clear_bulk' ] );
+        add_action( 'wp_ajax_mdg_clear_all_matching', [ __CLASS__, 'ajax_clear_all_matching' ] );
         add_action( 'wp_ajax_mdg_auto_fill_next',   [ __CLASS__, 'ajax_auto_fill_next' ] );
         add_action( 'wp_ajax_mdg_auto_fill_status', [ __CLASS__, 'ajax_auto_fill_status' ] );
     }
@@ -334,6 +335,31 @@ class MDG_Admin {
         foreach ( $ids as $id ) {
             $id = (int) $id;
             if ( ! $id ) continue;
+            if ( MDG_Generator::clear_description( $id )['success'] ) $cleared++;
+        }
+
+        wp_send_json_success( [ 'cleared' => $cleared ] );
+    }
+
+    // -------------------------------------------------------------------------
+    // AJAX: clear the Yoast meta description for every post matching the
+    // current filter, ignoring pagination — used to wipe everything a
+    // previous prompt version already wrote so it can be rewritten fresh.
+    // -------------------------------------------------------------------------
+
+    public static function ajax_clear_all_matching(): void {
+        check_ajax_referer( 'mdg_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
+
+        $filters = [
+            'status'    => sanitize_text_field( $_POST['status']    ?? 'all' ),
+            'post_type' => sanitize_text_field( $_POST['post_type'] ?? '' ),
+            'search'    => sanitize_text_field( $_POST['search']    ?? '' ),
+        ];
+
+        $ids = MDG_Scanner::get_matching_ids( $filters );
+        $cleared = 0;
+        foreach ( $ids as $id ) {
             if ( MDG_Generator::clear_description( $id )['success'] ) $cleared++;
         }
 

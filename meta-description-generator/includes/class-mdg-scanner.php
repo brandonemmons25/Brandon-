@@ -38,31 +38,19 @@ class MDG_Scanner {
      * }
      * @return array { rows: array, total: int }
      */
-    public static function get_posts( array $args = [] ): array {
-        $defaults = [
-            'status'    => 'all',
-            'post_type' => '',
-            'search'    => '',
-            'per_page'  => 50,
-            'page'      => 1,
-        ];
-        $args = wp_parse_args( $args, $defaults );
-
+    /**
+     * Shared WP_Query args for the status/post_type/search filter trio used
+     * by both the paginated table (get_posts) and bulk actions (get_matching_ids).
+     */
+    private static function build_filter_query_args( array $args ): array {
         $post_types = empty( $args['post_type'] )
             ? self::get_scannable_types()
             : [ sanitize_key( $args['post_type'] ) ];
 
-        // Exclude WooCommerce utility pages by ID.
-        $excluded_ids = self::get_excluded_ids();
-
         $query_args = [
-            'post_type'      => $post_types,
-            'post_status'    => 'publish',
-            'posts_per_page' => (int) $args['per_page'],
-            'paged'          => max( 1, (int) $args['page'] ),
-            'orderby'        => 'title',
-            'order'          => 'ASC',
-            'post__not_in'   => $excluded_ids,
+            'post_type'    => $post_types,
+            'post_status'  => 'publish',
+            'post__not_in' => self::get_excluded_ids(),
         ];
 
         if ( ! empty( $args['search'] ) ) {
@@ -93,6 +81,26 @@ class MDG_Scanner {
             ];
         }
 
+        return $query_args;
+    }
+
+    public static function get_posts( array $args = [] ): array {
+        $defaults = [
+            'status'    => 'all',
+            'post_type' => '',
+            'search'    => '',
+            'per_page'  => 50,
+            'page'      => 1,
+        ];
+        $args = wp_parse_args( $args, $defaults );
+
+        $query_args = self::build_filter_query_args( $args ) + [
+            'posts_per_page' => (int) $args['per_page'],
+            'paged'          => max( 1, (int) $args['page'] ),
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ];
+
         $query = new WP_Query( $query_args );
         $rows  = [];
 
@@ -115,6 +123,28 @@ class MDG_Scanner {
             'rows'  => $rows,
             'total' => (int) $query->found_posts,
         ];
+    }
+
+    /**
+     * All post IDs matching the status/post_type/search filter, ignoring
+     * pagination — used by bulk actions that must act on everything a
+     * filter matches, not just the current page of results.
+     */
+    public static function get_matching_ids( array $args = [] ): array {
+        $defaults = [
+            'status'    => 'all',
+            'post_type' => '',
+            'search'    => '',
+        ];
+        $args = wp_parse_args( $args, $defaults );
+
+        $query_args = self::build_filter_query_args( $args ) + [
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+        ];
+
+        $query = new WP_Query( $query_args );
+        return array_map( 'intval', $query->posts );
     }
 
     /**
