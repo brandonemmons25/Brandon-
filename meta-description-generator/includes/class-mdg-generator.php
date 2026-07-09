@@ -150,7 +150,7 @@ class MDG_Generator {
             $field_specs[] = '"seo_title": ' . MDG_TITLE_MIN . '–' . MDG_TITLE_MAX . ' characters — keyword-rich, compelling, slightly different from the page title';
         }
         if ( in_array( 'meta_description', $missing, true ) ) {
-            $field_specs[] = '"meta_description": ' . MDG_META_MIN . '–' . MDG_META_MAX . ' characters — written as a selling proposition, not a summary. Lead with the benefit, keyword near the start, end with a direct catchy CTA before 120 chars (mobile truncates there)';
+            $field_specs[] = '"meta_description": ' . MDG_META_MIN . '–' . MDG_META_MAX . ' characters — written as a selling proposition, not a summary. Open with a verb-led hook (Looking for…, Searching for…), lead with the benefit, keyword near the start, end with a direct catchy CTA before 120 chars (mobile truncates there)';
         }
 
         $prompt  = "You are an SEO expert and direct-response copywriter. Generate the missing SEO fields for this WordPress {$type}.\n\n";
@@ -175,13 +175,14 @@ class MDG_Generator {
         $prompt .= "- No quotation marks inside field values\n";
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
+        $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         $prompt .= "- End with a short, direct call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "- Work the business name \"{$site_name}\" naturally into the seo_title, and into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n";
-        $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" — that's a summary with a generic CTA\n";
-        $prompt .= "- Strong example to write like: \"Find your Dana mountain retreat: Lassen Peak views, private fly-fishing access, working ranch acreage. Intermountain Realty — call today to schedule a tour.\" — specific, benefit-led, direct CTA\n\n";
+        $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" — that's a summary with a generic CTA and no hook\n";
+        $prompt .= "- Strong example to write like: \"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage — call today to tour.\" — verb-led hook, specific, benefit-led, direct CTA\n\n";
 
         $example_fields = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -191,7 +192,7 @@ class MDG_Generator {
             $example_fields[] = '"seo_title": "Example SEO Title for This Page – Site"';
         }
         if ( in_array( 'meta_description', $missing, true ) ) {
-            $example_fields[] = '"meta_description": "Specific benefit-led pitch with the keyword up front, a concrete detail that builds trust, and a direct CTA — Call now — before 120 chars."';
+            $example_fields[] = '"meta_description": "Looking for…-style hook, then a specific benefit-led pitch with the keyword up front, a concrete detail that builds trust, and a direct CTA — Call now — before 120 chars."';
         }
         $prompt .= 'Example format: {' . implode( ', ', $example_fields ) . '}';
 
@@ -221,7 +222,7 @@ class MDG_Generator {
         $prompt .= "Write the meta description as a selling proposition: the reader is scanning search results deciding what to click, and this is your one shot to win that click.\n\n";
         $prompt .= "Requirements:\n";
         $prompt .= "- Total length: {$min}–{$max} characters (CRITICAL — count carefully)\n";
-        $prompt .= "- Lead with the strongest benefit or reason to choose this page — not a description of what the page is\n";
+        $prompt .= "- Open with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in and entices them to act, before you deliver the specific benefit and keyword\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
         $prompt .= "- End with a short, direct, catchy call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
@@ -233,10 +234,10 @@ class MDG_Generator {
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants (search intent), use the primary keyword naturally without stuffing, and don't write boilerplate that could pass for another page on this site\n";
         $prompt .= "- No quotation marks, no markdown, no labels\n";
         $prompt .= "- Plain text only — your entire response IS the meta description\n\n";
-        $prompt .= "Example — weak (a summary with a generic CTA, avoid this style):\n";
+        $prompt .= "Example — weak (a summary with a generic CTA and no hook, avoid this style):\n";
         $prompt .= "\"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\"\n\n";
-        $prompt .= "Example — strong (a specific pitch with a direct CTA, write like this):\n";
-        $prompt .= "\"Find your Dana mountain retreat: Lassen Peak views, private fly-fishing access, working ranch acreage. Intermountain Realty — call today to schedule a tour.\"\n\n";
+        $prompt .= "Example — strong (a verb-led hook, a specific pitch, and a direct CTA, write like this):\n";
+        $prompt .= "\"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage — call today to tour.\"\n\n";
         $prompt .= "Respond with ONLY the meta description text. Nothing else.";
 
         return $prompt;
