@@ -415,6 +415,16 @@
     });
 
     // -------------------------------------------------------------------------
+    // Auto-apply the status/type dropdowns instead of requiring a separate
+    // click on "Filter" — selecting a new value alone did nothing, which
+    // left the bulk action buttons looking stuck/disabled against stale results.
+    // -------------------------------------------------------------------------
+
+    $('#mdg-filter-status, #mdg-filter-type').on('change', function () {
+        $('#mdg-filter-form').trigger('submit');
+    });
+
+    // -------------------------------------------------------------------------
     // Settings: show/hide API key (also handled inline in settings.php)
     // -------------------------------------------------------------------------
 
