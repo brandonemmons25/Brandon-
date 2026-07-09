@@ -7,6 +7,11 @@
     var MIN = MDG.min;  // 140
     var MAX = MDG.max;  // 160
 
+    // Anthropic's org rate limit can be as low as 5 requests/minute — pace
+    // sequential calls so we don't blow through it. 13s keeps us under
+    // 60/5=12s with a small buffer.
+    var API_PACE_MS = 13000;
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -160,12 +165,30 @@
                 setStatus($st, '');
                 done++;
                 $fill.css('width', Math.round((index + 1) / total * 100) + '%');
-                processNext(index + 1);
+                waitThenProcessNext(index + 1);
             }, function (err) {
                 setStatus($st, MDG.strings.error + ': ' + err, 'error');
                 $fill.css('width', Math.round((index + 1) / total * 100) + '%');
-                processNext(index + 1); // continue despite error
+                waitThenProcessNext(index + 1); // continue despite error
             });
+        }
+
+        // Pace calls to stay under the Claude API rate limit, with a visible countdown.
+        function waitThenProcessNext(nextIndex) {
+            if (nextIndex >= total) { processNext(nextIndex); return; }
+
+            var secondsLeft = Math.ceil(API_PACE_MS / 1000);
+            var tick = setInterval(function () {
+                secondsLeft--;
+                if (secondsLeft > 0) {
+                    $label.text('Waiting ' + secondsLeft + 's to respect the Claude API rate limit…');
+                }
+            }, 1000);
+
+            setTimeout(function () {
+                clearInterval(tick);
+                processNext(nextIndex);
+            }, API_PACE_MS);
         }
 
         processNext(0);
@@ -265,11 +288,13 @@
                         $notice.find('div').hide();
                     }
                 } else {
-                    processNext();
+                    // Pace calls to stay under the Claude API rate limit.
+                    setTimeout(processNext, API_PACE_MS);
                 }
             }, function () {
-                // On error, pause 3 s then retry rather than stopping entirely.
-                setTimeout(processNext, 3000);
+                // On error (often a rate limit), back off longer than the
+                // normal pace before retrying.
+                setTimeout(processNext, API_PACE_MS * 2);
             });
         }
 

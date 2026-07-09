@@ -278,23 +278,39 @@ class MDG_Generator {
             ],
         ] );
 
-        $response = wp_remote_post( self::API_URL, [
-            'timeout' => 30,
-            'headers' => [
-                'Content-Type'      => 'application/json',
-                'x-api-key'         => $api_key,
-                'anthropic-version' => '2023-06-01',
-            ],
-            'body' => $body,
-        ] );
+        // Anthropic org rate limits can be as low as 5 req/min — retry once on
+        // a 429 instead of failing the row outright.
+        $max_attempts = 2;
+        $code         = 0;
+        $data         = [];
 
-        if ( is_wp_error( $response ) ) {
-            return [ 'success' => false, 'error' => 'API request failed: ' . $response->get_error_message() ];
+        for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+            $response = wp_remote_post( self::API_URL, [
+                'timeout' => 30,
+                'headers' => [
+                    'Content-Type'      => 'application/json',
+                    'x-api-key'         => $api_key,
+                    'anthropic-version' => '2023-06-01',
+                ],
+                'body' => $body,
+            ] );
+
+            if ( is_wp_error( $response ) ) {
+                return [ 'success' => false, 'error' => 'API request failed: ' . $response->get_error_message() ];
+            }
+
+            $code = (int) wp_remote_retrieve_response_code( $response );
+            $raw  = wp_remote_retrieve_body( $response );
+            $data = json_decode( $raw, true );
+
+            if ( $code === 429 && $attempt < $max_attempts ) {
+                $retry_after = (int) wp_remote_retrieve_header( $response, 'retry-after' );
+                sleep( max( $retry_after, 13 ) );
+                continue;
+            }
+
+            break;
         }
-
-        $code = (int) wp_remote_retrieve_response_code( $response );
-        $raw  = wp_remote_retrieve_body( $response );
-        $data = json_decode( $raw, true );
 
         if ( $code !== 200 ) {
             $msg = $data['error']['message'] ?? "HTTP {$code}";
