@@ -160,11 +160,13 @@ class MDG_Generator {
         $prompt .= "- No quotation marks inside field values\n";
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
-        $prompt .= "- End with a short, direct call to action (e.g. \"Call today\", \"Get your free quote\", \"Book your tour now\") — not a generic \"Learn more\"\n";
+        $prompt .= "- End with a short, direct call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "- Work the business name \"{$site_name}\" naturally into the seo_title, and into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
-        $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n\n";
+        $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n";
+        $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" — that's a summary with a generic CTA\n";
+        $prompt .= "- Strong example to write like: \"Find your Dana mountain retreat: Lassen Peak views, private fly-fishing access, working ranch acreage. Intermountain Realty — call today to schedule a tour.\" — specific, benefit-led, direct CTA\n\n";
 
         $example_fields = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -207,7 +209,7 @@ class MDG_Generator {
         $prompt .= "- Lead with the strongest benefit or reason to choose this page — not a description of what the page is\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
-        $prompt .= "- End with a short, direct, catchy call to action — an imperative verb (Call, Book, Shop, Get, Schedule) — not a soft \"Learn more\"\n";
+        $prompt .= "- End with a short, direct, catchy call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Unique to this page — do not start by repeating the page title verbatim\n";
         if ( ! empty( $site_name ) ) {
@@ -216,6 +218,10 @@ class MDG_Generator {
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants (search intent), use the primary keyword naturally without stuffing, and don't write boilerplate that could pass for another page on this site\n";
         $prompt .= "- No quotation marks, no markdown, no labels\n";
         $prompt .= "- Plain text only — your entire response IS the meta description\n\n";
+        $prompt .= "Example — weak (a summary with a generic CTA, avoid this style):\n";
+        $prompt .= "\"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\"\n\n";
+        $prompt .= "Example — strong (a specific pitch with a direct CTA, write like this):\n";
+        $prompt .= "\"Find your Dana mountain retreat: Lassen Peak views, private fly-fishing access, working ranch acreage. Intermountain Realty — call today to schedule a tour.\"\n\n";
         $prompt .= "Respond with ONLY the meta description text. Nothing else.";
 
         return $prompt;
