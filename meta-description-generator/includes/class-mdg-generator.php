@@ -116,6 +116,21 @@ class MDG_Generator {
         ];
     }
 
+    /**
+     * Wipe the Yoast meta description for a post so it can be regenerated
+     * from scratch (and shows up under the "Missing description" filter again).
+     */
+    public static function clear_description( int $post_id ): array {
+        if ( ! get_post( $post_id ) ) {
+            return [ 'success' => false, 'error' => "Post #{$post_id} not found." ];
+        }
+
+        delete_post_meta( $post_id, '_yoast_wpseo_metadesc' );
+        self::update_indexable( $post_id, [ 'description' => '' ] );
+
+        return [ 'success' => true, 'post_id' => $post_id ];
+    }
+
     // -------------------------------------------------------------------------
     // Prompt builders
     // -------------------------------------------------------------------------

@@ -16,6 +16,8 @@ class MDG_Admin {
         add_action( 'wp_ajax_mdg_generate_one',     [ __CLASS__, 'ajax_generate_one' ] );
         add_action( 'wp_ajax_mdg_apply_one',        [ __CLASS__, 'ajax_apply_one' ] );
         add_action( 'wp_ajax_mdg_apply_bulk',       [ __CLASS__, 'ajax_apply_bulk' ] );
+        add_action( 'wp_ajax_mdg_clear_one',        [ __CLASS__, 'ajax_clear_one' ] );
+        add_action( 'wp_ajax_mdg_clear_bulk',       [ __CLASS__, 'ajax_clear_bulk' ] );
         add_action( 'wp_ajax_mdg_auto_fill_next',   [ __CLASS__, 'ajax_auto_fill_next' ] );
         add_action( 'wp_ajax_mdg_auto_fill_status', [ __CLASS__, 'ajax_auto_fill_status' ] );
     }
@@ -151,6 +153,11 @@ class MDG_Admin {
                 'chars_long'    => __( 'characters — Too long (aim for 140–160)', 'meta-description-generator' ),
                 'auto_filling'  => __( 'Auto-filling SEO fields…', 'meta-description-generator' ),
                 'auto_done'     => __( 'All SEO fields filled.', 'meta-description-generator' ),
+                'clearing'      => __( 'Clearing…', 'meta-description-generator' ),
+                'cleared'       => __( 'Cleared ✓', 'meta-description-generator' ),
+                'confirm_clear_one'  => __( 'Clear the current Yoast meta description for this post? This cannot be undone.', 'meta-description-generator' ),
+                'confirm_clear_bulk' => __( 'Clear the Yoast meta description for %d selected post(s)? This cannot be undone.', 'meta-description-generator' ),
+                'no_selection'  => __( 'Check at least one row first.', 'meta-description-generator' ),
             ],
             'has_api_key' => ! empty( MDG_Generator::get_api_key() ),
         ] );
@@ -290,6 +297,47 @@ class MDG_Admin {
         $saved  = count( array_filter( $results, fn( $r ) => $r['success'] ) );
         $failed = count( $results ) - $saved;
         wp_send_json_success( compact( 'saved', 'failed', 'results' ) );
+    }
+
+    // -------------------------------------------------------------------------
+    // AJAX: clear one post's Yoast meta description
+    // -------------------------------------------------------------------------
+
+    public static function ajax_clear_one(): void {
+        check_ajax_referer( 'mdg_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
+
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        if ( ! $post_id ) wp_send_json_error( 'Invalid post ID.' );
+
+        $result = MDG_Generator::clear_description( $post_id );
+
+        if ( $result['success'] ) {
+            wp_send_json_success( $result );
+        } else {
+            wp_send_json_error( $result['error'] );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // AJAX: clear the Yoast meta description for a batch of posts
+    // -------------------------------------------------------------------------
+
+    public static function ajax_clear_bulk(): void {
+        check_ajax_referer( 'mdg_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
+
+        $ids = $_POST['post_ids'] ?? [];
+        if ( ! is_array( $ids ) || empty( $ids ) ) wp_send_json_error( 'No posts selected.' );
+
+        $cleared = 0;
+        foreach ( $ids as $id ) {
+            $id = (int) $id;
+            if ( ! $id ) continue;
+            if ( MDG_Generator::clear_description( $id )['success'] ) $cleared++;
+        }
+
+        wp_send_json_success( [ 'cleared' => $cleared ] );
     }
 
     // -------------------------------------------------------------------------

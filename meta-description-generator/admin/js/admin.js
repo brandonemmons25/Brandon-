@@ -222,11 +222,86 @@
                 '<span class="mdg-char-badge ' + cls + '">' + len + ' chars</span>'
             );
             $row.removeClass('mdg-row--missing mdg-row--warning');
+            // A Clear button may not exist yet if this row had no description on page load.
+            if (!$row.find('.mdg-clear-one').length) {
+                $btn.after(' <button class="button button-small mdg-clear-one" data-post-id="' + postId + '">' + 'Clear' + '</button>');
+            }
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, MDG.strings.error + ': ' + err, 'error');
         });
     });
+
+    // -------------------------------------------------------------------------
+    // Clear one — wipe the current Yoast meta description so it can be
+    // regenerated from scratch (and shows up under "Missing" again).
+    // -------------------------------------------------------------------------
+
+    $(document).on('click', '.mdg-clear-one', function () {
+        var $btn    = $(this);
+        var $row    = $btn.closest('tr');
+        var postId  = $btn.data('post-id');
+        var $status = $row.find('.mdg-row-status');
+
+        if (!confirm(MDG.strings.confirm_clear_one)) return;
+
+        $btn.prop('disabled', true);
+        setStatus($status, MDG.strings.clearing + spinner(), '');
+
+        ajax('mdg_clear_one', { post_id: postId }, function () {
+            setStatus($status, MDG.strings.cleared, 'ok');
+            $row.find('.mdg-current-cell').html(
+                '<span class="mdg-badge mdg-badge--missing">None</span>'
+            );
+            $row.addClass('mdg-row--missing').removeClass('mdg-row--warning');
+            $btn.remove();
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, MDG.strings.error + ': ' + err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Clear Selected (bulk)
+    // -------------------------------------------------------------------------
+
+    $('#mdg-clear-selected').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#mdg-bulk-status');
+        var $rows   = $('.mdg-row-check:checked').closest('tr');
+        var ids     = $rows.map(function () { return $(this).data('post-id'); }).get();
+
+        if (!ids.length) { alert(MDG.strings.no_selection); return; }
+        if (!confirm(MDG.strings.confirm_clear_bulk.replace('%d', ids.length))) return;
+
+        $btn.prop('disabled', true);
+        setStatus($status, MDG.strings.clearing + spinner(), '');
+
+        ajax('mdg_clear_bulk', { post_ids: ids }, function (data) {
+            $btn.prop('disabled', false);
+            $rows.each(function () {
+                $(this).find('.mdg-current-cell').html(
+                    '<span class="mdg-badge mdg-badge--missing">None</span>'
+                );
+                $(this).addClass('mdg-row--missing').removeClass('mdg-row--warning');
+                $(this).find('.mdg-clear-one').remove();
+            });
+            setStatus($status, data.cleared + ' description' + (data.cleared !== 1 ? 's' : '') + ' cleared.', 'ok');
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, MDG.strings.error + ': ' + err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Enable/disable "Clear Selected" based on checkbox state
+    // -------------------------------------------------------------------------
+
+    function updateClearSelectedButton() {
+        $('#mdg-clear-selected').prop('disabled', $('.mdg-row-check:checked').length === 0);
+    }
+
+    $(document).on('change', '.mdg-row-check, #mdg-check-all', updateClearSelectedButton);
 
     // -------------------------------------------------------------------------
     // Apply All (bulk)

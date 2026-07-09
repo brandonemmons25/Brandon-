@@ -58,6 +58,9 @@
             <button id="mdg-apply-all" class="button" disabled>
                 <?php esc_html_e( 'Apply All to Yoast', 'meta-description-generator' ); ?>
             </button>
+            <button id="mdg-clear-selected" class="button" disabled>
+                <?php esc_html_e( 'Clear Selected', 'meta-description-generator' ); ?>
+            </button>
             <span id="mdg-bulk-status" class="mdg-status"></span>
         </div>
     </div>
@@ -139,6 +142,11 @@
                     <button class="button button-small button-primary mdg-apply-one" data-post-id="<?php echo (int) $row['ID']; ?>" disabled>
                         <?php esc_html_e( 'Apply to Yoast', 'meta-description-generator' ); ?>
                     </button>
+                    <?php if ( $has ) : ?>
+                    <button class="button button-small mdg-clear-one" data-post-id="<?php echo (int) $row['ID']; ?>">
+                        <?php esc_html_e( 'Clear', 'meta-description-generator' ); ?>
+                    </button>
+                    <?php endif; ?>
                     <span class="mdg-row-status mdg-status"></span>
                 </td>
             </tr>
