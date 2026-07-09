@@ -48,7 +48,7 @@ class MDG_Generator {
             $fields['seo_title'] = self::enforce_max_length( $fields['seo_title'], MDG_TITLE_MAX );
         }
         if ( ! empty( $fields['meta_description'] ) ) {
-            $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX );
+            $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX, MDG_META_MIN, true );
         }
 
         $filled = self::apply_fields_to_yoast( $post_id, $fields, $missing );
@@ -85,7 +85,7 @@ class MDG_Generator {
         }
 
         $description = self::clean_text( $result['text'] );
-        $description = self::enforce_max_length( $description, MDG_META_MAX );
+        $description = self::enforce_max_length( $description, MDG_META_MAX, MDG_META_MIN, true );
 
         return [
             'success'     => true,
@@ -372,23 +372,46 @@ class MDG_Generator {
     }
 
     /**
-     * Hard-cap generated text at $max characters without cutting mid-word.
-     * Claude is asked to count characters in the prompt, but LLMs count
-     * unreliably — this is the actual guarantee that the limit is respected.
+     * Hard-cap generated text at $max characters. Claude is asked to count
+     * characters in the prompt, but LLMs count unreliably — this is the
+     * actual guarantee that the limit is respected.
+     *
+     * A plain word-boundary cut can leave a sentence hanging mid-thought
+     * ("...mountain views and private"), which reads as broken rather than
+     * intentional. Prefer ending on a complete sentence if one still fits
+     * without dropping below $min; only fall back to a hard word-boundary
+     * cut (marked with an ellipsis) when no sentence boundary fits.
      */
-    private static function enforce_max_length( string $text, int $max ): string {
+    private static function enforce_max_length( string $text, int $max, int $min = 0, bool $add_ellipsis = false ): string {
         $text = trim( $text );
         if ( mb_strlen( $text ) <= $max ) {
             return $text;
         }
 
-        $truncated  = mb_substr( $text, 0, $max );
+        if ( $min > 0 ) {
+            $sentences = preg_split( '/(?<=[.!?])\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY );
+            $built     = '';
+            foreach ( $sentences as $sentence ) {
+                $candidate = $built === '' ? $sentence : $built . ' ' . $sentence;
+                if ( mb_strlen( $candidate ) > $max ) {
+                    break;
+                }
+                $built = $candidate;
+            }
+            if ( $built !== '' && mb_strlen( $built ) >= $min ) {
+                return $built;
+            }
+        }
+
+        $room       = $add_ellipsis ? $max - 1 : $max;
+        $truncated  = mb_substr( $text, 0, $room );
         $last_space = mb_strrpos( $truncated, ' ' );
         if ( $last_space !== false ) {
             $truncated = mb_substr( $truncated, 0, $last_space );
         }
+        $truncated = rtrim( $truncated, " \t\n\r\0\x0B,;:–—-" );
 
-        return rtrim( $truncated, " \t\n\r\0\x0B,;:–—-" );
+        return $add_ellipsis ? $truncated . '…' : $truncated;
     }
 
     // -------------------------------------------------------------------------
