@@ -173,6 +173,7 @@ class MDG_Generator {
         $prompt .= "- Do not include fields not listed above\n";
         $prompt .= "- Count characters carefully — SEO title and meta description limits are critical\n";
         $prompt .= "- No quotation marks inside field values\n";
+        $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
@@ -181,8 +182,8 @@ class MDG_Generator {
             $prompt .= "- Work the business name \"{$site_name}\" naturally into the seo_title, and into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n";
-        $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" — that's a summary with a generic CTA and no hook\n";
-        $prompt .= "- Strong example to write like: \"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage — call today to tour.\" — verb-led hook, specific, benefit-led, direct CTA\n\n";
+        $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" (that's a summary with a generic CTA and no hook)\n";
+        $prompt .= "- Strong example to write like: \"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage. Call today to tour.\" (verb-led hook, specific, benefit-led, direct CTA, no dashes or semicolons)\n\n";
 
         $example_fields = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -192,7 +193,7 @@ class MDG_Generator {
             $example_fields[] = '"seo_title": "Example SEO Title for This Page – Site"';
         }
         if ( in_array( 'meta_description', $missing, true ) ) {
-            $example_fields[] = '"meta_description": "Looking for…-style hook, then a specific benefit-led pitch with the keyword up front, a concrete detail that builds trust, and a direct CTA — Call now — before 120 chars."';
+            $example_fields[] = '"meta_description": "Looking for…-style hook, then a specific benefit-led pitch with the keyword up front, a concrete detail that builds trust, and a direct CTA such as Call now, all before 120 chars, no dashes or semicolons."';
         }
         $prompt .= 'Example format: {' . implode( ', ', $example_fields ) . '}';
 
@@ -232,12 +233,13 @@ class MDG_Generator {
             $prompt .= "- Work the business name \"{$site_name}\" in naturally where it fits (e.g. \"...at {$site_name}\") without crowding out the benefit or the CTA — it builds trust and brand recall in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants (search intent), use the primary keyword naturally without stuffing, and don't write boilerplate that could pass for another page on this site\n";
+        $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
         $prompt .= "- No quotation marks, no markdown, no labels\n";
         $prompt .= "- Plain text only — your entire response IS the meta description\n\n";
         $prompt .= "Example — weak (a summary with a generic CTA and no hook, avoid this style):\n";
         $prompt .= "\"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\"\n\n";
         $prompt .= "Example — strong (a verb-led hook, a specific pitch, and a direct CTA, write like this):\n";
-        $prompt .= "\"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage — call today to tour.\"\n\n";
+        $prompt .= "\"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage. Call today to tour.\"\n\n";
         $prompt .= "Respond with ONLY the meta description text. Nothing else.";
 
         return $prompt;
