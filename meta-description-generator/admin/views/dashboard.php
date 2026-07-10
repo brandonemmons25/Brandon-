@@ -41,7 +41,7 @@
         </div>
         <div class="mdg-stat-card mdg-stat-card--warning">
             <span class="mdg-stat-number"><?php echo (int) $summary['too_long']; ?></span>
-            <span class="mdg-stat-label"><?php esc_html_e( 'Too Long (&gt;160 chars)', 'meta-description-generator' ); ?></span>
+            <span class="mdg-stat-label"><?php esc_html_e( 'Too Long (&gt;156 chars)', 'meta-description-generator' ); ?></span>
         </div>
     </div>
 
@@ -72,11 +72,11 @@
             </li>
             <li>
                 <strong><?php esc_html_e( 'Generate with Claude AI', 'meta-description-generator' ); ?></strong> —
-                <?php esc_html_e( 'Click "Generate All" to write descriptions for every visible row, or click per-row to generate one at a time. Claude reads the business name, page title, and content to write 140–160 character descriptions that sell the click.', 'meta-description-generator' ); ?>
+                <?php esc_html_e( 'Click "Generate All" to write descriptions for every visible row, or click per-row to generate one at a time. Claude reads the business name, page title, and content to write 140–156 character descriptions that sell the click.', 'meta-description-generator' ); ?>
             </li>
             <li>
                 <strong><?php esc_html_e( 'Review & edit', 'meta-description-generator' ); ?></strong> —
-                <?php esc_html_e( 'Each generated description is editable inline. A live character counter shows whether it is within the ideal 140–160 range.', 'meta-description-generator' ); ?>
+                <?php esc_html_e( 'Each generated description is editable inline. A live character counter shows whether it is within the ideal 140–156 range.', 'meta-description-generator' ); ?>
             </li>
             <li>
                 <strong><?php esc_html_e( 'Apply to Yoast', 'meta-description-generator' ); ?></strong> —
@@ -85,7 +85,7 @@
         </ol>
         <p class="mdg-meta">
             <?php printf(
-                esc_html__( 'Optimal length: 140–160 characters. Put keywords and your CTA within the first 120 so mobile truncation doesn\'t cut them. Powered by %s.', 'meta-description-generator' ),
+                esc_html__( 'Optimal length: 140–156 characters. Put keywords and your CTA within the first 120 so mobile truncation doesn\'t cut them. Powered by %s.', 'meta-description-generator' ),
                 '<strong>' . esc_html( MDG_CLAUDE_MODEL ) . '</strong>'
             ); ?>
         </p>

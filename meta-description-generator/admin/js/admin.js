@@ -5,7 +5,7 @@
     'use strict';
 
     var MIN = MDG.min;  // 140
-    var MAX = MDG.max;  // 160
+    var MAX = MDG.max;  // 156
 
     // Anthropic's org rate limit can be as low as 5 requests/minute — pace
     // sequential calls so we don't blow through it. 13s keeps us under

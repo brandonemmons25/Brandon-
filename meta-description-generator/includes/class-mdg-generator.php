@@ -141,6 +141,8 @@ class MDG_Generator {
         $content    = $post_data['content'];
         $site_name  = $post_data['site_name'] ?? '';
         $site_desc  = $post_data['site_desc'] ?? '';
+        $keyphrase  = trim( $post_data['focus_keyphrase'] ?? '' );
+        $keyphrase_is_missing = in_array( 'focus_keyphrase', $missing, true );
 
         $field_specs = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -161,6 +163,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( ! empty( $keyphrase ) && ! $keyphrase_is_missing ) {
+            $prompt .= "Existing focus keyphrase (already set, do not change it): {$keyphrase}\n";
+        }
         if ( ! empty( $content ) ) {
             $prompt .= "Content excerpt:\n{$content}\n\n";
         }
@@ -182,6 +187,11 @@ class MDG_Generator {
             $prompt .= "- Work the business name \"{$site_name}\" naturally into the seo_title, and into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n";
+        if ( ! empty( $keyphrase ) && ! $keyphrase_is_missing ) {
+            $prompt .= "- The meta_description MUST contain the exact phrase \"{$keyphrase}\" verbatim (case doesn't matter), ideally within the first 100 characters — Yoast SEO requires this to mark the page green\n";
+        } elseif ( $keyphrase_is_missing ) {
+            $prompt .= "- Whatever focus_keyphrase you choose, that exact phrase MUST also appear verbatim in the meta_description, ideally within the first 100 characters — Yoast SEO requires this to mark the page green\n";
+        }
         $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" (that's a summary with a generic CTA and no hook)\n";
         $prompt .= "- Strong example to write like: \"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage. Call today to tour.\" (verb-led hook, specific, benefit-led, direct CTA, no dashes or semicolons)\n\n";
 
@@ -208,6 +218,7 @@ class MDG_Generator {
         $content   = $post_data['content'];
         $site_name = $post_data['site_name'] ?? '';
         $site_desc = $post_data['site_desc'] ?? '';
+        $keyphrase = trim( $post_data['focus_keyphrase'] ?? '' );
 
         $prompt  = "You are a direct-response copywriter writing ad copy for a WordPress {$type}, not a summary of it.\n\n";
         if ( ! empty( $site_name ) ) {
@@ -217,6 +228,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( ! empty( $keyphrase ) ) {
+            $prompt .= "Focus keyphrase (already set for this page, do not change it): {$keyphrase}\n";
+        }
         if ( ! empty( $content ) ) {
             $prompt .= "Page content (excerpt):\n{$content}\n\n";
         }
@@ -233,6 +247,9 @@ class MDG_Generator {
             $prompt .= "- Work the business name \"{$site_name}\" in naturally where it fits (e.g. \"...at {$site_name}\") without crowding out the benefit or the CTA — it builds trust and brand recall in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants (search intent), use the primary keyword naturally without stuffing, and don't write boilerplate that could pass for another page on this site\n";
+        if ( ! empty( $keyphrase ) ) {
+            $prompt .= "- The description MUST contain the exact phrase \"{$keyphrase}\" verbatim (case doesn't matter), ideally within the first 100 characters — Yoast SEO requires this to mark the page green\n";
+        }
         $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
         $prompt .= "- No quotation marks, no markdown, no labels\n";
         $prompt .= "- Plain text only — your entire response IS the meta description\n\n";

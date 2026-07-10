@@ -38,7 +38,7 @@
         <div class="mdg-card" style="max-width:600px">
             <h3 style="margin-top:0"><?php esc_html_e( 'Meta Description Standards', 'meta-description-generator' ); ?></h3>
             <ul>
-                <li><?php esc_html_e( 'Optimal length: 140–160 characters, and never cut off mid-sentence', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'Optimal length: 140–156 characters, and never cut off mid-sentence', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'Open with an inviting hook like "Looking for…" or "Searching for…" that entices a visitor to act', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'Put your keywords within the first 120 characters — mobile can truncate after that', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'End with a direct, specific call to action — not a generic "Learn more"', 'meta-description-generator' ); ?></li>
