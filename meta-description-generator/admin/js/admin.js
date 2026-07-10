@@ -400,14 +400,17 @@
     // -------------------------------------------------------------------------
 
     $('#mdg-apply-all').on('click', function () {
-        var $btn    = $(this);
-        var $status = $('#mdg-bulk-status');
-        var items   = [];
+        var $btn     = $(this);
+        var $status  = $('#mdg-bulk-status');
+        var items    = [];
+        var rowsById = {};
 
         $('.mdg-generated-textarea').each(function () {
-            var desc = $.trim($(this).val());
+            var desc   = $.trim($(this).val());
+            var postId = $(this).data('post-id');
+            rowsById[postId] = $(this).closest('tr');
             if (desc) {
-                items.push({ post_id: $(this).data('post-id'), description: desc });
+                items.push({ post_id: postId, description: desc });
             }
         });
 
@@ -420,10 +423,30 @@
         var saved = 0, failed = 0;
         runInBatches(items, CLEAR_BATCH_SIZE, 'mdg_apply_bulk',
             function (batch) { return { items: batch }; },
-            function (done, total, data) {
+            function (done, total, data, batch) {
                 saved  += data.saved;
                 failed += data.failed;
                 setStatus($status, MDG.strings.applying + ' ' + done + '/' + total + spinner(), '');
+
+                // Flip each applied row's "Current Yoast Description" from
+                // the red "None" badge to the saved text with a green
+                // character-count badge, instead of leaving it stale.
+                batch.forEach(function (item) {
+                    var $row = rowsById[item.post_id];
+                    if (!$row) return;
+                    var len = item.description.length;
+                    var cls = (len >= MIN && len <= MAX) ? 'mdg-ok' : 'mdg-warn';
+                    $row.find('.mdg-current-cell').html(
+                        '<span class="mdg-existing-text">' + escHtml(item.description) + '</span>' +
+                        '<span class="mdg-char-badge ' + cls + '">' + len + ' chars</span>'
+                    );
+                    $row.removeClass('mdg-row--missing mdg-row--warning');
+                    if (!$row.find('.mdg-clear-one').length) {
+                        $row.find('.mdg-apply-one').after(
+                            ' <button class="button button-small mdg-clear-one" data-post-id="' + item.post_id + '">Clear</button>'
+                        );
+                    }
+                });
             },
             function () {
                 $btn.prop('disabled', false);
