@@ -375,16 +375,16 @@ class MDG_Generator {
     }
 
     /**
-     * Hard-cap generated text at $max characters. Claude is asked to count
-     * characters in the prompt, but LLMs count unreliably — this is the
-     * actual guarantee that the limit is respected.
+     * Hard-cap generated text at $max characters, and if $min is given,
+     * never land short of it either. Claude is asked to count characters
+     * in the prompt, but LLMs count unreliably — this is the actual
+     * guarantee that both limits are respected.
      *
-     * Always finishes on a period, never an ellipsis. Prefer the longest
-     * complete sentence that fits, even short of $min — a short finished
-     * sentence reads better than a longer one cut mid-thought. Only if no
-     * sentence boundary fits at all does it hard-cut at a word boundary,
-     * drop a trailing word that would leave it dangling (e.g. "...and"),
-     * and close with a period.
+     * Always finishes on a period, never an ellipsis. Prefers complete
+     * sentences that fit within $max; if the sentences that fit fall short
+     * of $min, pulls in as much of the next sentence as fits (cut at a
+     * word boundary, dropping a trailing dangling word like "...and")
+     * rather than settling for a short-but-complete first sentence.
      */
     private static function enforce_max_length( string $text, int $max, int $min = 0 ): string {
         $text = trim( $text );
@@ -392,34 +392,79 @@ class MDG_Generator {
             return $text;
         }
 
-        $sentences = preg_split( '/(?<=[.!?])\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY );
-        $built     = '';
-        foreach ( $sentences as $sentence ) {
+        $sentences  = self::split_sentences( $text );
+        $built      = '';
+        $next_index = 0;
+        foreach ( $sentences as $i => $sentence ) {
             $candidate = $built === '' ? $sentence : $built . ' ' . $sentence;
             if ( mb_strlen( $candidate ) > $max ) {
+                $next_index = $i;
                 break;
             }
-            $built = $candidate;
+            $built      = $candidate;
+            $next_index = $i + 1;
         }
-        if ( $built !== '' ) {
+
+        if ( $built !== '' && mb_strlen( $built ) >= $min ) {
             return $built;
         }
 
-        $truncated  = mb_substr( $text, 0, $max );
-        $last_space = mb_strrpos( $truncated, ' ' );
-        if ( $last_space !== false ) {
-            $truncated = mb_substr( $truncated, 0, $last_space );
-        }
-        $truncated = rtrim( $truncated, " \t\n\r\0\x0B,.;:–—-" );
+        // What fits sentence-wise falls short of $min — pull in as much of
+        // the next sentence as fits in the remaining room.
+        $remainder = $sentences[ $next_index ] ?? '';
+        $base      = $built;
 
+        if ( $remainder !== '' ) {
+            $room       = $max - ( $base === '' ? 0 : mb_strlen( $base ) + 1 );
+            $piece      = mb_substr( $remainder, 0, max( 0, $room ) );
+            $last_space = mb_strrpos( $piece, ' ' );
+            if ( $last_space !== false ) {
+                $piece = mb_substr( $piece, 0, $last_space );
+            }
+            $piece = self::strip_dangling_words( $piece );
+            if ( $piece !== '' ) {
+                $base = $base === '' ? $piece : $base . ' ' . $piece;
+            }
+        }
+
+        if ( $base === '' ) {
+            // No sentence boundary fits at all (one long run-on) — hard-cut the raw text.
+            $truncated  = mb_substr( $text, 0, $max );
+            $last_space = mb_strrpos( $truncated, ' ' );
+            if ( $last_space !== false ) {
+                $truncated = mb_substr( $truncated, 0, $last_space );
+            }
+            $base = self::strip_dangling_words( $truncated );
+        }
+
+        return rtrim( $base, " \t\n\r\0\x0B,;:–—-" ) . '.';
+    }
+
+    /**
+     * Split into sentences on ., !, or ? followed by whitespace, without
+     * treating common abbreviation periods (Mt., St., Ave., ...) as a
+     * sentence boundary.
+     */
+    private static function split_sentences( string $text ): array {
+        $pattern = '/(?<!\bMt)(?<!\bSt)(?<!\bDr)(?<!\bAve)(?<!\bBlvd)(?<!\bRd)(?<!\bLn)'
+                 . '(?<!\bJr)(?<!\bSr)(?<!\bNo)(?<!\bvs)(?<!\bInc)(?<!\bCorp)(?<!\bCo)'
+                 . '(?<!\bFt)(?<!\bMr)(?<!\bMrs)(?<!\bMs)(?<=[.!?])\s+/u';
+        return preg_split( $pattern, $text, -1, PREG_SPLIT_NO_EMPTY );
+    }
+
+    /**
+     * Drop a trailing word that would leave a truncated phrase dangling
+     * mid-clause (e.g. "...mountain views and" -> "...mountain views").
+     */
+    private static function strip_dangling_words( string $text ): string {
+        $text     = rtrim( $text, " \t\n\r\0\x0B,.;:–—-" );
         $dangling = [ 'and', 'or', 'but', 'with', 'for', 'to', 'in', 'on', 'at', 'of', 'the',
                       'a', 'an', 'your', 'its', 'that', 'this', 'is', 'are', 'was', 'were', 'near', 'from' ];
-        $words = preg_split( '/\s+/', $truncated );
+        $words = preg_split( '/\s+/', $text );
         while ( count( $words ) > 1 && in_array( mb_strtolower( rtrim( end( $words ), '.,!?' ) ), $dangling, true ) ) {
             array_pop( $words );
         }
-
-        return rtrim( implode( ' ', $words ), " \t\n\r\0\x0B,;:–—-" ) . '.';
+        return implode( ' ', $words );
     }
 
     // -------------------------------------------------------------------------
