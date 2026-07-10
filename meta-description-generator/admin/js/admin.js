@@ -33,6 +33,38 @@
             .fail(function () { if (fail) fail('Request failed. Please try again.'); });
     }
 
+    function chunk(arr, size) {
+        var out = [];
+        for (var i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+        return out;
+    }
+
+    /**
+     * Run a bulk AJAX action over a large list in small sequential batches
+     * instead of one request. A single request looping over dozens of
+     * Yoast indexable saves can be slow enough on some hosts to hit the
+     * PHP execution time limit mid-loop, silently leaving the tail of the
+     * list untouched — batching keeps each request small and safe.
+     */
+    function runInBatches(items, batchSize, action, buildData, onProgress, onDone, onError) {
+        var batches = chunk(items, batchSize);
+        var doneCount = 0;
+        var total = items.length;
+
+        function next(i) {
+            if (i >= batches.length) { onDone(doneCount, total); return; }
+            ajax(action, buildData(batches[i]), function (data) {
+                doneCount += batches[i].length;
+                onProgress(doneCount, total, data, batches[i]);
+                next(i + 1);
+            }, function (err) {
+                onError(err, batches[i]);
+            });
+        }
+
+        next(0);
+    }
+
     /**
      * Update the character counter and textarea border for a row.
      * Highlights the 120-char mobile cutoff as an amber threshold.
@@ -265,11 +297,18 @@
     // Clear Selected (bulk)
     // -------------------------------------------------------------------------
 
+    // Small enough that a batch of Yoast indexable saves can't run into a
+    // PHP execution time limit on slower hosts, even with many other
+    // plugins hooking into postmeta updates.
+    var CLEAR_BATCH_SIZE = 15;
+
     $('#mdg-clear-selected').on('click', function () {
         var $btn    = $(this);
         var $status = $('#mdg-bulk-status');
         var $rows   = $('.mdg-row-check:checked').closest('tr');
         var ids     = $rows.map(function () { return $(this).data('post-id'); }).get();
+        var rowsById = {};
+        $rows.each(function () { rowsById[$(this).data('post-id')] = $(this); });
 
         if (!ids.length) { alert(MDG.strings.no_selection); return; }
         if (!confirm(MDG.strings.confirm_clear_bulk.replace('%d', ids.length))) return;
@@ -277,26 +316,34 @@
         $btn.prop('disabled', true);
         setStatus($status, MDG.strings.clearing + spinner(), '');
 
-        ajax('mdg_clear_bulk', { post_ids: ids }, function (data) {
-            $btn.prop('disabled', false);
-            $rows.each(function () {
-                $(this).find('.mdg-current-cell').html(
-                    '<span class="mdg-badge mdg-badge--missing">None</span>'
-                );
-                $(this).addClass('mdg-row--missing').removeClass('mdg-row--warning');
-                $(this).find('.mdg-clear-one').remove();
-            });
-            setStatus($status, data.cleared + ' description' + (data.cleared !== 1 ? 's' : '') + ' cleared.', 'ok');
-        }, function (err) {
-            $btn.prop('disabled', false);
-            setStatus($status, MDG.strings.error + ': ' + err, 'error');
-        });
+        runInBatches(ids, CLEAR_BATCH_SIZE, 'mdg_clear_bulk',
+            function (batch) { return { post_ids: batch }; },
+            function (done, total, data, batch) {
+                setStatus($status, MDG.strings.clearing + ' ' + done + '/' + total + spinner(), '');
+                batch.forEach(function (id) {
+                    var $row = rowsById[id];
+                    if (!$row) return;
+                    $row.find('.mdg-current-cell').html('<span class="mdg-badge mdg-badge--missing">None</span>');
+                    $row.addClass('mdg-row--missing').removeClass('mdg-row--warning');
+                    $row.find('.mdg-clear-one').remove();
+                });
+            },
+            function (done, total) {
+                $btn.prop('disabled', false);
+                setStatus($status, done + ' description' + (done !== 1 ? 's' : '') + ' cleared.', 'ok');
+            },
+            function (err) {
+                $btn.prop('disabled', false);
+                setStatus($status, MDG.strings.error + ': ' + err, 'error');
+            }
+        );
     });
 
     // -------------------------------------------------------------------------
-    // Clear All Matching Filter — ignores pagination, clears every post the
-    // current status/post_type/search filter matches, then reloads so the
-    // table reflects reality (rows can move between "missing" and "has").
+    // Clear All Matching Filter — ignores pagination. Fetches every post ID
+    // the current status/post_type/search filter matches (cheap, read-only),
+    // then clears them in small batches and reloads so the table reflects
+    // reality (rows can move between "missing" and "has").
     // -------------------------------------------------------------------------
 
     $('#mdg-clear-all-matching').on('click', function () {
@@ -310,13 +357,28 @@
         $btn.prop('disabled', true);
         setStatus($status, MDG.strings.clearing + spinner(), '');
 
-        ajax('mdg_clear_all_matching', {
+        ajax('mdg_get_matching_ids', {
             status: $btn.data('status'),
             post_type: $btn.data('post-type'),
             search: $btn.data('search')
         }, function (data) {
-            setStatus($status, data.cleared + ' description' + (data.cleared !== 1 ? 's' : '') + ' cleared. Reloading…', 'ok');
-            location.reload();
+            var ids = data.ids || [];
+            if (!ids.length) { $btn.prop('disabled', false); setStatus($status, '', ''); return; }
+
+            runInBatches(ids, CLEAR_BATCH_SIZE, 'mdg_clear_bulk',
+                function (batch) { return { post_ids: batch }; },
+                function (done, totalIds) {
+                    setStatus($status, MDG.strings.clearing + ' ' + done + '/' + totalIds + spinner(), '');
+                },
+                function (done) {
+                    setStatus($status, done + ' description' + (done !== 1 ? 's' : '') + ' cleared. Reloading…', 'ok');
+                    location.reload();
+                },
+                function (err) {
+                    $btn.prop('disabled', false);
+                    setStatus($status, MDG.strings.error + ': ' + err, 'error');
+                }
+            );
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, MDG.strings.error + ': ' + err, 'error');
@@ -355,15 +417,25 @@
         $btn.prop('disabled', true);
         setStatus($status, MDG.strings.applying + spinner(), '');
 
-        ajax('mdg_apply_bulk', { items: items }, function (data) {
-            $btn.prop('disabled', false);
-            var msg = data.saved + ' description' + (data.saved !== 1 ? 's' : '') + ' saved to Yoast.';
-            if (data.failed) msg += ' ' + data.failed + ' failed.';
-            setStatus($status, msg, 'ok');
-        }, function (err) {
-            $btn.prop('disabled', false);
-            setStatus($status, MDG.strings.error + ': ' + err, 'error');
-        });
+        var saved = 0, failed = 0;
+        runInBatches(items, CLEAR_BATCH_SIZE, 'mdg_apply_bulk',
+            function (batch) { return { items: batch }; },
+            function (done, total, data) {
+                saved  += data.saved;
+                failed += data.failed;
+                setStatus($status, MDG.strings.applying + ' ' + done + '/' + total + spinner(), '');
+            },
+            function () {
+                $btn.prop('disabled', false);
+                var msg = saved + ' description' + (saved !== 1 ? 's' : '') + ' saved to Yoast.';
+                if (failed) msg += ' ' + failed + ' failed.';
+                setStatus($status, msg, 'ok');
+            },
+            function (err) {
+                $btn.prop('disabled', false);
+                setStatus($status, MDG.strings.error + ': ' + err, 'error');
+            }
+        );
     });
 
     // -------------------------------------------------------------------------

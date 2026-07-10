@@ -18,7 +18,7 @@ class MDG_Admin {
         add_action( 'wp_ajax_mdg_apply_bulk',       [ __CLASS__, 'ajax_apply_bulk' ] );
         add_action( 'wp_ajax_mdg_clear_one',        [ __CLASS__, 'ajax_clear_one' ] );
         add_action( 'wp_ajax_mdg_clear_bulk',       [ __CLASS__, 'ajax_clear_bulk' ] );
-        add_action( 'wp_ajax_mdg_clear_all_matching', [ __CLASS__, 'ajax_clear_all_matching' ] );
+        add_action( 'wp_ajax_mdg_get_matching_ids', [ __CLASS__, 'ajax_get_matching_ids' ] );
         add_action( 'wp_ajax_mdg_auto_fill_next',   [ __CLASS__, 'ajax_auto_fill_next' ] );
         add_action( 'wp_ajax_mdg_auto_fill_status', [ __CLASS__, 'ajax_auto_fill_status' ] );
     }
@@ -182,8 +182,12 @@ class MDG_Admin {
             'status'    => sanitize_text_field( $_GET['status']    ?? 'missing' ),
             'post_type' => sanitize_text_field( $_GET['post_type'] ?? '' ),
             'search'    => sanitize_text_field( $_GET['s']         ?? '' ),
-            'page'      => max( 1, (int) ( $_GET['paged'] ?? 1 ) ),
-            'per_page'  => 50,
+            'page'      => 1,
+            // No pagination — Generate All / Apply All / Clear Selected only
+            // ever act on rows in the current page's DOM, so splitting the
+            // list across pages silently stopped the bulk actions partway
+            // through. One unpaginated list keeps everything in reach.
+            'per_page'  => 1000,
         ];
 
         $data       = MDG_Scanner::get_posts( $filters );
@@ -343,12 +347,14 @@ class MDG_Admin {
     }
 
     // -------------------------------------------------------------------------
-    // AJAX: clear the Yoast meta description for every post matching the
-    // current filter, ignoring pagination — used to wipe everything a
-    // previous prompt version already wrote so it can be rewritten fresh.
+    // AJAX: list every post ID matching the current filter, ignoring
+    // pagination. Read-only and fast — the caller batches the actual
+    // clearing through mdg_clear_bulk so no single request has to loop
+    // over dozens of Yoast indexable saves (which can be slow enough on
+    // some hosts to hit the PHP execution time limit mid-loop).
     // -------------------------------------------------------------------------
 
-    public static function ajax_clear_all_matching(): void {
+    public static function ajax_get_matching_ids(): void {
         check_ajax_referer( 'mdg_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
 
@@ -358,13 +364,7 @@ class MDG_Admin {
             'search'    => sanitize_text_field( $_POST['search']    ?? '' ),
         ];
 
-        $ids = MDG_Scanner::get_matching_ids( $filters );
-        $cleared = 0;
-        foreach ( $ids as $id ) {
-            if ( MDG_Generator::clear_description( $id )['success'] ) $cleared++;
-        }
-
-        wp_send_json_success( [ 'cleared' => $cleared ] );
+        wp_send_json_success( [ 'ids' => MDG_Scanner::get_matching_ids( $filters ) ] );
     }
 
     // -------------------------------------------------------------------------
