@@ -38,11 +38,14 @@
         <div class="mdg-card" style="max-width:600px">
             <h3 style="margin-top:0"><?php esc_html_e( 'Meta Description Standards', 'meta-description-generator' ); ?></h3>
             <ul>
-                <li><?php esc_html_e( 'Optimal length: 140–160 characters', 'meta-description-generator' ); ?></li>
-                <li><?php esc_html_e( 'Put your keywords and CTA within the first 120 characters — mobile can truncate after that', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'Optimal length: 140–160 characters, and never cut off mid-sentence', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'Open with an inviting hook like "Looking for…" or "Searching for…" that entices a visitor to act', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'Put your keywords within the first 120 characters — mobile can truncate after that', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'End with a direct, specific call to action — not a generic "Learn more"', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'Keep descriptions conversational, unique per page, and actionable', 'meta-description-generator' ); ?></li>
-                <li><?php esc_html_e( 'Write descriptions as a selling proposition with a direct call to action — not just a summary of the page', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'Write descriptions as a selling proposition — not just a summary of the page', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'Naturally include your business name for brand recognition in search results', 'meta-description-generator' ); ?></li>
+                <li><?php esc_html_e( 'No semicolons or dashes as sentence connectors — use periods and commas instead', 'meta-description-generator' ); ?></li>
                 <li><?php esc_html_e( 'Meta descriptions are not a direct ranking factor but strongly influence click-through rate', 'meta-description-generator' ); ?></li>
             </ul>
         </div>
