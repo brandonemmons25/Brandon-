@@ -133,6 +133,50 @@ function ims_map_saved_link_slug( string $slug ): ?string {
 	return null;
 }
 
+function ims_map_saved_link_title( string $title ): ?string {
+	$markets = get_option( IMS_OPT_MARKETS, [] );
+	$home    = untrailingslashit( home_url() );
+
+	$normalize = function ( $s ) {
+		$s = strtolower( $s );
+		$s = preg_replace( '/[^a-z0-9\s]+/', ' ', $s );
+		return preg_replace( '/\s+/', ' ', trim( $s ) );
+	};
+	$words = function ( $s ) use ( $normalize ) {
+		return array_values( array_filter( explode( ' ', $normalize( $s ) ) ) );
+	};
+
+	// 1. Exact normalized match
+	$needle_norm = $normalize( $title );
+	foreach ( $markets as $market ) {
+		$market_url = $market['url'] ?? '';
+		if ( ! $market_url ) continue;
+		if ( $normalize( $market['name'] ?? '' ) === $needle_norm ) {
+			return $home . $market_url;
+		}
+	}
+
+	// 2. All title words present in market name (handles "Probate Under $500K" → "Probate Real Estate - Under $500K")
+	$needle_words = $words( $title );
+	$best_url     = null;
+	$best_score   = 0;
+	foreach ( $markets as $market ) {
+		$market_url = $market['url'] ?? '';
+		if ( ! $market_url ) continue;
+		$market_word_set = array_flip( $words( $market['name'] ?? '' ) );
+		$matches         = 0;
+		foreach ( $needle_words as $w ) {
+			if ( isset( $market_word_set[ $w ] ) ) $matches++;
+		}
+		if ( $matches === count( $needle_words ) && $matches > $best_score ) {
+			$best_score = $matches;
+			$best_url   = $home . $market_url;
+		}
+	}
+
+	return $best_url;
+}
+
 // ── Menu Migration ────────────────────────────────────────────────────────────
 
 function ims_run_menu_migration( bool $dry_run = false ): array {
@@ -269,6 +313,25 @@ function ims_replace_idx_in_content( string $content, string $search_domain ): a
 		}
 	}
 
+	// 5. idx-platinum-saved-link shortcodes → iHF listing-report links
+	if ( strpos( $content, '[idx-platinum-saved-link' ) !== false ) {
+		$content = preg_replace_callback(
+			'/\[idx-platinum-saved-link\s[^\]]*title=["\']([^"\']+)["\'][^\]]*\]/i',
+			function ( $m ) use ( $home, &$replacements ) {
+				$title  = $m[1];
+				$mapped = ims_map_saved_link_title( $title );
+				if ( $mapped ) {
+					$link           = '<a href="' . esc_url( $mapped ) . '">' . esc_html( $title ) . '</a>';
+					$replacements[] = "Saved-link shortcode: title=\"{$title}\" → {$mapped}";
+					return $link;
+				}
+				$replacements[] = "⚠ UNMAPPED saved-link shortcode: title=\"{$title}\" — needs manual review";
+				return $m[0];
+			},
+			$content
+		);
+	}
+
 	return [
 		'content'      => $content,
 		'changed'      => $content !== $original,
@@ -330,6 +393,7 @@ function ims_run_content_migration( string $post_type, bool $dry_run ): array {
 			'%idx-broker-platinum%',
 			'%[IDX%',
 			'%[impress_%',
+			'%idx-platinum-saved-link%',
 		];
 		$or_clauses = implode( ' OR ', array_fill( 0, count( $like_patterns ), 'post_content LIKE %s' ) );
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
@@ -376,7 +440,7 @@ function ims_run_content_migration( string $post_type, bool $dry_run ): array {
 function ims_run_verify(): array {
 	global $wpdb;
 	$search_domain = ims_get_idx_search_domain();
-	$patterns      = [ $search_domain, 'idx-broker-platinum', '[IDX-', '[impress_' ];
+	$patterns      = [ $search_domain, 'idx-broker-platinum', '[IDX-', '[impress_', '[idx-platinum-saved-link' ];
 	$found         = [];
 
 	foreach ( $patterns as $pattern ) {
