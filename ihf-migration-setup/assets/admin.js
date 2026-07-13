@@ -55,25 +55,6 @@
             .always( function () { $btn.prop( 'disabled', false ).text( 'Save' ); } );
     } );
 
-    // Import markets from CSV
-    $( '#ims-btn-import-markets' ).on( 'click', function () {
-        var $btn    = $( this );
-        var csvText = $( '#ims-markets-csv' ).val().trim();
-        var $result = $( '#ims-markets-csv-result' );
-        if ( ! csvText ) {
-            showResult( $result, 'Please paste CSV content first.', false );
-            return;
-        }
-        $btn.prop( 'disabled', true ).text( 'Importing…' );
-        $.post( IMS.ajaxUrl, { action: 'ims_import_markets_csv', _ajax_nonce: IMS.nonce, csv_text: csvText }, null, 'json' )
-            .done( function ( r ) {
-                showResult( $result, r.data, r.success );
-                if ( r.success ) setTimeout( function () { location.reload(); }, 1800 );
-            } )
-            .fail( function () { showResult( $result, 'Request failed.', false ); } )
-            .always( function () { $btn.prop( 'disabled', false ).text( 'Import Markets' ); } );
-    } );
-
     // Migration buttons
     var $migResult = $( '#ims-migration-result' );
 
