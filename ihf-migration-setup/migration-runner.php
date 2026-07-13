@@ -350,6 +350,7 @@ function ims_map_idx_block( string $block_type, array $attrs ): ?string {
 		'advanced-search-widget' => '[optima_express_map_search]',
 		'featured-properties'    => '[optima_express_featured sortBy="ds" displayType="grid" resultsPerPage="25" header="true" includeMap="false" status="active"]',
 		'carousel-widget'        => '[optima_express_gallery_slider rows="1" columns="3" effect="slide" auto="true" status="active" maxResults="25"]',
+		'impress-carousel-block' => '[optima_express_gallery_slider rows="1" columns="3" effect="slide" auto="true" status="active" maxResults="25"]',
 		'showcase-widget'        => '[optima_express_featured sortBy="ds" displayType="grid" resultsPerPage="25" header="true" includeMap="false" status="active"]',
 		'map-search-widget'      => '[optima_express_map_search]',
 		'mortgage-calculator'    => '[optima_express_mortgage_calculator]',
