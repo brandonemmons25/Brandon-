@@ -841,6 +841,54 @@ add_action( 'wp_ajax_ims_save_idx_domain', function () {
 	] );
 } );
 
+// AJAX: Import markets from CSV (Name, iHF URL columns)
+add_action( 'wp_ajax_ims_import_markets_csv', function () {
+    check_ajax_referer( 'ims_nonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Permission denied.' );
+
+    $csv_text = wp_unslash( $_POST['csv_text'] ?? '' );
+    if ( ! $csv_text ) wp_send_json_error( 'No CSV data provided.' );
+
+    $lines   = preg_split( '/\r?\n/', trim( $csv_text ) );
+    $markets = [];
+    $skipped = 0;
+
+    foreach ( $lines as $line ) {
+        $line   = trim( $line );
+        if ( ! $line ) continue;
+        $fields = str_getcsv( $line );
+        if ( count( $fields ) < 2 ) { $skipped++; continue; }
+        $name = trim( $fields[0] );
+        $url  = trim( $fields[1] );
+        if ( strtolower( $name ) === 'name' && stripos( $url, 'url' ) !== false ) continue;
+        if ( ! $name || ! $url ) { $skipped++; continue; }
+        if ( preg_match( '#^https?://#', $url ) ) {
+            $parsed = wp_parse_url( $url );
+            $url    = ( $parsed['path'] ?? '/' );
+        }
+        $parts = array_filter( explode( '/', trim( $url, '/' ) ) );
+        $id    = (string) end( $parts );
+        if ( ! is_numeric( $id ) ) $id = '';
+        $markets[] = [ 'id' => $id, 'name' => $name, 'url' => trailingslashit( $url ) ];
+    }
+
+    if ( empty( $markets ) ) wp_send_json_error( 'No valid markets found. Expected columns: Name, iHF URL' );
+
+    usort( $markets, fn( $a, $b ) => strcasecmp( $a['name'], $b['name'] ) );
+    update_option( IMS_OPT_MARKETS, $markets, false );
+
+    $status = get_option( IMS_OPT_STATUS, [] );
+    $status['markets_count']        = count( $markets );
+    $status['markets_error']        = null;
+    $status['markets_refreshed_at'] = current_time( 'mysql' );
+    update_option( IMS_OPT_STATUS, $status );
+
+    $scan = get_option( IMS_OPT_SCAN, [] );
+    ims_do_generate_claude_md( $markets, $scan );
+
+    wp_send_json_success( [ 'imported' => count( $markets ), 'skipped' => $skipped ] );
+} );
+
 // AJAX: Diagnostics — raw DB data to debug scanner misses
 add_action( 'wp_ajax_ims_diagnostics', function () {
 	check_ajax_referer( 'ims_nonce' );
@@ -1127,6 +1175,20 @@ function ims_render_page(): void {
             <p style="margin-top:8px;font-size:12px;color:#888;">No override set — using auto-detection.</p>
             <?php endif; ?>
             <div id="ims-domain-result" class="ims-result" style="display:none;"></div>
+        </div>
+
+        <!-- ── Import Markets (CSV) ──────────────────────────────────────── -->
+        <div class="ims-card">
+            <h2>Import Markets (CSV)</h2>
+            <p style="color:#555;font-size:13px;margin-top:0;">If Optima Express isn't connected on staging, paste the two-column markets CSV (Name, iHF URL) here and click Import.</p>
+            <textarea id="ims-markets-csv" rows="6" placeholder="Name,iHF URL&#10;&quot;Los Angeles Probate Homes for Sale&quot;,&quot;https://x-example.mystagingwebsite.com/listing-report/Los-Angeles-Probate-Homes-for-Sale/2985323&quot;" style="width:100%;font-family:monospace;font-size:12px;padding:8px;box-sizing:border-box;border:1px solid #ddd;border-radius:3px;"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                <button id="ims-btn-import-markets" class="button button-primary">Import Markets</button>
+                <?php if ( count( $markets ) > 0 ) : ?>
+                <span style="color:#1a7a1a;font-size:13px;">✓ <?php echo count( $markets ); ?> markets loaded</span>
+                <?php endif; ?>
+            </div>
+            <div id="ims-markets-csv-result" class="ims-result" style="display:none;"></div>
         </div>
 
         <!-- ── Migration Control Panel ────────────────────────────────────── -->
