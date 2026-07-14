@@ -62,6 +62,8 @@ You are connected to a WordPress staging site via MCP Adapter. You have custom W
 - `migration/find-idx-content` — Search all pages, posts, and menus for IDX Broker patterns (may fail on large sites — use search-content instead)
 - `migration/get-pages` — Get all pages (no filtering, alphabetical, use per_page param)
 
+**Note:** `migration/update-post` works on any post type including `wp_navigation` and `wp_template_part`. Use it to update block-based nav and template parts when standard menu updates don't affect the live site.
+
 ### Your Workflow (Execute in This Order)
 
 **Step 1: Scan nav menus**
@@ -69,6 +71,8 @@ Run `migration/get-menus`. Find every menu item with a URL containing `idx` or t
 
 **Step 2: Replace menu URLs**
 Using the URL Redirect Map below, update every IDX Broker menu item to its iHF equivalent using `migration/update-menu-item`.
+
+**Important:** If menu DB updates don't reflect on the live site, the theme uses block-based navigation. Run `migration/search-content` with `post_type = "wp_navigation"`, `"wp_template_part"`, and `"wp_template"` to find the real nav storage, then update with `migration/update-post`.
 
 **Step 3: Scan pages for IDX content**
 Run `migration/search-content` for each of the following, post_type = page. Work through one at a time:
