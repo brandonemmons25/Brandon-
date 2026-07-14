@@ -138,7 +138,7 @@ These replacements apply to every migration. The source is always `search.[domai
 | `/idx/featured` | `/homes-for-sale-featured/` |
 | `/idx/soldpending` | `/sold-featured-listing/` |
 | `/idx/mortgage` | `/mortgage-calculator/` |
-| `/idx/homevaluation` | `/home-valuation/` |
+| `/idx/homevaluation` | `/home-valuation/` (verify page exists — slug may be `/valuation-form/` on some sites) |
 | `/idx/roster` | `/agent-list/` |
 | `/idx/contact` | `/contact-us/` |
 | `/idx/userlogin` | `/property-organizer-login/` |
