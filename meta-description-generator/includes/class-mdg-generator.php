@@ -253,8 +253,11 @@ class MDG_Generator {
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        $prompt .= "- Never use in-person visit language (\"Visit us\", \"Stop by\") here — this is an online order, not an on-premise visit\n";
+        $prompt .= "- If the content mentions how this item is actually sold (e.g. \"4 pack\", \"case of 12\"), use that exact unit in the CTA — don't default to \"Order your can\" or \"Order a bottle\" if it's only sold by the pack\n";
         } else {
             $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
+        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour, NOT by buying retail packaging — never reference \"a 4-pack\", \"a case\", or any take-home pack size in a visit-oriented CTA. Save pack/case language for actual online orders\n";
         }
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
         $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?), no bare number or percentage missing its unit (\"...in an 8%.\" — 8% of what? should be \"8% ABV\"). If the last few words prompt the question \"...what?\" it is broken\n";
@@ -327,8 +330,11 @@ class MDG_Generator {
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a short, direct, purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        $prompt .= "- Never use in-person visit language (\"Visit us\", \"Stop by\") here — this is an online order, not an on-premise visit\n";
+        $prompt .= "- If the content mentions how this item is actually sold (e.g. \"4 pack\", \"case of 12\"), use that exact unit in the CTA — don't default to \"Order your can\" or \"Order a bottle\" if it's only sold by the pack\n";
         } else {
             $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a short, direct visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
+        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour, NOT by buying retail packaging — never reference \"a 4-pack\", \"a case\", or any take-home pack size in a visit-oriented CTA. Save pack/case language for actual online orders\n";
         }
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
@@ -388,6 +394,7 @@ class MDG_Generator {
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
         $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
         $prompt .= "- A CTA mismatched to whether this is purchasable: a \"Shop now\"/\"Order online\"/\"Buy now\" CTA on something that is NOT a purchasable product (e.g. a menu listing), or a visit-only CTA (\"Stop by\", \"Visit us\") on something that IS a purchasable product and should say Shop/Order/Buy instead\n";
+        $prompt .= "- Retail packaging language (\"a 4-pack\", \"a case\") used in an in-person visit CTA — someone visiting tries it on draft/by the glass, not by buying a pack. Pack/case language only belongs in an online-order CTA\n";
         $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
         $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
         $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("
@@ -684,6 +691,20 @@ class MDG_Generator {
         $text = trim( $text );
         if ( $text === '' ) {
             return $text;
+        }
+
+        // Drop a trailing sentence that's just a single bare word (e.g.
+        // "Stop."). It's technically a complete sentence, but a lone word
+        // tacked on the end almost always reads as a broken CTA fragment
+        // rather than an intentional one, so it's better dropped than kept.
+        $sentences = self::split_sentences( $text );
+        if ( count( $sentences ) > 1 ) {
+            $last_sentence = trim( end( $sentences ), " \t\n\r\0\x0B.,!?" );
+            $last_word_count = $last_sentence === '' ? 0 : count( preg_split( '/\s+/', $last_sentence ) );
+            if ( $last_word_count <= 1 ) {
+                array_pop( $sentences );
+                $text = implode( ' ', $sentences );
+            }
         }
 
         $terminal = preg_match( '/[.!?]$/u', $text ) ? mb_substr( $text, -1 ) : '.';
