@@ -229,16 +229,17 @@ class MDG_Scanner {
         $existing = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_metadesc', true ) );
 
         return [
-            'ID'               => $post->ID,
-            'title'            => $post->post_title,
-            'post_type'        => get_post_type_object( $post->post_type )->labels->singular_name ?? $post->post_type,
-            'content'          => $content,
-            'categories'       => $categories,
-            'existing'         => $existing,
-            'url'              => get_permalink( $post->ID ),
-            'site_name'        => trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) ),
-            'site_desc'        => trim( wp_strip_all_tags( get_bloginfo( 'description' ) ) ),
-            'focus_keyphrase'  => trim( (string) get_post_meta( $post_id, '_yoast_wpseo_focuskw', true ) ),
+            'ID'                    => $post->ID,
+            'title'                 => $post->post_title,
+            'post_type'             => get_post_type_object( $post->post_type )->labels->singular_name ?? $post->post_type,
+            'is_woocommerce_product'=> $post->post_type === 'product',
+            'content'               => $content,
+            'categories'            => $categories,
+            'existing'              => $existing,
+            'url'                   => get_permalink( $post->ID ),
+            'site_name'             => trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) ),
+            'site_desc'             => trim( wp_strip_all_tags( get_bloginfo( 'description' ) ) ),
+            'focus_keyphrase'       => trim( (string) get_post_meta( $post_id, '_yoast_wpseo_focuskw', true ) ),
         ];
     }
 

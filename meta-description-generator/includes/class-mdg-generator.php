@@ -206,6 +206,8 @@ class MDG_Generator {
         $site_desc  = $post_data['site_desc'] ?? '';
         $keyphrase  = trim( $post_data['focus_keyphrase'] ?? '' );
         $keyphrase_is_missing = in_array( 'focus_keyphrase', $missing, true );
+        $is_product = ! empty( $post_data['is_woocommerce_product'] );
+        $type_label = $is_product ? 'WooCommerce product (a purchasable item in this site\'s online shop)' : "WordPress {$type}";
 
         $field_specs = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -215,7 +217,7 @@ class MDG_Generator {
             $field_specs[] = '"meta_description": ' . MDG_META_MIN . '–' . MDG_META_MAX . ' characters — written as a selling proposition, not a summary. Open with a verb-led hook (Looking for…, Searching for…), lead with the benefit, keyword near the start, end with a direct catchy CTA before 120 chars (mobile truncates there)';
         }
 
-        $prompt  = "You are an SEO expert and direct-response copywriter. Generate the missing SEO fields for this WordPress {$type}.\n\n";
+        $prompt  = "You are an SEO expert and direct-response copywriter. Generate the missing SEO fields for this {$type_label}.\n\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "Business/site name: {$site_name}\n";
         }
@@ -223,6 +225,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( $is_product ) {
+            $prompt .= "IMPORTANT: this is a specific shop product, not a blog post or general page — describe THIS item for sale, not the business's services or content in general.\n";
+        }
         if ( ! empty( $categories ) ) {
             $prompt .= "Category/tags: " . implode( ', ', $categories ) . "\n";
         }
@@ -275,8 +280,8 @@ class MDG_Generator {
     }
 
     private static function build_description_prompt( array $post_data ): string {
-        $min       = MDG_META_MIN;
-        $max       = MDG_META_MAX;
+        $min        = MDG_META_MIN;
+        $max        = MDG_META_MAX;
         $type       = $post_data['post_type'];
         $title      = $post_data['title'];
         $content    = $post_data['content'];
@@ -284,8 +289,10 @@ class MDG_Generator {
         $site_name  = $post_data['site_name'] ?? '';
         $site_desc  = $post_data['site_desc'] ?? '';
         $keyphrase  = trim( $post_data['focus_keyphrase'] ?? '' );
+        $is_product = ! empty( $post_data['is_woocommerce_product'] );
+        $type_label = $is_product ? 'WooCommerce product (a purchasable item in this site\'s online shop)' : "WordPress {$type}";
 
-        $prompt  = "You are a direct-response copywriter writing ad copy for a WordPress {$type}, not a summary of it.\n\n";
+        $prompt  = "You are a direct-response copywriter writing ad copy for a {$type_label}, not a summary of it.\n\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "Business/site name: {$site_name}\n";
         }
@@ -293,6 +300,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( $is_product ) {
+            $prompt .= "IMPORTANT: this is a specific shop product, not a blog post or general page — describe THIS item for sale, not the business's services or content in general.\n";
+        }
         if ( ! empty( $categories ) ) {
             $prompt .= "Category/tags: " . implode( ', ', $categories ) . "\n";
         }
