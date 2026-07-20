@@ -43,10 +43,7 @@ class MDG_Generator {
             return [ 'success' => false, 'error' => 'Could not parse API response as JSON.', 'raw' => $result['text'] ];
         }
 
-        // Claude can't reliably count characters — enforce the caps ourselves.
-        if ( ! empty( $fields['seo_title'] ) ) {
-            $fields['seo_title'] = self::enforce_max_length( $fields['seo_title'], MDG_TITLE_MAX );
-        }
+        // Claude can't reliably count characters — enforce the cap ourselves.
         if ( ! empty( $fields['meta_description'] ) ) {
             $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX, MDG_META_MIN );
         }
@@ -148,9 +145,6 @@ class MDG_Generator {
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
             $field_specs[] = '"focus_keyphrase": 2-4 words — the primary search term this page targets';
         }
-        if ( in_array( 'seo_title', $missing, true ) ) {
-            $field_specs[] = '"seo_title": ' . MDG_TITLE_MIN . '–' . MDG_TITLE_MAX . ' characters — keyword-rich, compelling, slightly different from the page title';
-        }
         if ( in_array( 'meta_description', $missing, true ) ) {
             $field_specs[] = '"meta_description": ' . MDG_META_MIN . '–' . MDG_META_MAX . ' characters — written as a selling proposition, not a summary. Open with a verb-led hook (Looking for…, Searching for…), lead with the benefit, keyword near the start, end with a direct catchy CTA before 120 chars (mobile truncates there)';
         }
@@ -176,7 +170,7 @@ class MDG_Generator {
         $prompt .= "\nRules:\n";
         $prompt .= "- Respond with ONLY valid JSON — no markdown, no explanation, no code fences\n";
         $prompt .= "- Do not include fields not listed above\n";
-        $prompt .= "- Count characters carefully — SEO title and meta description limits are critical\n";
+        $prompt .= "- Count characters carefully — the meta description length limit is critical\n";
         $prompt .= "- No quotation marks inside field values\n";
         $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
@@ -184,7 +178,7 @@ class MDG_Generator {
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         $prompt .= "- End with a short, direct call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         if ( ! empty( $site_name ) ) {
-            $prompt .= "- Work the business name \"{$site_name}\" naturally into the seo_title, and into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
+            $prompt .= "- Work the business name \"{$site_name}\" naturally into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
         $prompt .= "- Follow SEO best practice: match what someone searching for this page actually wants, use the focus keyphrase naturally (never stuffed or repeated), and avoid boilerplate that could read the same on another page of this site\n";
         if ( ! empty( $keyphrase ) && ! $keyphrase_is_missing ) {
@@ -198,9 +192,6 @@ class MDG_Generator {
         $example_fields = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
             $example_fields[] = '"focus_keyphrase": "example keyphrase"';
-        }
-        if ( in_array( 'seo_title', $missing, true ) ) {
-            $example_fields[] = '"seo_title": "Example SEO Title for This Page – Site"';
         }
         if ( in_array( 'meta_description', $missing, true ) ) {
             $example_fields[] = '"meta_description": "Looking for…-style hook, then a specific benefit-led pitch with the keyword up front, a concrete detail that builds trust, and a direct CTA such as Call now, all before 120 chars, no dashes or semicolons."';
@@ -274,13 +265,6 @@ class MDG_Generator {
             $val = sanitize_text_field( $fields['focus_keyphrase'] );
             update_post_meta( $post_id, '_yoast_wpseo_focuskw', $val );
             $filled[] = 'focus_keyphrase';
-        }
-
-        if ( in_array( 'seo_title', $missing, true ) && ! empty( $fields['seo_title'] ) ) {
-            $val = sanitize_text_field( $fields['seo_title'] );
-            update_post_meta( $post_id, '_yoast_wpseo_title', $val );
-            $indexable_updates['title'] = $val;
-            $filled[] = 'seo_title';
         }
 
         if ( in_array( 'meta_description', $missing, true ) && ! empty( $fields['meta_description'] ) ) {

@@ -222,23 +222,24 @@ class MDG_Scanner {
 
     /**
      * Return the Yoast SEO field status for a single post.
-     * Only returns fields that are currently empty.
+     * Only returns fields that are currently empty. SEO title is
+     * intentionally left to Yoast's own title template — this plugin only
+     * manages the focus keyphrase and meta description.
      */
     public static function get_missing_fields( int $post_id ): array {
         $missing = [];
         $keyphrase = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_focuskw', true ) );
-        $seo_title = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_title', true ) );
         $meta_desc = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_metadesc', true ) );
 
         if ( $keyphrase === '' ) $missing[] = 'focus_keyphrase';
-        if ( $seo_title  === '' ) $missing[] = 'seo_title';
         if ( $meta_desc  === '' ) $missing[] = 'meta_description';
 
         return $missing;
     }
 
     /**
-     * Return IDs of all published posts/pages missing at least one SEO field.
+     * Return IDs of all published posts/pages missing a focus keyphrase or
+     * meta description. SEO title is left to Yoast's own title template.
      */
     public static function get_incomplete_post_ids(): array {
         global $wpdb;
@@ -264,8 +265,6 @@ class MDG_Scanner {
             FROM {$wpdb->posts} p
             LEFT JOIN {$wpdb->postmeta} pm_kw
                    ON pm_kw.post_id = p.ID AND pm_kw.meta_key = '_yoast_wpseo_focuskw'
-            LEFT JOIN {$wpdb->postmeta} pm_title
-                   ON pm_title.post_id = p.ID AND pm_title.meta_key = '_yoast_wpseo_title'
             LEFT JOIN {$wpdb->postmeta} pm_desc
                    ON pm_desc.post_id = p.ID AND pm_desc.meta_key = '_yoast_wpseo_metadesc'
             WHERE p.post_status = 'publish'
@@ -273,7 +272,6 @@ class MDG_Scanner {
               {$id_exclusion}
               AND (
                   pm_kw.meta_value    IS NULL OR pm_kw.meta_value    = ''
-               OR pm_title.meta_value IS NULL OR pm_title.meta_value = ''
                OR pm_desc.meta_value  IS NULL OR pm_desc.meta_value  = ''
               )
             ORDER BY p.post_title ASC
