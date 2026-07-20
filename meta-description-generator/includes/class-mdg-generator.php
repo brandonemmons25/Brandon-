@@ -230,6 +230,9 @@ class MDG_Generator {
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         $prompt .= "- End with a short, direct call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job\n";
+        $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "- Work the business name \"{$site_name}\" naturally into the meta_description when it fits without pushing out the benefit or CTA — it builds trust and brand recognition in the search result\n";
         }
@@ -286,6 +289,9 @@ class MDG_Generator {
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
         $prompt .= "- End with a short, direct, catchy call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
+        $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job (e.g. don't write \"Host your own tasting\" when the business is the one hosting)\n";
+        $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
         $prompt .= "- Unique to this page — do not start by repeating the page title verbatim\n";
         if ( ! empty( $site_name ) ) {
             $prompt .= "- Work the business name \"{$site_name}\" in naturally where it fits (e.g. \"...at {$site_name}\") without crowding out the benefit or the CTA — it builds trust and brand recall in the search result\n";
@@ -526,9 +532,24 @@ class MDG_Generator {
      * mid-clause (e.g. "...mountain views and" -> "...mountain views").
      */
     private static function strip_dangling_words( string $text ): string {
-        $text     = rtrim( $text, " \t\n\r\0\x0B,.;:–—-" );
-        $dangling = [ 'and', 'or', 'but', 'with', 'for', 'to', 'in', 'on', 'at', 'of', 'the',
-                      'a', 'an', 'your', 'its', 'that', 'this', 'is', 'are', 'was', 'were', 'near', 'from' ];
+        $text = rtrim( $text, " \t\n\r\0\x0B,.;:–—-" );
+
+        // Prepositions, conjunctions, and articles/determiners — a closed
+        // class in English, so this list is exhaustive rather than
+        // reactive. None of these can grammatically end a sentence.
+        $dangling = [
+            'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'as',
+            'at', 'before', 'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'but',
+            'by', 'despite', 'down', 'during', 'except', 'for', 'from', 'in', 'inside', 'into',
+            'like', 'near', 'of', 'off', 'on', 'onto', 'out', 'outside', 'over', 'past', 'since',
+            'through', 'throughout', 'to', 'toward', 'towards', 'under', 'underneath', 'until',
+            'unto', 'up', 'upon', 'with', 'within', 'without',
+            'and', 'or', 'nor', 'so', 'yet', 'because', 'although', 'though', 'unless', 'while',
+            'whereas', 'if', 'when', 'whenever', 'than', 'whether',
+            'a', 'an', 'the', 'this', 'that', 'these', 'those', 'its', 'your', 'their', 'our',
+            'his', 'her', 'my',
+            'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        ];
         $words = preg_split( '/\s+/', $text );
         while ( count( $words ) > 1 && in_array( mb_strtolower( rtrim( end( $words ), '.,!?' ) ), $dangling, true ) ) {
             array_pop( $words );
