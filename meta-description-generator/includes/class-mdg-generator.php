@@ -251,7 +251,11 @@ class MDG_Generator {
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
-        $prompt .= "- End with a short, direct call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        if ( $is_product ) {
+            $prompt .= "- This IS a purchasable online product — end with a purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        } else {
+            $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
+        }
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job\n";
         $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
@@ -319,7 +323,11 @@ class MDG_Generator {
         $prompt .= "- Open with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in and entices them to act, before you deliver the specific benefit and keyword\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
-        $prompt .= "- End with a short, direct, catchy call to action using an imperative verb: Call, Book, Schedule, Get, Request, Shop. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        if ( $is_product ) {
+            $prompt .= "- This IS a purchasable online product — end with a short, direct, purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
+        } else {
+            $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a short, direct visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
+        }
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job (e.g. don't write \"Host your own tasting\" when the business is the one hosting)\n";
@@ -354,9 +362,13 @@ class MDG_Generator {
         $title      = $post_data['title'] ?? '';
         $site_name  = $post_data['site_name'] ?? '';
         $categories = $post_data['categories'] ?? [];
+        $is_product = ! empty( $post_data['is_woocommerce_product'] );
 
         $prompt  = "You are a strict editor. Read this meta description exactly as a first-time stranger would, with zero other context.\n\n";
         $prompt .= "Page: {$title}" . ( ! empty( $site_name ) ? " ({$site_name})" : '' ) . "\n";
+        $prompt .= $is_product
+            ? "This IS a purchasable WooCommerce shop product.\n"
+            : "This is NOT a purchasable online product (it's a menu listing, page, or post).\n";
         if ( ! empty( $categories ) ) {
             $prompt .= "Actual category/tags for this page: " . implode( ', ', $categories ) . "\n";
         }
@@ -367,6 +379,7 @@ class MDG_Generator {
         $prompt .= "- A sentence ending on an adjective or descriptor with no noun for it to describe (e.g. \"...with balanced flavor and real.\")\n";
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
         $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
+        $prompt .= "- A CTA mismatched to whether this is purchasable: a \"Shop now\"/\"Order online\"/\"Buy now\" CTA on something that is NOT a purchasable product (e.g. a menu listing), or a visit-only CTA (\"Stop by\", \"Visit us\") on something that IS a purchasable product and should say Shop/Order/Buy instead\n";
         $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
         $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
         $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("
