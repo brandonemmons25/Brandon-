@@ -3,7 +3,7 @@
  * Plugin Name: Meta Description Generator
  * Plugin URI:  https://github.com/brandonemmons25/brandon-
  * Description: On activation, automatically fills any post or page missing a Yoast focus keyphrase or meta description using the Claude AI API. Only empty fields are written — existing values are never overwritten. SEO title is left to Yoast's own title template.
- * Version:     2.16.0
+ * Version:     2.17.0
  * Author:      Brandon Emmons
  * License:     GPL-2.0+
  * Text Domain: meta-description-generator
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'MDG_VERSION',     '2.16.0' );
+define( 'MDG_VERSION',     '2.17.0' );
 define( 'MDG_PLUGIN_FILE', __FILE__ );
 define( 'MDG_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'MDG_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );

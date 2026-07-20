@@ -142,10 +142,19 @@
         setStatus($status, MDG.strings.generating + spinner(), '');
 
         ajax('mdg_generate_one', { post_id: postId }, function (data) {
-            $btn.prop('disabled', false);
             $ta.prop('disabled', false).val(data.description);
             updateCounter($ta);
-            setStatus($status, '');
+
+            // Generating is now a one-click action — apply immediately
+            // rather than leaving the draft sitting unreviewed.
+            setStatus($status, MDG.strings.applying + spinner(), '');
+            applyRow($row, postId, data.description, function () {
+                $btn.prop('disabled', false);
+                setStatus($status, MDG.strings.applied, 'ok');
+            }, function (err) {
+                $btn.prop('disabled', false);
+                setStatus($status, MDG.strings.error + ': ' + err, 'error');
+            });
         }, function (err) {
             $btn.prop('disabled', false);
             $ta.prop('disabled', false);
@@ -178,7 +187,7 @@
             if (index >= total) {
                 $btn.prop('disabled', false);
                 $fill.css('width', '100%');
-                $label.text('Done — ' + done + ' generated.');
+                $label.text('Done — ' + done + ' generated and saved to Yoast.');
                 updateApplyAllButton();
                 return;
             }
@@ -194,10 +203,19 @@
             ajax('mdg_generate_one', { post_id: postId }, function (data) {
                 $ta.val(data.description);
                 updateCounter($ta);
-                setStatus($st, '');
-                done++;
-                $fill.css('width', Math.round((index + 1) / total * 100) + '%');
-                waitThenProcessNext(index + 1);
+
+                // One-click generation applies immediately rather than
+                // leaving every row's draft waiting on a separate Apply All.
+                applyRow($row, postId, data.description, function () {
+                    setStatus($st, MDG.strings.applied, 'ok');
+                    done++;
+                    $fill.css('width', Math.round((index + 1) / total * 100) + '%');
+                    waitThenProcessNext(index + 1);
+                }, function (err) {
+                    setStatus($st, MDG.strings.error + ': ' + err, 'error');
+                    $fill.css('width', Math.round((index + 1) / total * 100) + '%');
+                    waitThenProcessNext(index + 1); // continue despite error
+                });
             }, function (err) {
                 setStatus($st, MDG.strings.error + ': ' + err, 'error');
                 $fill.css('width', Math.round((index + 1) / total * 100) + '%');
@@ -230,6 +248,29 @@
     // Apply one
     // -------------------------------------------------------------------------
 
+    /**
+     * Apply one row's description to Yoast and update its "Current" cell.
+     * Shared by the manual Apply button and auto-apply-after-generate.
+     */
+    function applyRow($row, postId, desc, onDone, onError) {
+        ajax('mdg_apply_one', { post_id: postId, description: desc }, function () {
+            var len = desc.length;
+            var cls = (len >= MIN && len <= MAX) ? 'mdg-ok' : 'mdg-warn';
+            $row.find('.mdg-current-cell').html(
+                '<span class="mdg-existing-text">' + escHtml(desc) + '</span>' +
+                '<span class="mdg-char-badge ' + cls + '">' + len + ' chars</span>'
+            );
+            $row.removeClass('mdg-row--missing mdg-row--warning');
+            // A Clear button may not exist yet if this row had no description on page load.
+            if (!$row.find('.mdg-clear-one').length) {
+                $row.find('.mdg-apply-one').after(
+                    ' <button class="button button-small mdg-clear-one" data-post-id="' + postId + '">Clear</button>'
+                );
+            }
+            onDone();
+        }, onError);
+    }
+
     $(document).on('click', '.mdg-apply-one', function () {
         var $btn    = $(this);
         var $row    = $btn.closest('tr');
@@ -243,21 +284,9 @@
         $btn.prop('disabled', true);
         setStatus($status, MDG.strings.applying + spinner(), '');
 
-        ajax('mdg_apply_one', { post_id: postId, description: desc }, function () {
+        applyRow($row, postId, desc, function () {
             $btn.prop('disabled', false);
             setStatus($status, MDG.strings.applied, 'ok');
-            // Update the "Current" cell to reflect the new value.
-            var len  = desc.length;
-            var cls  = (len >= MIN && len <= MAX) ? 'mdg-ok' : 'mdg-warn';
-            $row.find('.mdg-current-cell').html(
-                '<span class="mdg-existing-text">' + escHtml(desc) + '</span>' +
-                '<span class="mdg-char-badge ' + cls + '">' + len + ' chars</span>'
-            );
-            $row.removeClass('mdg-row--missing mdg-row--warning');
-            // A Clear button may not exist yet if this row had no description on page load.
-            if (!$row.find('.mdg-clear-one').length) {
-                $btn.after(' <button class="button button-small mdg-clear-one" data-post-id="' + postId + '">' + 'Clear' + '</button>');
-            }
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, MDG.strings.error + ': ' + err, 'error');

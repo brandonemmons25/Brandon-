@@ -43,6 +43,22 @@ class MDG_Generator {
             return [ 'success' => false, 'error' => 'Could not parse API response as JSON.', 'raw' => $result['text'] ];
         }
 
+        // enforce_max_length() can only shorten — give a too-short draft one
+        // retry with an explicit nudge before accepting it as-is.
+        if ( ! empty( $fields['meta_description'] ) && mb_strlen( $fields['meta_description'] ) < MDG_META_MIN ) {
+            $retry_prompt = $prompt . "\n\nYour previous meta_description was only " . mb_strlen( $fields['meta_description'] )
+                . " characters — too short. This attempt's meta_description must be at least " . MDG_META_MIN
+                . " characters. Add a second specific detail or benefit to reach the target length; do not pad with filler.";
+            $retry = self::call_api( $api_key, $retry_prompt, 400 );
+            if ( $retry['success'] ) {
+                $retry_fields = self::parse_json_response( $retry['text'] );
+                if ( ! empty( $retry_fields['meta_description'] )
+                    && mb_strlen( $retry_fields['meta_description'] ) > mb_strlen( $fields['meta_description'] ) ) {
+                    $fields = $retry_fields;
+                }
+            }
+        }
+
         // Claude can't reliably count characters — enforce the cap ourselves.
         if ( ! empty( $fields['meta_description'] ) ) {
             $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX, MDG_META_MIN );
@@ -82,6 +98,24 @@ class MDG_Generator {
         }
 
         $description = self::clean_text( $result['text'] );
+
+        // enforce_max_length() can only shorten — it has nothing to add
+        // when Claude's raw draft comes in short of the minimum to begin
+        // with. Give it one retry with an explicit nudge before accepting
+        // a too-short result.
+        if ( mb_strlen( $description ) < MDG_META_MIN ) {
+            $retry_prompt = $prompt . "\n\nYour previous attempt was only " . mb_strlen( $description )
+                . " characters — too short. This attempt must be at least " . MDG_META_MIN
+                . " characters. Add a second specific detail or benefit to reach the target length; do not pad with filler.";
+            $retry = self::call_api( $api_key, $retry_prompt, 300 );
+            if ( $retry['success'] ) {
+                $retry_description = self::clean_text( $retry['text'] );
+                if ( mb_strlen( $retry_description ) > mb_strlen( $description ) ) {
+                    $description = $retry_description;
+                }
+            }
+        }
+
         $description = self::enforce_max_length( $description, MDG_META_MAX, MDG_META_MIN );
 
         return [
