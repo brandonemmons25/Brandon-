@@ -19,6 +19,7 @@ class MDG_Admin {
         add_action( 'wp_ajax_mdg_clear_one',        [ __CLASS__, 'ajax_clear_one' ] );
         add_action( 'wp_ajax_mdg_clear_bulk',       [ __CLASS__, 'ajax_clear_bulk' ] );
         add_action( 'wp_ajax_mdg_get_matching_ids', [ __CLASS__, 'ajax_get_matching_ids' ] );
+        add_action( 'wp_ajax_mdg_clear_titles_bulk', [ __CLASS__, 'ajax_clear_titles_bulk' ] );
         add_action( 'wp_ajax_mdg_auto_fill_next',   [ __CLASS__, 'ajax_auto_fill_next' ] );
         add_action( 'wp_ajax_mdg_auto_fill_status', [ __CLASS__, 'ajax_auto_fill_status' ] );
     }
@@ -159,6 +160,7 @@ class MDG_Admin {
                 'confirm_clear_one'  => __( 'Clear the current Yoast meta description for this post? This cannot be undone.', 'meta-description-generator' ),
                 'confirm_clear_bulk' => __( 'Clear the Yoast meta description for %d selected post(s)? This cannot be undone.', 'meta-description-generator' ),
                 'confirm_clear_all'  => __( 'Clear the Yoast meta description for ALL %d post(s) matching the current filter, including any written outside this plugin? This cannot be undone.', 'meta-description-generator' ),
+                'confirm_clear_titles' => __( 'Clear the Yoast SEO title for ALL %d post(s) matching the current filter, so Yoast\'s own title template takes over? This cannot be undone.', 'meta-description-generator' ),
                 'no_selection'  => __( 'Check at least one row first.', 'meta-description-generator' ),
             ],
             'has_api_key' => ! empty( MDG_Generator::get_api_key() ),
@@ -365,6 +367,29 @@ class MDG_Admin {
         ];
 
         wp_send_json_success( [ 'ids' => MDG_Scanner::get_matching_ids( $filters ) ] );
+    }
+
+    // -------------------------------------------------------------------------
+    // AJAX: clear the Yoast SEO title for a batch of posts, so Yoast's own
+    // title template ("Page Title | Site Title") takes over instead of a
+    // stored override. Batched by the client the same way as mdg_clear_bulk.
+    // -------------------------------------------------------------------------
+
+    public static function ajax_clear_titles_bulk(): void {
+        check_ajax_referer( 'mdg_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Unauthorized' );
+
+        $ids = $_POST['post_ids'] ?? [];
+        if ( ! is_array( $ids ) || empty( $ids ) ) wp_send_json_error( 'No posts selected.' );
+
+        $cleared = 0;
+        foreach ( $ids as $id ) {
+            $id = (int) $id;
+            if ( ! $id ) continue;
+            if ( MDG_Generator::clear_seo_title( $id )['success'] ) $cleared++;
+        }
+
+        wp_send_json_success( [ 'cleared' => $cleared ] );
     }
 
     // -------------------------------------------------------------------------

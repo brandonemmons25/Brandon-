@@ -69,6 +69,14 @@
                     <?php echo empty( $rows ) ? 'disabled' : ''; ?>>
                 <?php esc_html_e( 'Clear All Matching Filter', 'meta-description-generator' ); ?>
             </button>
+            <button id="mdg-clear-titles-matching" class="button"
+                    data-status="<?php echo esc_attr( $filters['status'] ); ?>"
+                    data-post-type="<?php echo esc_attr( $filters['post_type'] ); ?>"
+                    data-search="<?php echo esc_attr( $filters['search'] ); ?>"
+                    data-total="<?php echo (int) $total; ?>"
+                    <?php echo empty( $rows ) ? 'disabled' : ''; ?>>
+                <?php esc_html_e( 'Clear SEO Titles (Matching Filter)', 'meta-description-generator' ); ?>
+            </button>
             <span id="mdg-bulk-status" class="mdg-status"></span>
         </div>
     </div>

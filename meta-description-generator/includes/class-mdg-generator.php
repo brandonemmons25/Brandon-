@@ -128,6 +128,25 @@ class MDG_Generator {
         return [ 'success' => true, 'post_id' => $post_id ];
     }
 
+    /**
+     * Wipe a Yoast SEO title this plugin (or anything else) previously set,
+     * so Yoast falls back to its own site-wide title template ("Page Title |
+     * Site Title") instead of the stored override. Deletes the cached
+     * indexable outright rather than blanking its title field, since an
+     * empty cached title would just render blank instead of re-deriving
+     * from the template.
+     */
+    public static function clear_seo_title( int $post_id ): array {
+        if ( ! get_post( $post_id ) ) {
+            return [ 'success' => false, 'error' => "Post #{$post_id} not found." ];
+        }
+
+        delete_post_meta( $post_id, '_yoast_wpseo_title' );
+        self::delete_indexable( $post_id );
+
+        return [ 'success' => true, 'post_id' => $post_id ];
+    }
+
     // -------------------------------------------------------------------------
     // Prompt builders
     // -------------------------------------------------------------------------
@@ -296,6 +315,21 @@ class MDG_Generator {
             }
         } catch ( \Exception $e ) {
             // Post meta already saved — Yoast rebuilds indexables on next crawl.
+        }
+    }
+
+    private static function delete_indexable( int $post_id ): void {
+        if ( ! class_exists( 'Yoast\WP\SEO\Repositories\Indexable_Repository' ) ) {
+            return;
+        }
+        try {
+            $repository = \YoastSEO()->classes->get( \Yoast\WP\SEO\Repositories\Indexable_Repository::class );
+            $indexable  = $repository->find_by_id_and_type( $post_id, 'post' );
+            if ( $indexable ) {
+                $indexable->delete();
+            }
+        } catch ( \Exception $e ) {
+            // Post meta already cleared — Yoast rebuilds the indexable on next request.
         }
     }
 

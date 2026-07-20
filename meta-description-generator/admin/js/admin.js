@@ -386,6 +386,51 @@
     });
 
     // -------------------------------------------------------------------------
+    // Clear SEO Titles (Matching Filter) — same pattern as Clear All Matching
+    // Filter, but clears the Yoast SEO title instead of the description, so
+    // Yoast's own title template ("Page Title | Site Title") takes over.
+    // -------------------------------------------------------------------------
+
+    $('#mdg-clear-titles-matching').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#mdg-bulk-status');
+        var total   = parseInt($btn.data('total'), 10) || 0;
+
+        if (!total) return;
+        if (!confirm(MDG.strings.confirm_clear_titles.replace('%d', total))) return;
+
+        $btn.prop('disabled', true);
+        setStatus($status, MDG.strings.clearing + spinner(), '');
+
+        ajax('mdg_get_matching_ids', {
+            status: $btn.data('status'),
+            post_type: $btn.data('post-type'),
+            search: $btn.data('search')
+        }, function (data) {
+            var ids = data.ids || [];
+            if (!ids.length) { $btn.prop('disabled', false); setStatus($status, '', ''); return; }
+
+            runInBatches(ids, CLEAR_BATCH_SIZE, 'mdg_clear_titles_bulk',
+                function (batch) { return { post_ids: batch }; },
+                function (done, totalIds) {
+                    setStatus($status, MDG.strings.clearing + ' ' + done + '/' + totalIds + spinner(), '');
+                },
+                function (done) {
+                    setStatus($status, done + ' SEO title' + (done !== 1 ? 's' : '') + ' cleared.', 'ok');
+                    $btn.prop('disabled', false);
+                },
+                function (err) {
+                    $btn.prop('disabled', false);
+                    setStatus($status, MDG.strings.error + ': ' + err, 'error');
+                }
+            );
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, MDG.strings.error + ': ' + err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // Enable/disable "Clear Selected" based on checkbox state
     // -------------------------------------------------------------------------
 
