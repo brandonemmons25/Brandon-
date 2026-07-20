@@ -69,6 +69,26 @@ class MDG_Generator {
             }
         }
 
+        // A grammatically clean draft can still just list facts and never
+        // actually ask the reader to do anything (e.g. "...offers 24/7
+        // support, PCI-compliant security, and cutting-edge technology.").
+        // The prompt already asks for a CTA — that alone isn't reliable
+        // enough to trust, so check for one and retry once if it's missing.
+        if ( ! empty( $fields['meta_description'] ) && ! self::has_cta_verb( $fields['meta_description'] ) ) {
+            $is_product = ! empty( $post_data['is_woocommerce_product'] );
+            $cta_hint   = $is_product
+                ? 'Shop, Order, Buy, or Get yours'
+                : 'Call, Contact, Get a quote, Get started, Schedule, Book, Visit, or Ask about it (pick whichever fits — use Call/Contact for a business with no walk-in location)';
+            $retry_prompt = $prompt . "\n\nYour previous meta_description ended without any actual call-to-action — it just stated facts and stopped. Rewrite it so it closes with a concrete action the reader can take: {$cta_hint}.";
+            $retry = self::call_api( $api_key, $retry_prompt, 400 );
+            if ( $retry['success'] ) {
+                $retry_fields = self::parse_json_response( $retry['text'] );
+                if ( ! empty( $retry_fields['meta_description'] ) && self::has_cta_verb( $retry_fields['meta_description'] ) ) {
+                    $fields = $retry_fields;
+                }
+            }
+        }
+
         // Claude can't reliably count characters — enforce the cap ourselves.
         if ( ! empty( $fields['meta_description'] ) ) {
             $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX, MDG_META_MIN );
@@ -129,6 +149,26 @@ class MDG_Generator {
             if ( $retry['success'] ) {
                 $retry_description = self::clean_text( $retry['text'] );
                 if ( mb_strlen( $retry_description ) > mb_strlen( $description ) ) {
+                    $description = $retry_description;
+                }
+            }
+        }
+
+        // A grammatically clean draft can still just list facts and never
+        // actually ask the reader to do anything (e.g. "...offers 24/7
+        // support, PCI-compliant security, and cutting-edge technology.").
+        // The prompt already asks for a CTA — that alone isn't reliable
+        // enough to trust, so check for one and retry once if it's missing.
+        if ( ! self::has_cta_verb( $description ) ) {
+            $is_product = ! empty( $post_data['is_woocommerce_product'] );
+            $cta_hint   = $is_product
+                ? 'Shop, Order, Buy, or Get yours'
+                : 'Call, Contact, Get a quote, Get started, Schedule, Book, Visit, or Ask about it (pick whichever fits — use Call/Contact for a business with no walk-in location)';
+            $retry_prompt = $prompt . "\n\nYour previous attempt ended without any actual call-to-action — it just stated facts and stopped. Rewrite it so it closes with a concrete action the reader can take: {$cta_hint}.";
+            $retry = self::call_api( $api_key, $retry_prompt, 300 );
+            if ( $retry['success'] ) {
+                $retry_description = self::clean_text( $retry['text'] );
+                if ( self::has_cta_verb( $retry_description ) ) {
                     $description = $retry_description;
                 }
             }
@@ -257,16 +297,18 @@ class MDG_Generator {
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
         $prompt .= "- If the content states an actual number (ABV%, quantity, price), use that exact number — never substitute a vague intensifier like \"a real ABV kick\" when the content already tells you it's \"8% ABV\"\n";
+        $prompt .= "- Never invent a specific count (\"3 proven strategies\", \"5 reasons\") unless the content itself actually lists that many items — a made-up number is a claim you can't back up\n";
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
         $prompt .= "- Never use in-person visit language (\"Visit us\", \"Stop by\") here — this is an online order, not an on-premise visit\n";
         $prompt .= "- If the content mentions how this item is actually sold (e.g. \"4 pack\", \"case of 12\"), use that exact unit in the CTA — don't default to \"Order your can\" or \"Order a bottle\" if it's only sold by the pack\n";
         } else {
-            $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
+            $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". You MUST end with a direct action CTA — pick whichever fits this business: Call, Book, Schedule, Visit, Stop by, Ask about it (for a physical location), or Contact us, Get a quote, Get started, Sign up, Request a consultation (for a business with no walk-in location, like a service company). Simply stating facts or features and stopping (e.g. \"...offers 24/7 support and cutting-edge technology.\") is NOT acceptable — there is always a next action to ask for. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
         $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour and drinks it there, one or two at a time — NOT by buying retail packaging or \"stocking up\". Anywhere in the description (not just the CTA), never reference \"a 4-pack\", \"a case\", any take-home pack size, or a \"stock up\"/buy-in-quantity framing — that mindset belongs to an online order, not a visit\n";
         }
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Never end on a bare infinitive with no object — \"...to secure.\" or \"...to explore.\" is incomplete (secure what? explore what?). Either finish it (\"to secure your store\") or end the sentence earlier\n";
         $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?), no bare number or percentage missing its unit (\"...in an 8%.\" — 8% of what? should be \"8% ABV\"). If the last few words prompt the question \"...what?\" it is broken\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job\n";
         $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
@@ -335,6 +377,7 @@ class MDG_Generator {
         $prompt .= "- Open with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in and entices them to act, before you deliver the specific benefit and keyword\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
         $prompt .= "- If the content states an actual number (ABV%, quantity, price), use that exact number — never substitute a vague intensifier like \"a real ABV kick\" when the content already tells you it's \"8% ABV\"\n";
+        $prompt .= "- Never invent a specific count (\"3 proven strategies\", \"5 reasons\") unless the content itself actually lists that many items — a made-up number is a claim you can't back up\n";
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a short, direct, purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
@@ -346,6 +389,7 @@ class MDG_Generator {
         }
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Never end on a bare infinitive with no object — \"...to secure.\" or \"...to explore.\" is incomplete (secure what? explore what?). Either finish it (\"to secure your store\") or end the sentence earlier\n";
         $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?), no bare number or percentage missing its unit (\"...in an 8%.\" — 8% of what? should be \"8% ABV\"). If the last few words prompt the question \"...what?\" it is broken\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job (e.g. don't write \"Host your own tasting\" when the business is the one hosting)\n";
         $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
@@ -402,7 +446,9 @@ class MDG_Generator {
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
         $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
         $prompt .= "- A CTA mismatched to whether this is purchasable: a \"Shop now\"/\"Order online\"/\"Buy now\" CTA on something that is NOT a purchasable product (e.g. a menu listing), or a visit-only CTA (\"Stop by\", \"Visit us\") on something that IS a purchasable product and should say Shop/Order/Buy instead\n";
+        $prompt .= "- NO call-to-action at all — the description states facts or features and just stops (e.g. \"...offers 24/7 support, PCI-compliant security, and cutting-edge technology.\") without ever asking the reader to do anything. Every description needs a closing action: Call, Contact, Get a quote, Get started, Sign up, Book, Schedule, Visit, or Shop/Order/Buy, whichever fits\n";
         $prompt .= "- Retail packaging or \"stock up\"/buy-in-quantity language (\"a 4-pack\", \"a case\", \"stock up\") anywhere in a description for something that's NOT a purchasable online product — someone visiting tries it on draft/by the glass and drinks one or two, not by buying or stocking up on a pack. That language only belongs in an online-order description\n";
+        $prompt .= "- A specific count (\"3 proven strategies\", \"5 reasons\") that isn't actually backed by the content listing that many items — that's a fabricated claim, not a detail\n";
         $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
         $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
         $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("
@@ -641,6 +687,26 @@ class MDG_Generator {
     }
 
     /**
+     * Whether the description's final sentence contains at least one
+     * recognizable call-to-action verb. A grammatically clean draft can
+     * still just state facts and stop ("...offers 24/7 support, PCI-
+     * compliant security, and cutting-edge technology.") — the prompt
+     * already asks for a CTA, but that instruction alone isn't reliable
+     * enough to trust without a check.
+     */
+    private static function has_cta_verb( string $text ): bool {
+        $sentences = self::split_sentences( $text );
+        $last      = end( $sentences );
+        if ( $last === false || $last === '' ) {
+            $last = $text;
+        }
+        $pattern = '/\b(shop|order|buy|get\s+yours?|get\s+started|get\s+a\s+quote|call|book|schedule'
+                 . '|visit|stop\s+by|drop\s+by|swing\s+by|stop\s+in|ask\s+about|contact|sign\s+up|apply'
+                 . '|request|reach\s+out|talk\s+to|start\s+today|try)\b/i';
+        return (bool) preg_match( $pattern, $last );
+    }
+
+    /**
      * Drop a trailing word that would leave a truncated phrase dangling
      * mid-clause (e.g. "...mountain views and" -> "...mountain views").
      */
@@ -663,6 +729,12 @@ class MDG_Generator {
             'a', 'an', 'the', 'this', 'that', 'these', 'those', 'its', 'your', 'their', 'our',
             'his', 'her', 'my',
             'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            // Modal/auxiliary verbs — also a closed class, and just as
+            // incapable of ending a sentence as "is"/"are" above. Each of
+            // these grammatically demands a main verb after it ("...we
+            // have." is exactly as broken as "...we are.").
+            'have', 'has', 'had', 'will', 'would', 'shall', 'should', 'can', 'could',
+            'may', 'might', 'must', 'do', 'does', 'did', 'ought',
             // Not a closed class — adjectives are open-ended in English, so
             // this can never be exhaustive. But taste/quality descriptors
             // ("...for a rich, refreshing 7% ABV with dry.") are a recurring
@@ -681,8 +753,22 @@ class MDG_Generator {
             // A bare number or percentage ("...in an 8%.") is missing its
             // unit (8% ABV, 3 varieties, etc.) and can't stand alone either.
             $is_bare_number = (bool) preg_match( '/^\d+(\.\d+)?%?$/', $last );
-            if ( in_array( $last, $dangling, true ) || $is_bare_number ) {
+            // A contraction ending in 've/'re/'ll/'d ("we've", "they're",
+            // "we'd") stands for have/are/will/would — same problem as the
+            // spelled-out auxiliary above, just elided onto the pronoun.
+            $is_dangling_contraction = (bool) preg_match( "/^[a-z]+'(ve|re|ll|d)$/", $last );
+            if ( in_array( $last, $dangling, true ) || $is_bare_number || $is_dangling_contraction ) {
                 array_pop( $words );
+                continue;
+            }
+            // A bare "to <verb>" ending ("...Iron Rock Payments to
+            // secure.") is an infinitive with no object. Verbs are an open
+            // class so this can't be caught by name, but the two-word
+            // "to X" shape at the very end is itself the tell — almost no
+            // legitimate CTA or claim ends on an object-less infinitive.
+            if ( count( $words ) > 2 && mb_strtolower( $words[ count( $words ) - 2 ] ) === 'to' ) {
+                array_pop( $words ); // the verb
+                array_pop( $words ); // "to"
                 continue;
             }
             break;
