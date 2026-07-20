@@ -201,6 +201,7 @@ class MDG_Generator {
         $type       = $post_data['post_type'];
         $title      = $post_data['title'];
         $content    = $post_data['content'];
+        $categories = $post_data['categories'] ?? [];
         $site_name  = $post_data['site_name'] ?? '';
         $site_desc  = $post_data['site_desc'] ?? '';
         $keyphrase  = trim( $post_data['focus_keyphrase'] ?? '' );
@@ -222,6 +223,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( ! empty( $categories ) ) {
+            $prompt .= "Category/tags: " . implode( ', ', $categories ) . "\n";
+        }
         if ( ! empty( $keyphrase ) && ! $keyphrase_is_missing ) {
             $prompt .= "Existing focus keyphrase (already set, do not change it): {$keyphrase}\n";
         }
@@ -235,6 +239,7 @@ class MDG_Generator {
         $prompt .= "\nRules:\n";
         $prompt .= "- Respond with ONLY valid JSON — no markdown, no explanation, no code fences\n";
         $prompt .= "- Do not include fields not listed above\n";
+        $prompt .= "- Base this ENTIRELY on this specific page's own title, category/tags, and content excerpt above. Do not assume it matches the business's main product line just because of the site name or tagline — e.g. if the site sells cider but this item's title/category says apparel or merchandise, describe it as apparel, never as a beverage\n";
         $prompt .= "- Count characters carefully — the meta description length limit is critical\n";
         $prompt .= "- No quotation marks inside field values\n";
         $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
@@ -272,12 +277,13 @@ class MDG_Generator {
     private static function build_description_prompt( array $post_data ): string {
         $min       = MDG_META_MIN;
         $max       = MDG_META_MAX;
-        $type      = $post_data['post_type'];
-        $title     = $post_data['title'];
-        $content   = $post_data['content'];
-        $site_name = $post_data['site_name'] ?? '';
-        $site_desc = $post_data['site_desc'] ?? '';
-        $keyphrase = trim( $post_data['focus_keyphrase'] ?? '' );
+        $type       = $post_data['post_type'];
+        $title      = $post_data['title'];
+        $content    = $post_data['content'];
+        $categories = $post_data['categories'] ?? [];
+        $site_name  = $post_data['site_name'] ?? '';
+        $site_desc  = $post_data['site_desc'] ?? '';
+        $keyphrase  = trim( $post_data['focus_keyphrase'] ?? '' );
 
         $prompt  = "You are a direct-response copywriter writing ad copy for a WordPress {$type}, not a summary of it.\n\n";
         if ( ! empty( $site_name ) ) {
@@ -287,6 +293,9 @@ class MDG_Generator {
             $prompt .= "Site tagline: {$site_desc}\n";
         }
         $prompt .= "Page title: {$title}\n";
+        if ( ! empty( $categories ) ) {
+            $prompt .= "Category/tags: " . implode( ', ', $categories ) . "\n";
+        }
         if ( ! empty( $keyphrase ) ) {
             $prompt .= "Focus keyphrase (already set for this page, do not change it): {$keyphrase}\n";
         }
@@ -295,6 +304,7 @@ class MDG_Generator {
         }
         $prompt .= "Write the meta description as a selling proposition: the reader is scanning search results deciding what to click, and this is your one shot to win that click.\n\n";
         $prompt .= "Requirements:\n";
+        $prompt .= "- Base this ENTIRELY on this specific page's own title, category/tags, and content above. Do not assume it matches the business's main product line just because of the site name or tagline — e.g. if the site sells cider but this item's title/category says apparel or merchandise, describe it as apparel, never as a beverage\n";
         $prompt .= "- Total length: {$min}–{$max} characters (CRITICAL — count carefully)\n";
         $prompt .= "- Open with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in and entices them to act, before you deliver the specific benefit and keyword\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
@@ -331,17 +341,22 @@ class MDG_Generator {
     // -------------------------------------------------------------------------
 
     private static function review_description( string $api_key, string $description, array $post_data ): string {
-        $title     = $post_data['title'] ?? '';
-        $site_name = $post_data['site_name'] ?? '';
+        $title      = $post_data['title'] ?? '';
+        $site_name  = $post_data['site_name'] ?? '';
+        $categories = $post_data['categories'] ?? [];
 
         $prompt  = "You are a strict editor. Read this meta description exactly as a first-time stranger would, with zero other context.\n\n";
         $prompt .= "Page: {$title}" . ( ! empty( $site_name ) ? " ({$site_name})" : '' ) . "\n";
+        if ( ! empty( $categories ) ) {
+            $prompt .= "Actual category/tags for this page: " . implode( ', ', $categories ) . "\n";
+        }
         $prompt .= "Meta description to check:\n\"{$description}\"\n\n";
         $prompt .= "Check specifically for:\n";
         $prompt .= "- Nonsense or unclear noun-phrase mashups (e.g. \"tasting schedule\", \"craft cider core series\")\n";
         $prompt .= "- Ambiguous abbreviations that would confuse a stranger (e.g. \"Mass apples\" instead of spelling it out or dropping it)\n";
         $prompt .= "- A sentence ending on an adjective or descriptor with no noun for it to describe (e.g. \"...with balanced flavor and real.\")\n";
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
+        $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
         $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
         $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
         $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("

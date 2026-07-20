@@ -195,15 +195,36 @@ class MDG_Scanner {
 
     /**
      * Fetch a single post's data for the generator (title + clean content).
+     * Pulls the excerpt/short description and category/tag terms alongside
+     * the main content — for WooCommerce products especially, post_content
+     * alone is often thin or empty, and without a category like "Apparel"
+     * to ground it, the generator can default to describing the item as
+     * whatever the business's main product line is (e.g. calling a hoodie
+     * a cider) instead of what the page actually says it is.
      */
     public static function get_post_data( int $post_id ): ?array {
         $post = get_post( $post_id );
         if ( ! $post ) return null;
 
-        $content = wp_strip_all_tags( apply_filters( 'the_content', $post->post_content ) );
+        $excerpt = wp_strip_all_tags( $post->post_excerpt );
+        $body    = wp_strip_all_tags( apply_filters( 'the_content', $post->post_content ) );
+
+        $content = trim( $excerpt . ( $excerpt !== '' && $body !== '' ? ' ' : '' ) . $body );
         // Collapse whitespace and limit to 1500 chars to keep API tokens low.
         $content = preg_replace( '/\s+/', ' ', $content );
-        $content = mb_substr( trim( $content ), 0, 1500 );
+        $content = mb_substr( $content, 0, 1500 );
+
+        $categories = [];
+        foreach ( [ 'category', 'product_cat', 'product_tag', 'post_tag' ] as $taxonomy ) {
+            if ( ! taxonomy_exists( $taxonomy ) ) continue;
+            $terms = get_the_terms( $post_id, $taxonomy );
+            if ( is_array( $terms ) ) {
+                foreach ( $terms as $term ) {
+                    $categories[] = $term->name;
+                }
+            }
+        }
+        $categories = array_values( array_unique( $categories ) );
 
         $existing = trim( (string) get_post_meta( $post_id, '_yoast_wpseo_metadesc', true ) );
 
@@ -212,6 +233,7 @@ class MDG_Scanner {
             'title'            => $post->post_title,
             'post_type'        => get_post_type_object( $post->post_type )->labels->singular_name ?? $post->post_type,
             'content'          => $content,
+            'categories'       => $categories,
             'existing'         => $existing,
             'url'              => get_permalink( $post->ID ),
             'site_name'        => trim( wp_strip_all_tags( get_bloginfo( 'name' ) ) ),
