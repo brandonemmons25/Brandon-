@@ -7,10 +7,11 @@
     var MIN = MDG.min;  // 140
     var MAX = MDG.max;  // 156
 
-    // Anthropic's org rate limit can be as low as 5 requests/minute — pace
-    // sequential calls so we don't blow through it. 13s keeps us under
-    // 60/5=12s with a small buffer.
-    var API_PACE_MS = 13000;
+    // Anthropic's org rate limit can be as low as 5 requests/minute. Each
+    // "Generate" now makes 2 Claude calls per row (draft + quality review,
+    // occasionally 3 if a too-short draft needs a retry too), not 1 — so
+    // the per-row pace has to roughly double to stay under the limit.
+    var API_PACE_MS = 26000;
 
     // -------------------------------------------------------------------------
     // Helpers

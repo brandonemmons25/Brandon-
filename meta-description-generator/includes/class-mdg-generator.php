@@ -59,6 +59,13 @@ class MDG_Generator {
             }
         }
 
+        // A second pass catches what no character-count or regex check
+        // can: phrasing that's grammatically fine but doesn't actually
+        // make sense (e.g. "tasting schedule", an unexplained abbreviation).
+        if ( ! empty( $fields['meta_description'] ) ) {
+            $fields['meta_description'] = self::review_description( $api_key, $fields['meta_description'], $post_data );
+        }
+
         // Claude can't reliably count characters — enforce the cap ourselves.
         if ( ! empty( $fields['meta_description'] ) ) {
             $fields['meta_description'] = self::enforce_max_length( $fields['meta_description'], MDG_META_MAX, MDG_META_MIN );
@@ -116,6 +123,11 @@ class MDG_Generator {
             }
         }
 
+        // A second pass catches what no character-count or regex check
+        // can: phrasing that's grammatically fine but doesn't actually
+        // make sense (e.g. "tasting schedule", an unexplained abbreviation,
+        // or an adjective left dangling with no noun — "...and real.").
+        $description = self::review_description( $api_key, $description, $post_data );
         $description = self::enforce_max_length( $description, MDG_META_MAX, MDG_META_MIN );
 
         return [
@@ -313,6 +325,44 @@ class MDG_Generator {
     }
 
     // -------------------------------------------------------------------------
+    // Quality review — a second pass that catches confusing phrasing no
+    // character-count or regex rule can (nonsense noun-phrase mashups,
+    // unexplained abbreviations, adjectives left dangling with no noun).
+    // -------------------------------------------------------------------------
+
+    private static function review_description( string $api_key, string $description, array $post_data ): string {
+        $title     = $post_data['title'] ?? '';
+        $site_name = $post_data['site_name'] ?? '';
+
+        $prompt  = "You are a strict editor. Read this meta description exactly as a first-time stranger would, with zero other context.\n\n";
+        $prompt .= "Page: {$title}" . ( ! empty( $site_name ) ? " ({$site_name})" : '' ) . "\n";
+        $prompt .= "Meta description to check:\n\"{$description}\"\n\n";
+        $prompt .= "Check specifically for:\n";
+        $prompt .= "- Nonsense or unclear noun-phrase mashups (e.g. \"tasting schedule\", \"craft cider core series\")\n";
+        $prompt .= "- Ambiguous abbreviations that would confuse a stranger (e.g. \"Mass apples\" instead of spelling it out or dropping it)\n";
+        $prompt .= "- A sentence ending on an adjective or descriptor with no noun for it to describe (e.g. \"...with balanced flavor and real.\")\n";
+        $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
+        $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
+        $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
+        $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("
+            . MDG_META_MIN . "–" . MDG_META_MAX . " characters), the same hook-then-benefit-then-CTA structure, "
+            . "no dashes or semicolons, and end on a complete sentence. Respond with ONLY the corrected description text, nothing else.";
+
+        $result = self::call_api( $api_key, $prompt, 300 );
+        if ( ! $result['success'] ) {
+            return $description; // Review call failed — keep the original rather than losing it.
+        }
+
+        $verdict = trim( $result['text'] );
+        if ( strcasecmp( $verdict, 'OK' ) === 0 ) {
+            return $description;
+        }
+
+        $revised = self::clean_text( $verdict );
+        return $revised !== '' ? $revised : $description;
+    }
+
+    // -------------------------------------------------------------------------
     // Apply fields to Yoast (only the ones that were missing)
     // -------------------------------------------------------------------------
 
@@ -464,7 +514,9 @@ class MDG_Generator {
     private static function enforce_max_length( string $text, int $max, int $min = 0 ): string {
         $text = trim( $text );
         if ( mb_strlen( $text ) <= $max ) {
-            return $text;
+            // Even when no truncation is needed, Claude's raw draft can
+            // still end on a dangling word on its own — always check.
+            return self::ensure_clean_ending( $text );
         }
 
         $sentences  = self::split_sentences( $text );
@@ -481,7 +533,7 @@ class MDG_Generator {
         }
 
         if ( $built !== '' && mb_strlen( $built ) >= $min ) {
-            return $built;
+            return self::ensure_clean_ending( $built );
         }
 
         // What fits sentence-wise falls short of $min — pull in as much of
@@ -555,6 +607,29 @@ class MDG_Generator {
             array_pop( $words );
         }
         return implode( ' ', $words );
+    }
+
+    /**
+     * Guarantee the text doesn't end on a dangling word, whether or not it
+     * needed truncation. Preserves the original terminal punctuation
+     * (so a real question mark survives) unless a dangling word actually
+     * had to be dropped, in which case a period is the safe generic closer.
+     */
+    private static function ensure_clean_ending( string $text ): string {
+        $text = trim( $text );
+        if ( $text === '' ) {
+            return $text;
+        }
+
+        $terminal = preg_match( '/[.!?]$/u', $text ) ? mb_substr( $text, -1 ) : '.';
+        $body     = rtrim( $text, '.!?' );
+        $cleaned  = self::strip_dangling_words( $body );
+
+        if ( $cleaned === '' ) {
+            return $text; // Don't wipe out an already-short result.
+        }
+
+        return $cleaned === $body ? $body . $terminal : $cleaned . '.';
     }
 
     // -------------------------------------------------------------------------
