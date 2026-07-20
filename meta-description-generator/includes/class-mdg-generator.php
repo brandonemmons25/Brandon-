@@ -257,6 +257,7 @@ class MDG_Generator {
             $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
         }
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?). If the last few words prompt the question \"...what?\" it is broken\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job\n";
         $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
         if ( ! empty( $site_name ) ) {
@@ -270,6 +271,7 @@ class MDG_Generator {
         }
         $prompt .= "- Weak example to avoid: \"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\" (that's a summary with a generic CTA and no hook)\n";
         $prompt .= "- Strong example to write like: \"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage. Call today to tour.\" (verb-led hook, specific, benefit-led, direct CTA, no dashes or semicolons)\n\n";
+        $prompt .= "- Another weak example to avoid: \"Ready to taste bold, unfiltered craft cider company made the slow way? High Limb Cider experiments with real apples and honest ingredients to redefine.\" (nonsense noun-phrase mashup — a cider is not a \"company\" — AND ends on a dangling verb: redefine WHAT?)\n";
 
         $example_fields = [];
         if ( in_array( 'focus_keyphrase', $missing, true ) ) {
@@ -330,6 +332,7 @@ class MDG_Generator {
         }
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
+        $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?). If the last few words prompt the question \"...what?\" it is broken\n";
         $prompt .= "- Keep the subject of each verb unambiguous: the business is the one that offers, provides, hosts, or delivers the thing; the reader is the one who calls, books, or visits. Never phrase it so the reader appears to be doing the business's job (e.g. don't write \"Host your own tasting\" when the business is the one hosting)\n";
         $prompt .= "- Do not combine two different concepts into one noun phrase that doesn't exist (e.g. \"book a tasting schedule\" — pick one: book a tasting, or view the tasting schedule)\n";
         $prompt .= "- Unique to this page — do not start by repeating the page title verbatim\n";
@@ -347,6 +350,8 @@ class MDG_Generator {
         $prompt .= "\"Dana real estate with panoramic Lassen Peak views, fly fishing access & ranch properties. Find your mountain home near Mt. Shasta. Explore listings now.\"\n\n";
         $prompt .= "Example — strong (a verb-led hook, a specific pitch, and a direct CTA, write like this):\n";
         $prompt .= "\"Looking for a Dana mountain retreat with Lassen Peak views? Intermountain Realty has private fly-fishing access and ranch acreage. Call today to tour.\"\n\n";
+        $prompt .= "Another example — weak (nonsense noun-phrase mashup and a dangling verb with no object, avoid this style):\n";
+        $prompt .= "\"Ready to taste bold, unfiltered craft cider company made the slow way? High Limb Cider experiments with real apples and honest ingredients to redefine.\" (a cider is not a \"company\", and \"to redefine\" has no object — redefine WHAT?)\n\n";
         $prompt .= "Respond with ONLY the meta description text. Nothing else.";
 
         return $prompt;
@@ -373,10 +378,13 @@ class MDG_Generator {
             $prompt .= "Actual category/tags for this page: " . implode( ', ', $categories ) . "\n";
         }
         $prompt .= "Meta description to check:\n\"{$description}\"\n\n";
+        $prompt .= "Assume this draft has at least one real problem — most first drafts do. Only respond OK if you would "
+            . "personally publish this exact text for a paying client with zero edits. Read every clause and ask "
+            . "\"does this leave anything unresolved or nonsensical?\" before deciding.\n\n";
         $prompt .= "Check specifically for:\n";
-        $prompt .= "- Nonsense or unclear noun-phrase mashups (e.g. \"tasting schedule\", \"craft cider core series\")\n";
+        $prompt .= "- Nonsense or unclear noun-phrase mashups (e.g. \"tasting schedule\", \"craft cider core series\", \"craft cider company made the slow way\")\n";
         $prompt .= "- Ambiguous abbreviations that would confuse a stranger (e.g. \"Mass apples\" instead of spelling it out or dropping it)\n";
-        $prompt .= "- A sentence ending on an adjective or descriptor with no noun for it to describe (e.g. \"...with balanced flavor and real.\")\n";
+        $prompt .= "- A sentence ending on ANY word that leaves something unresolved — a dangling preposition (\"...inspired by.\"), a dangling adjective with no noun (\"...with balanced flavor and real.\"), or a dangling verb/infinitive with no object (\"...experiments with honest ingredients to redefine.\" — redefine WHAT?). If the last clause makes you ask \"...what?\" or \"...how?\", it's broken\n";
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
         $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
         $prompt .= "- A CTA mismatched to whether this is purchasable: a \"Shop now\"/\"Order online\"/\"Buy now\" CTA on something that is NOT a purchasable product (e.g. a menu listing), or a visit-only CTA (\"Stop by\", \"Visit us\") on something that IS a purchasable product and should say Shop/Order/Buy instead\n";
