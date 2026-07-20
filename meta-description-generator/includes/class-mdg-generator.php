@@ -43,6 +43,16 @@ class MDG_Generator {
             return [ 'success' => false, 'error' => 'Could not parse API response as JSON.', 'raw' => $result['text'] ];
         }
 
+        // A second pass catches what no character-count or regex check
+        // can: phrasing that's grammatically fine but doesn't actually
+        // make sense (e.g. "tasting schedule", an unexplained abbreviation).
+        // Runs BEFORE the length check below — the review can shorten the
+        // text, and the min-length guarantee has to apply to what actually
+        // ships, not a pre-review draft the review might later shrink.
+        if ( ! empty( $fields['meta_description'] ) ) {
+            $fields['meta_description'] = self::review_description( $api_key, $fields['meta_description'], $post_data );
+        }
+
         // enforce_max_length() can only shorten — give a too-short draft one
         // retry with an explicit nudge before accepting it as-is.
         if ( ! empty( $fields['meta_description'] ) && mb_strlen( $fields['meta_description'] ) < MDG_META_MIN ) {
@@ -57,13 +67,6 @@ class MDG_Generator {
                     $fields = $retry_fields;
                 }
             }
-        }
-
-        // A second pass catches what no character-count or regex check
-        // can: phrasing that's grammatically fine but doesn't actually
-        // make sense (e.g. "tasting schedule", an unexplained abbreviation).
-        if ( ! empty( $fields['meta_description'] ) ) {
-            $fields['meta_description'] = self::review_description( $api_key, $fields['meta_description'], $post_data );
         }
 
         // Claude can't reliably count characters — enforce the cap ourselves.
@@ -106,10 +109,18 @@ class MDG_Generator {
 
         $description = self::clean_text( $result['text'] );
 
+        // A second pass catches what no character-count or regex check
+        // can: phrasing that's grammatically fine but doesn't actually
+        // make sense (e.g. "tasting schedule", an unexplained abbreviation,
+        // or an adjective left dangling with no noun — "...and real.").
+        // Runs BEFORE the length check below — the review can shorten the
+        // text, and the min-length guarantee has to apply to what actually
+        // ships, not a pre-review draft the review might later shrink.
+        $description = self::review_description( $api_key, $description, $post_data );
+
         // enforce_max_length() can only shorten — it has nothing to add
-        // when Claude's raw draft comes in short of the minimum to begin
-        // with. Give it one retry with an explicit nudge before accepting
-        // a too-short result.
+        // when the draft comes in short of the minimum to begin with. Give
+        // it one retry with an explicit nudge before accepting a too-short result.
         if ( mb_strlen( $description ) < MDG_META_MIN ) {
             $retry_prompt = $prompt . "\n\nYour previous attempt was only " . mb_strlen( $description )
                 . " characters — too short. This attempt must be at least " . MDG_META_MIN
@@ -123,11 +134,6 @@ class MDG_Generator {
             }
         }
 
-        // A second pass catches what no character-count or regex check
-        // can: phrasing that's grammatically fine but doesn't actually
-        // make sense (e.g. "tasting schedule", an unexplained abbreviation,
-        // or an adjective left dangling with no noun — "...and real.").
-        $description = self::review_description( $api_key, $description, $post_data );
         $description = self::enforce_max_length( $description, MDG_META_MAX, MDG_META_MIN );
 
         return [
@@ -250,6 +256,7 @@ class MDG_Generator {
         $prompt .= "- No semicolons, and no dashes (—, –) used to connect clauses — use a period or comma instead. Hyphens inside a compound word like \"fly-fishing\" are fine\n";
         $prompt .= "- The meta description is an ad, not a summary: sell the reason to click, don't just describe the page\n";
         $prompt .= "- Be specific and detailed — real numbers, specifics, or outcomes beat vague claims\n";
+        $prompt .= "- If the content states an actual number (ABV%, quantity, price), use that exact number — never substitute a vague intensifier like \"a real ABV kick\" when the content already tells you it's \"8% ABV\"\n";
         $prompt .= "- Open the meta_description with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in before you deliver the specific benefit and keyword\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
@@ -257,7 +264,7 @@ class MDG_Generator {
         $prompt .= "- If the content mentions how this item is actually sold (e.g. \"4 pack\", \"case of 12\"), use that exact unit in the CTA — don't default to \"Order your can\" or \"Order a bottle\" if it's only sold by the pack\n";
         } else {
             $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
-        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour, NOT by buying retail packaging — never reference \"a 4-pack\", \"a case\", or any take-home pack size in a visit-oriented CTA. Save pack/case language for actual online orders\n";
+        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour and drinks it there, one or two at a time — NOT by buying retail packaging or \"stocking up\". Anywhere in the description (not just the CTA), never reference \"a 4-pack\", \"a case\", any take-home pack size, or a \"stock up\"/buy-in-quantity framing — that mindset belongs to an online order, not a visit\n";
         }
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
         $prompt .= "- Never end on a word that leaves something unresolved: no dangling preposition (\"...inspired by.\"), no adjective missing its noun (\"...and real.\"), no verb or infinitive missing its object (\"...to redefine.\" — redefine what?), no bare number or percentage missing its unit (\"...in an 8%.\" — 8% of what? should be \"8% ABV\"). If the last few words prompt the question \"...what?\" it is broken\n";
@@ -327,6 +334,7 @@ class MDG_Generator {
         $prompt .= "- Total length: {$min}–{$max} characters (CRITICAL — count carefully)\n";
         $prompt .= "- Open with an inviting verb-led hook or question — \"Looking for...\", \"Searching for...\", \"Want...\", \"Need...\", \"Ready to...\" — that pulls the reader in and entices them to act, before you deliver the specific benefit and keyword\n";
         $prompt .= "- Be specific and detailed: use real numbers, features, or outcomes from the content instead of vague claims like \"great\" or \"quality\"\n";
+        $prompt .= "- If the content states an actual number (ABV%, quantity, price), use that exact number — never substitute a vague intensifier like \"a real ABV kick\" when the content already tells you it's \"8% ABV\"\n";
         $prompt .= "- Place the most important keyword within the FIRST 120 characters (mobile truncates there)\n";
         if ( $is_product ) {
             $prompt .= "- This IS a purchasable online product — end with a short, direct, purchase-oriented CTA: Shop, Order, Buy, Get yours. NEVER end with a weak, generic CTA like \"Learn more\", \"Explore listings now\", \"Find out more\", \"See more\", or \"Discover more\" — those don't sell anything\n";
@@ -334,7 +342,7 @@ class MDG_Generator {
         $prompt .= "- If the content mentions how this item is actually sold (e.g. \"4 pack\", \"case of 12\"), use that exact unit in the CTA — don't default to \"Order your can\" or \"Order a bottle\" if it's only sold by the pack\n";
         } else {
             $prompt .= "- This is NOT a purchasable online product (it may be a menu listing, page, or post) — do NOT use e-commerce CTAs like \"Shop now\", \"Order online\", or \"Buy now\". End with a short, direct visit or contact CTA instead: Call, Book, Schedule, Visit, Stop by, Ask about it. NEVER end with a weak, generic CTA like \"Learn more\" or \"Find out more\" either — those don't sell anything\n";
-        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour, NOT by buying retail packaging — never reference \"a 4-pack\", \"a case\", or any take-home pack size in a visit-oriented CTA. Save pack/case language for actual online orders\n";
+        $prompt .= "- Someone visiting in person tries it on draft/by the glass/by the pour and drinks it there, one or two at a time — NOT by buying retail packaging or \"stocking up\". Anywhere in the description (not just the CTA), never reference \"a 4-pack\", \"a case\", any take-home pack size, or a \"stock up\"/buy-in-quantity framing — that mindset belongs to an online order, not a visit\n";
         }
         $prompt .= "- Conversational and enticing, never robotic or generic\n";
         $prompt .= "- Every sentence must be grammatically complete and make clear, literal sense on its own — re-read each one and ask what it would mean to a stranger with no other context\n";
@@ -394,7 +402,7 @@ class MDG_Generator {
         $prompt .= "- Lists that mix unrelated categories together (e.g. ingredients mixed with product or release names)\n";
         $prompt .= "- The description describing the WRONG kind of thing for this page's title/category — e.g. calling an apparel item (hoodie, shirt) a food or beverage just because the business's main product line is food or beverage\n";
         $prompt .= "- A CTA mismatched to whether this is purchasable: a \"Shop now\"/\"Order online\"/\"Buy now\" CTA on something that is NOT a purchasable product (e.g. a menu listing), or a visit-only CTA (\"Stop by\", \"Visit us\") on something that IS a purchasable product and should say Shop/Order/Buy instead\n";
-        $prompt .= "- Retail packaging language (\"a 4-pack\", \"a case\") used in an in-person visit CTA — someone visiting tries it on draft/by the glass, not by buying a pack. Pack/case language only belongs in an online-order CTA\n";
+        $prompt .= "- Retail packaging or \"stock up\"/buy-in-quantity language (\"a 4-pack\", \"a case\", \"stock up\") anywhere in a description for something that's NOT a purchasable online product — someone visiting tries it on draft/by the glass and drinks one or two, not by buying or stocking up on a pack. That language only belongs in an online-order description\n";
         $prompt .= "- Any phrase that would not make immediate, literal sense on a first read\n\n";
         $prompt .= "If it already reads clearly with none of these problems, respond with EXACTLY: OK\n";
         $prompt .= "If anything is unclear, rewrite the ENTIRE description to fix it. Keep the same length target ("
@@ -651,6 +659,7 @@ class MDG_Generator {
             'unto', 'up', 'upon', 'with', 'within', 'without',
             'and', 'or', 'nor', 'so', 'yet', 'because', 'although', 'though', 'unless', 'while',
             'whereas', 'if', 'when', 'whenever', 'than', 'whether',
+            'plus', 'also', 'besides', 'additionally', 'furthermore', 'moreover',
             'a', 'an', 'the', 'this', 'that', 'these', 'those', 'its', 'your', 'their', 'our',
             'his', 'her', 'my',
             'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -715,7 +724,11 @@ class MDG_Generator {
             return $text; // Don't wipe out an already-short result.
         }
 
-        return $cleaned === $body ? $body . $terminal : $cleaned . '.';
+        // When words were stripped, the new last word can be an earlier
+        // sentence's own final word — which may still carry its own
+        // mid-string period (e.g. "...freshest apples."). Strip that
+        // before adding ours, or it doubles up ("apples..").
+        return $cleaned === $body ? $body . $terminal : rtrim( $cleaned, '.!?' ) . '.';
     }
 
     // -------------------------------------------------------------------------
