@@ -91,6 +91,29 @@ class BLS_Scanner {
     ];
 
     /**
+     * Class/ID fragments identifying Optima Express / iHomeFinder IDX
+     * widget output (search boxes, "schedule a tour" CTAs, listing-detail
+     * controls, etc.). Confirmed on cesipagano.com: the "Search" button
+     * on the homepage comes from a bare `[optima_express_search]`
+     * shortcode with nothing else in post_content, and iHomeFinder's own
+     * widgets/shortcodes consistently prefix their markup with `ihf-`/
+     * `IHF_`. This content is vendor-controlled and re-rendered by the
+     * IDX plugin itself, not authored page content — there's no post,
+     * meta field, or template anywhere to attach a title to, and no
+     * amount of matching-logic improvement changes that. Treated as
+     * noise the same way WooCommerce/Gravity Forms UI chrome already is,
+     * rather than flagged as a "missing title" the site owner can't
+     * actually do anything about.
+     */
+    const SKIP_IDX_VENDOR_PATTERNS = [
+        'ihf-',
+        'ihf_',
+        'optima-express',
+        'optima_express',
+        'ihomefinder',
+    ];
+
+    /**
      * aria-label substrings (lowercase) that identify nav/UI-only buttons.
      * These are never authored CTA buttons and should not appear in results.
      */
@@ -779,8 +802,14 @@ class BLS_Scanner {
      */
     private function node_should_skip( DOMElement $node ): bool {
         $class = strtolower( $node->getAttribute( 'class' ) );
+        $id    = strtolower( $node->getAttribute( 'id' ) );
         foreach ( self::SKIP_CLASS_PATTERNS as $pattern ) {
             if ( str_contains( $class, $pattern ) ) {
+                return true;
+            }
+        }
+        foreach ( self::SKIP_IDX_VENDOR_PATTERNS as $pattern ) {
+            if ( str_contains( $class, $pattern ) || str_contains( $id, $pattern ) ) {
                 return true;
             }
         }
@@ -819,7 +848,10 @@ class BLS_Scanner {
             }
         }
 
-        // Skip buttons inside a Gravity Forms form wrapper.
+        // Skip buttons inside a Gravity Forms form wrapper, or an
+        // Optima Express / iHomeFinder IDX widget wrapper — the button's
+        // own class/id often doesn't carry the vendor's branding, only
+        // the container it's rendered inside of does.
         $ancestor = $node->parentNode;
         while ( $ancestor instanceof DOMElement ) {
             $ancestor_class = strtolower( $ancestor->getAttribute( 'class' ) );
@@ -828,6 +860,11 @@ class BLS_Scanner {
                  || str_contains( $ancestor_id, 'gform_wrapper' )
                  || str_contains( $ancestor_id, 'gform_' ) ) {
                 return true;
+            }
+            foreach ( self::SKIP_IDX_VENDOR_PATTERNS as $pattern ) {
+                if ( str_contains( $ancestor_class, $pattern ) || str_contains( $ancestor_id, $pattern ) ) {
+                    return true;
+                }
             }
             $ancestor = $ancestor->parentNode;
         }
