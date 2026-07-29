@@ -114,6 +114,23 @@ class BLS_Scanner {
     ];
 
     /**
+     * Shortcode tag prefixes stripped from raw content before rendering
+     * (see strip_vendor_shortcodes()). Some Optima Express/iHomeFinder
+     * widgets turn out to be entirely client-side JavaScript apps (a
+     * search bar confirmed on cesipagano.com renders via React/MUI, with
+     * build-hashed CSS classes that regenerate every deploy — invisible
+     * to this scanner no matter what, since it only parses static
+     * server-rendered HTML). Stripping the shortcode tag itself is a
+     * firmer, deploy-stable signal than trying to match whatever HTML
+     * happens to render today.
+     */
+    const VENDOR_SHORTCODE_PREFIXES = [
+        'optima_express',
+        'ihf_',
+        'ihomefinder',
+    ];
+
+    /**
      * aria-label substrings (lowercase) that identify nav/UI-only buttons.
      * These are never authored CTA buttons and should not appear in results.
      */
@@ -375,14 +392,14 @@ class BLS_Scanner {
     private function get_post_content( WP_Post $post ): string {
         $parts = [];
 
-        $main = trim( (string) apply_filters( 'the_content', $post->post_content ) );
+        $main = trim( (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $post->post_content ) ) );
         if ( $main !== '' ) {
             $parts[] = $main;
         }
 
         // WooCommerce short description.
         if ( $post->post_type === 'product' && ! empty( trim( (string) $post->post_excerpt ) ) ) {
-            $parts[] = (string) apply_filters( 'the_content', $post->post_excerpt );
+            $parts[] = (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $post->post_excerpt ) );
         }
 
         // Block-theme (FSE) custom page template. On block themes,
@@ -447,7 +464,7 @@ class BLS_Scanner {
                 // avoids pulling in serialized arrays, numeric flags, or
                 // plain unrelated text with no buttons/links to find.
                 if ( preg_match( '/<a\s|<button|<input|href=|https?:\/\//i', $value ) ) {
-                    $parts[] = (string) apply_filters( 'the_content', $value );
+                    $parts[] = (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $value ) );
                 }
             }
         }
@@ -481,7 +498,40 @@ class BLS_Scanner {
             return '';
         }
 
-        return (string) apply_filters( 'the_content', $template_post->post_content );
+        return (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $template_post->post_content ) );
+    }
+
+    /**
+     * Remove Optima Express/iHomeFinder shortcodes from raw content
+     * BEFORE it's ever rendered — confirmed present on cesipagano.com's
+     * Home page, whose entire post_content is a bare
+     * `[optima_express_search]` shortcode. This is a firmer signal than
+     * guessing at the vendor's rendered CSS classes (tried in a prior
+     * version, confirmed NOT to match anything on this site's real
+     * output — the class/id filter in node_should_skip() stays as a
+     * secondary defense, but this is the primary one now): the shortcode
+     * TAG NAME in raw storage is something we've directly observed, not
+     * assumed. Stripping it here means do_shortcode() never expands it
+     * at all, so whatever markup it would have produced — button,
+     * search form, or otherwise — simply never enters the content this
+     * scanner sees, regardless of what that markup looks like once
+     * rendered.
+     */
+    private function strip_vendor_shortcodes( string $content ): string {
+        if ( $content === '' || ! str_contains( $content, '[' ) ) {
+            return $content;
+        }
+
+        $pattern = get_shortcode_regex();
+        return (string) preg_replace_callback( $pattern, function ( $m ) {
+            $tag = $m[2];
+            foreach ( self::VENDOR_SHORTCODE_PREFIXES as $prefix ) {
+                if ( str_starts_with( $tag, $prefix ) ) {
+                    return '';
+                }
+            }
+            return $m[0];
+        }, $content );
     }
 
     /**
