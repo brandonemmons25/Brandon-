@@ -146,19 +146,18 @@ class BLS_GF_Scanner {
         $is_thank_you = $this->slug_is_thank_you( $redirect_page_slug ) || $this->url_is_thank_you( $redirect_url ) ? 1 : 0;
 
         // Child-page check:
-        //  -1 = inconclusive (host page not found, can't verify)
-        //   0 = host found but thank-you page is NOT a child of it
-        //   1 = host found and thank-you page IS a child of it
+        //  -1 = inconclusive (no parent set, or couldn't confirm either way)
+        //   0 = has a parent, but that parent does not host this form (confirmed wrong)
+        //   1 = has a parent, and that parent DOES host this form (confirmed correct)
         $host_found = ! empty( $host_pages );
-        if ( ! $host_found || $redirect_page_id <= 0 || $type !== 'page' ) {
-            // Can't determine parent relationship without both sides.
-            $is_child = -1;
-        } else {
-            $is_child = $this->page_is_child_of_hosts( $redirect_page_id, $host_pages ) ? 1 : 0;
-        }
+        $is_child   = ( $redirect_page_id > 0 && $type === 'page' )
+            ? $this->check_parent_relationship( $redirect_page_id, $form_id, $host_pages )
+            : -1;
 
-        // Collect failure reasons — child check only fails when we have enough
-        // info to be certain it's wrong (host found, page found, not a child).
+        // Collect failure reasons — the parent-relationship check only fails
+        // when we've positively confirmed the parent doesn't host this form
+        // (is_child === 0). A -1 (inconclusive) never produces a hard failure,
+        // since we cannot be certain the setup is wrong.
         $fails = [];
         if ( ! $is_redirect ) {
             $fails[] = 'Confirmation shows an inline message instead of redirecting';
@@ -167,11 +166,7 @@ class BLS_GF_Scanner {
             $fails[] = 'Redirect target does not appear to be a thank-you page';
         }
         if ( $is_redirect && $is_thank_you && $is_child === 0 ) {
-            $fails[] = 'Thank-you page is not a child of the form\'s host page';
-        }
-        if ( $is_redirect && $is_thank_you && $is_child === -1 && $host_found ) {
-            // Host was found but page ID is 0 or type isn't 'page' — soft note only.
-            $fails[] = 'Child-page relationship could not be verified (URL redirect type — check manually)';
+            $fails[] = 'Thank-you page\'s parent does not appear to host this form — check the page hierarchy';
         }
         if ( $is_redirect && $type === 'redirect' && empty( $redirect_url ) ) {
             $fails[] = 'Redirect type set but no URL configured';
@@ -284,23 +279,12 @@ class BLS_GF_Scanner {
             $patterns
         ) );
 
-        // Also search Elementor meta for this form ID.
-        $el_ids = $wpdb->get_col( $wpdb->prepare(
-            "SELECT DISTINCT post_id FROM {$wpdb->postmeta}
-             WHERE meta_key = '_elementor_data'
-               AND ( meta_value LIKE %s OR meta_value LIKE %s )",
-            '%"form_id":"' . $id . '"%',
-            '%"form_id":' . $id . '%'
-        ) );
-
-        $all_ids = array_unique( array_merge( array_map( 'intval', $post_ids ), array_map( 'intval', $el_ids ) ) );
-
-        if ( empty( $all_ids ) ) {
+        if ( empty( $post_ids ) ) {
             return [];
         }
 
         return get_posts( [
-            'post__in'       => $all_ids,
+            'post__in'       => array_map( 'intval', $post_ids ),
             'post_type'      => 'any',
             'post_status'    => 'publish',
             'posts_per_page' => -1,
@@ -335,23 +319,118 @@ class BLS_GF_Scanner {
     }
 
     /**
-     * Check whether a page is a child of any host page.
+     * Determine whether the thank-you page's immediate parent actually
+     * hosts the given form.
      *
-     * @param int      $page_id    The thank-you page ID (0 = unknown).
-     * @param WP_Post[] $host_pages Pages that embed the form.
+     * This does NOT rely on matching literal shortcode text (which breaks
+     * on page builders like Divi that wrap/transform shortcodes in ways a
+     * text search can miss). Instead it:
+     *
+     *  1. Looks at the thank-you page's real post_parent.
+     *     - No parent at all → definitively NOT a child (0).
+     *  2. Renders the parent's actual front-end content via
+     *     apply_filters('the_content', ...) — this expands Divi, Elementor
+     *     shortcodes, Gutenberg blocks, everything — and searches the
+     *     RENDERED HTML for markers Gravity Forms itself always outputs
+     *     for a given form ID (e.g. id="gform_wrapper_5", data-formid="5").
+     *     - Found  → confirmed correct (1).
+     *  3. Falls back to checking whether the parent's ID is among the
+     *     "host pages" found via the (fragile) site-wide shortcode search,
+     *     as a secondary signal.
+     *     - Found  → confirmed correct (1).
+     *  4. Otherwise → inconclusive (-1), NOT a hard failure. We only report
+     *     a definitive failure when there's no parent page at all.
+     *
+     * @param int      $thank_you_page_id
+     * @param int      $form_id
+     * @param WP_Post[] $host_pages Pages found via the site-wide shortcode search (secondary signal).
+     * @return int -1 inconclusive | 0 confirmed wrong | 1 confirmed correct
      */
-    private function page_is_child_of_hosts( int $page_id, array $host_pages ): bool {
-        if ( $page_id <= 0 || empty( $host_pages ) ) {
-            return false;
+    private function check_parent_relationship( int $thank_you_page_id, int $form_id, array $host_pages ): int {
+        $page = get_post( $thank_you_page_id );
+        if ( ! $page ) {
+            return -1;
         }
 
-        $page = get_post( $page_id );
-        if ( ! $page || (int) $page->post_parent === 0 ) {
-            return false;
+        $parent_id = (int) $page->post_parent;
+        if ( $parent_id <= 0 ) {
+            // No parent set at all — definitively not a child of anything.
+            return 0;
         }
 
-        $host_ids = array_map( fn( $p ) => (int) $p->ID, $host_pages );
-        return in_array( (int) $page->post_parent, $host_ids, true );
+        // Primary check: does the parent's actual rendered output contain
+        // this specific form? Works regardless of page builder.
+        $parent = get_post( $parent_id );
+        if ( $parent ) {
+            $rendered = apply_filters( 'the_content', $parent->post_content );
+            $markers  = [
+                'gform_wrapper_' . $form_id,
+                'gform_' . $form_id . '"',
+                "gform_{$form_id}'",
+                'data-formid="' . $form_id . '"',
+                "data-formid='{$form_id}'",
+                'data-form-id="' . $form_id . '"',
+                'data-form-index="' . $form_id . '"',
+            ];
+            foreach ( $markers as $marker ) {
+                if ( str_contains( $rendered, $marker ) ) {
+                    return 1;
+                }
+            }
+
+            // Fallback: some page builders (Divi's Code module, saved
+            // library sections, etc.) store the raw shortcode in a form
+            // that survives in post_content but isn't expanded the same
+            // way by the_content filter chain in all contexts. Check the
+            // unrendered source directly too.
+            $raw = (string) $parent->post_content;
+            if ( preg_match( '/\[gravityforms?\s+id=["\']?' . preg_quote( (string) $form_id, '/' ) . '["\']?[\s\]]/i', $raw )
+                 || str_contains( $raw, '"formId":"' . $form_id . '"' )
+                 || str_contains( $raw, '"formId":' . $form_id . ',' )
+                 || str_contains( $raw, '"formId":' . $form_id . '}' ) ) {
+                return 1;
+            }
+
+            // Block-theme (FSE) custom page template — same blind spot as
+            // Divi Theme Builder, different mechanism. On block themes, a
+            // page can have a custom template assigned (stored as its own
+            // wp_template post) whose content lives entirely outside the
+            // page's own post_content. Check that too.
+            $template_slug = get_page_template_slug( $parent_id );
+            if ( ! empty( $template_slug ) ) {
+                $slug = preg_replace( '/\.html$/', '', basename( $template_slug ) );
+                if ( ! empty( $slug ) && $slug !== 'default' ) {
+                    $template_post = get_page_by_path( $slug, OBJECT, 'wp_template' );
+                    if ( $template_post && ! empty( trim( $template_post->post_content ) ) ) {
+                        $template_rendered = apply_filters( 'the_content', $template_post->post_content );
+                        foreach ( $markers as $marker ) {
+                            if ( str_contains( $template_rendered, $marker ) ) {
+                                return 1;
+                            }
+                        }
+                        if ( str_contains( $template_post->post_content, '"formId":"' . $form_id . '"' )
+                             || str_contains( $template_post->post_content, '"formId":' . $form_id . ',' )
+                             || str_contains( $template_post->post_content, '"formId":' . $form_id . '}' ) ) {
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Secondary check: was the parent identified by the broader
+        // site-wide shortcode/block text search?
+        foreach ( $host_pages as $host ) {
+            if ( (int) $host->ID === $parent_id ) {
+                return 1;
+            }
+        }
+
+        // Has a parent, but we couldn't confirm that parent hosts the form.
+        // This is inconclusive rather than a hard failure — the render
+        // pass above can miss forms loaded via JS/AJAX or heavily cached
+        // builder output.
+        return -1;
     }
 
     private function gravity_forms_active(): bool {

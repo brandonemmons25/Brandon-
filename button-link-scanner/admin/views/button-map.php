@@ -1,6 +1,6 @@
 <?php defined( 'ABSPATH' ) || exit; ?>
 <div class="wrap bls-wrap">
-    <h1><?php esc_html_e( 'Button Map', 'button-link-scanner' ); ?></h1>
+    <h1><?php esc_html_e( 'Button Map', 'button-link-scanner' ); ?> <span class="bls-version-badge">v<?php echo esc_html( BLS_VERSION ); ?></span></h1>
     <p>
         <?php esc_html_e(
             'Assign a canonical URL and SEO title to each unique button label. Once assigned, use "Apply" to rewrite matching buttons across all posts and pages automatically.',
@@ -139,4 +139,94 @@
         </tbody>
     </table>
     <?php endif; ?>
+
+    <!-- Link Trends (folded in here — see usage, then assign, in one place) -->
+    <details class="bls-card" style="margin-top:20px;" <?php echo empty( $map_entries ) ? 'open' : ''; ?>>
+        <summary style="cursor:pointer; font-size:1.2em; font-weight:600; padding:4px 0;">
+            <?php esc_html_e( 'Link Trends', 'button-link-scanner' ); ?>
+        </summary>
+        <p><?php esc_html_e( 'Buttons grouped by label from the last scan. Spot inconsistencies (same label, different URLs) and buttons that are never linked — click "Add to Map" to pre-fill the form above.', 'button-link-scanner' ); ?></p>
+
+        <?php if ( empty( $trends ) ) : ?>
+            <p><em><?php esc_html_e( 'No data yet. Run a scan from the Dashboard first.', 'button-link-scanner' ); ?></em></p>
+        <?php else : ?>
+
+        <div class="bls-legend">
+            <span class="bls-badge bls-badge--danger"><?php esc_html_e( 'Never linked', 'button-link-scanner' ); ?></span>
+            <span class="bls-badge bls-badge--warning"><?php esc_html_e( 'Inconsistent URLs', 'button-link-scanner' ); ?></span>
+            <span class="bls-badge bls-badge--info"><?php esc_html_e( 'Partially linked', 'button-link-scanner' ); ?></span>
+            <span class="bls-badge bls-badge--success"><?php esc_html_e( 'Consistent', 'button-link-scanner' ); ?></span>
+        </div>
+
+        <table class="wp-list-table widefat fixed striped bls-trends-table">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e( 'Button Label', 'button-link-scanner' ); ?></th>
+                    <th class="bls-center"><?php esc_html_e( 'Occurrences', 'button-link-scanner' ); ?></th>
+                    <th class="bls-center"><?php esc_html_e( 'Unique Pages', 'button-link-scanner' ); ?></th>
+                    <th class="bls-center"><?php esc_html_e( 'Linked', 'button-link-scanner' ); ?></th>
+                    <th class="bls-center"><?php esc_html_e( 'Unlinked', 'button-link-scanner' ); ?></th>
+                    <th class="bls-center"><?php esc_html_e( 'Missing Title', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'URLs Found', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Status', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Actions', 'button-link-scanner' ); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ( $trends as $row ) :
+                $urls        = array_filter( explode( '|||', $row->unique_urls ?? '' ) );
+                $url_count   = count( $urls );
+                $linked      = (int) $row->linked_count;
+                $unlinked    = (int) $row->unlinked_count;
+
+                if ( $linked === 0 ) {
+                    $status_class = 'bls-badge--danger';
+                    $status_label = esc_html__( 'Never linked', 'button-link-scanner' );
+                    $row_class    = 'bls-row--danger';
+                } elseif ( $url_count > 1 ) {
+                    $status_class = 'bls-badge--warning';
+                    $status_label = esc_html__( 'Inconsistent URLs', 'button-link-scanner' );
+                    $row_class    = 'bls-row--warning';
+                } elseif ( $unlinked > 0 ) {
+                    $status_class = 'bls-badge--info';
+                    $status_label = esc_html__( 'Partially linked', 'button-link-scanner' );
+                    $row_class    = 'bls-row--info';
+                } else {
+                    $status_class = 'bls-badge--success';
+                    $status_label = esc_html__( 'Consistent', 'button-link-scanner' );
+                    $row_class    = '';
+                }
+
+                $primary_url = ! empty( $urls ) ? $urls[0] : '';
+            ?>
+                <tr class="<?php echo esc_attr( $row_class ); ?>">
+                    <td><strong><?php echo esc_html( $row->button_text ); ?></strong></td>
+                    <td class="bls-center"><?php echo (int) $row->occurrences; ?></td>
+                    <td class="bls-center"><?php echo (int) $row->unique_pages; ?></td>
+                    <td class="bls-center bls-text--success"><?php echo $linked; ?></td>
+                    <td class="bls-center bls-text--danger"><?php echo $unlinked; ?></td>
+                    <td class="bls-center bls-text--warning"><?php echo (int) $row->missing_title_count; ?></td>
+                    <td class="bls-url-list">
+                        <?php if ( empty( $urls ) ) : ?>
+                            <em><?php esc_html_e( 'none', 'button-link-scanner' ); ?></em>
+                        <?php else : ?>
+                            <?php foreach ( $urls as $u ) : ?>
+                                <div><a href="<?php echo esc_url( $u ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $u ); ?></a></div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </td>
+                    <td><span class="bls-badge <?php echo esc_attr( $status_class ); ?>"><?php echo $status_label; ?></span></td>
+                    <td>
+                        <button class="button button-small bls-add-to-map"
+                                data-text="<?php echo esc_attr( $row->button_text ); ?>"
+                                data-url="<?php echo esc_attr( $primary_url ); ?>">
+                            <?php esc_html_e( 'Add to Map', 'button-link-scanner' ); ?>
+                        </button>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </details>
 </div>

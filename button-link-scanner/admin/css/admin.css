@@ -184,6 +184,20 @@
 }
 .bls-fail-list li { margin: 1px 0; }
 
+/* Version badge — shown next to every page title so it's always obvious
+   which version is actually active, without needing to check Plugins. */
+.bls-version-badge {
+    display: inline-block;
+    font-size: 0.5em;
+    font-weight: 600;
+    vertical-align: middle;
+    background: #2271b1;
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 10px;
+    margin-left: 8px;
+}
+
 /* Responsive tweaks */
 @media ( max-width: 782px ) {
     .bls-summary-grid { grid-template-columns: repeat(2, 1fr); }

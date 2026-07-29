@@ -13,13 +13,32 @@ defined( 'ABSPATH' ) || exit;
  *  - Bare <button> and <input type="button|submit|reset"> elements
  *  - Elements with role="button"
  *
- * Content sources (tried in order, merged):
- *  1. apply_filters('the_content', post_content)  – handles shortcodes
- *  2. Elementor _elementor_data meta              – page-builder widgets
- *  3. HTTP fetch of the rendered permalink         – final fallback
+ * Content sources (all DB-only — no outbound HTTP requests are ever made
+ * during a scan, which keeps scans fast and avoids hosting-firewall false
+ * positives from the site calling itself):
+ *  1. apply_filters('the_content', post_content) — covers Gutenberg,
+ *     classic HTML, and shortcode-based builders (Divi included, since
+ *     Divi's own page-builder shortcodes live directly in post_content).
+ *  2. WooCommerce short description (post_excerpt) — some product pages
+ *     carry their real copy/CTAs there instead of the main editor.
+ *  3. Block-theme (FSE) custom page template — if a page has a custom
+ *     template assigned, its content can live entirely in a separate
+ *     `wp_template` post rather than the page's own content.
+ *  4. Custom fields (ACF, etc.) — classic themes like Genesis commonly
+ *     build a page's real content from custom fields via a dedicated
+ *     template, with post_content left empty. Checked as a last resort,
+ *     only when nothing above found anything.
  *
- * The homepage is always scanned explicitly, even when WordPress is
- * set to display "Latest Posts" (no static front page).
+ * If a post's content is still empty after all sources, it's flagged as
+ * "needs manual check" (see scan_post()'s null return) rather than
+ * silently skipped.
+ *
+ * One deliberate exception: the homepage gets ONE additional live HTTP
+ * fetch (see scan_homepage()), to catch content hardcoded directly into
+ * a theme template rather than stored in the database — common for
+ * custom-built homepages. This is scoped to a single URL, run once per
+ * full scan, so it doesn't carry the timeout/firewall risk that site-wide
+ * fetching did.
  */
 class BLS_Scanner {
 
@@ -54,6 +73,21 @@ class BLS_Scanner {
         // Search toggles.
         'search-toggle',
         'search-submit',
+        // WooCommerce storefront UI — not authored marketing CTAs, and not
+        // controlled by content edits, so these are always noise for the
+        // Button Map / trend-tracking use case.
+        'add_to_cart_button',
+        'ajax_add_to_cart',
+        'single_add_to_cart_button',
+        'wc-forward',
+        'checkout-button',
+        'wc-proceed-to-checkout',
+        'apply_coupon',
+        'update_cart',
+        'showcoupon',
+        'wc-backward',
+        'reset_variations',
+        'woocommerce-Button',
     ];
 
     /**
@@ -78,67 +112,189 @@ class BLS_Scanner {
         'close search',
         'scroll to top',
         'back to top',
+        // Photo gallery / carousel / slideshow controls — auto-generated UI
+        // chrome from listing/gallery widgets (e.g. real estate photo
+        // sliders), not authored content. Common on listing post types.
+        'slideshow',
+        'slide show',
+        'pause slide',
+        'play slide',
+        'next slide',
+        'previous slide',
+        'prev slide',
+        'next image',
+        'previous image',
+        'prev image',
+        'carousel',
+        'gallery navigation',
+        'pause gallery',
+        'play gallery',
     ];
 
+    /** Option name used to persist the remaining-work queue between AJAX batch calls. */
+    const QUEUE_OPTION = 'bls_scan_queue';
+
+    /** Option name used to persist running totals between AJAX batch calls. */
+    const PROGRESS_OPTION = 'bls_scan_progress';
+
+    /** Default number of posts processed per batch. */
+    const DEFAULT_BATCH_SIZE = 10;
+
     // -------------------------------------------------------------------------
-    // Public API
+    // Public API — batched scan (used by the admin UI)
     // -------------------------------------------------------------------------
 
     /**
-     * Run a full site scan.
+     * Build the work queue and reset stored results/progress. Call once,
+     * then call run_batch() repeatedly (e.g. via repeated AJAX requests)
+     * until it reports done = true.
      *
-     * @return array Summary stats.
+     * @return array { total_items: int }
      */
-    public function run_full_scan(): array {
+    public function start_scan(): array {
         BLS_Database::clear_results();
 
-        $post_types       = $this->get_scannable_post_types();
-        $excluded_ids     = $this->get_excluded_post_ids();
-        $total            = 0;
-        $scanned_post_ids = [];
+        $queue        = [];
+        $excluded_ids = $this->get_excluded_post_ids();
 
-        foreach ( $post_types as $post_type ) {
-            $paged = 1;
-            do {
-                $query = new WP_Query( [
-                    'post_type'      => $post_type,
-                    'post_status'    => 'publish',
-                    'posts_per_page' => 50,
-                    'paged'          => $paged,
-                    'no_found_rows'  => false,
-                    'fields'         => 'all',
-                    'post__not_in'   => $excluded_ids,
-                ] );
-
-                foreach ( $query->posts as $post ) {
-                    $found  = $this->scan_post( $post );
-                    $total += $found;
-                    $scanned_post_ids[] = $post->ID;
-                }
-
-                $paged++;
-            } while ( $paged <= $query->max_num_pages );
+        foreach ( $this->get_scannable_post_types() as $post_type ) {
+            $ids = get_posts( [
+                'post_type'      => $post_type,
+                'post_status'    => 'publish',
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'post__not_in'   => $excluded_ids,
+                'orderby'        => 'ID',
+                'order'          => 'ASC',
+            ] );
+            foreach ( $ids as $id ) {
+                $queue[] = (int) $id;
+            }
         }
 
-        // Always scan the homepage explicitly.
-        $total += $this->scan_homepage( $scanned_post_ids );
+        // Homepage marker: 0 = "run the homepage scan logic", which itself
+        // decides whether that means a static front page (already queued
+        // above and just skipped again) or a "Latest Posts" HTTP fetch.
+        $queue[] = 0;
 
-        update_option( 'bls_last_scan_total', $total );
-        update_option( 'bls_last_scan_time',  current_time( 'mysql' ) );
+        update_option( self::QUEUE_OPTION, $queue, false );
+        update_option( self::PROGRESS_OPTION, [
+            'total_items'   => count( $queue ),
+            'processed'     => 0,
+            'buttons_found' => 0,
+            'scanned_ids'   => [],
+            'skipped'       => [], // [{ id, title, url }] — empty content, needs manual check
+        ], false );
 
-        return [ 'buttons_found' => $total ];
+        return [ 'total_items' => count( $queue ) ];
+    }
+
+    /**
+     * Process the next batch of items from the stored queue.
+     *
+     * @param  int $batch_size How many posts to process this call.
+     * @return array { done: bool, processed: int, total_items: int, buttons_found: int }
+     */
+    public function run_batch( int $batch_size = self::DEFAULT_BATCH_SIZE ): array {
+        $queue    = get_option( self::QUEUE_OPTION, null );
+        $progress = get_option( self::PROGRESS_OPTION, null );
+
+        // Defensive: if state is missing (e.g. batch called without a prior
+        // start_scan(), such as after an unexpected reset), initialise fresh
+        // rather than fatal-erroring.
+        if ( $queue === null || $progress === null ) {
+            $this->start_scan();
+            $queue    = get_option( self::QUEUE_OPTION, [] );
+            $progress = get_option( self::PROGRESS_OPTION );
+        }
+
+        $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
+
+        foreach ( $batch as $item ) {
+            if ( (int) $item === 0 ) {
+                // Homepage marker.
+                $progress['buttons_found'] += $this->scan_homepage( $progress );
+                continue;
+            }
+
+            $post = get_post( (int) $item );
+            if ( ! $post ) {
+                continue;
+            }
+
+            $found = $this->scan_post( $post );
+            if ( $found === null ) {
+                // Empty content, but not always a real problem — some
+                // pages are SUPPOSED to have no content of their own.
+                // The most common case: the designated "Posts page"
+                // (Settings → Reading → "Posts page"), which only ever
+                // displays a dynamic list of blog posts and never has
+                // its own body content. Flagging that as "needs manual
+                // check" is a false positive, so it's excluded here.
+                $posts_page_id = (int) get_option( 'page_for_posts', 0 );
+                if ( $post->ID !== $posts_page_id ) {
+                    $progress['skipped'][] = [
+                        'id'    => $post->ID,
+                        'title' => $post->post_title,
+                        'url'   => get_permalink( $post->ID ),
+                    ];
+                }
+            } else {
+                $progress['buttons_found'] += $found;
+            }
+            $progress['scanned_ids'][] = $post->ID;
+        }
+
+        $progress['processed'] += count( $batch );
+        $done = empty( $queue );
+
+        if ( $done ) {
+            // One extra step before finalizing: for the (typically small)
+            // set of pages that came back with no scannable content,
+            // actually fetch the live rendered page and check again. This
+            // is different from the site-wide HTTP fallback removed
+            // earlier — that one fired on every empty page during a
+            // large batched loop and risked timeouts/firewall flags at
+            // scale. This one only runs once per full scan, against a
+            // short, already-identified list (usually under ~20 pages),
+            // the same bounded-risk logic already used for the homepage
+            // exception. If a page turns out to have real content when
+            // actually rendered, it's scanned for real and dropped from
+            // the "needs manual check" list; if it's still empty, that's
+            // now a *confirmed* empty page, not just an unexamined one.
+            $recheck = $this->recheck_skipped_pages( $progress['skipped'] );
+            $progress['buttons_found'] += $recheck['buttons_found'];
+            $progress['skipped']        = $recheck['still_skipped'];
+
+            update_option( 'bls_last_scan_total',   $progress['buttons_found'] );
+            update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
+            update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
+            delete_option( self::QUEUE_OPTION );
+            delete_option( self::PROGRESS_OPTION );
+        } else {
+            update_option( self::QUEUE_OPTION, $queue, false );
+            update_option( self::PROGRESS_OPTION, $progress, false );
+        }
+
+        return [
+            'done'          => $done,
+            'processed'     => $progress['processed'],
+            'total_items'   => $progress['total_items'],
+            'buttons_found' => $progress['buttons_found'],
+        ];
     }
 
     /**
      * Scan a single WP_Post object and persist button data.
      *
-     * @return int Number of buttons found.
+     * @return int|null Number of buttons found, or null if the post's
+     *                   content was empty (should be flagged for manual review).
      */
-    public function scan_post( WP_Post $post ): int {
+    public function scan_post( WP_Post $post ): ?int {
         $content = $this->get_post_content( $post );
 
         if ( empty( trim( $content ) ) ) {
-            return 0;
+            return null;
         }
 
         $buttons = $this->extract_buttons( $content );
@@ -172,35 +328,67 @@ class BLS_Scanner {
     // -------------------------------------------------------------------------
 
     /**
-     * Collect the best-available HTML for a post, merging multiple sources.
+     * Get the rendered HTML for a post via WordPress's normal content
+     * pipeline. Covers Gutenberg, classic HTML, and any shortcode-based
+     * builder (Divi included, since Divi shortcodes live in post_content).
      *
-     * Priority:
-     *  1. apply_filters('the_content') – handles Gutenberg, shortcodes
-     *  2. Elementor JSON meta          – Elementor page builder
-     *  3. HTTP fetch of the permalink  – any other builder / truly empty content
+     * Deliberately does NOT make any outbound HTTP requests — a prior
+     * version fetched the live URL as a fallback for empty content, but
+     * that made the site call itself, which is slow, unreliable, and
+     * commonly blocked by hosting firewalls (flagged as SSRF-like traffic).
+     * Posts with genuinely empty content are flagged for manual review
+     * instead (see scan_post()'s null return).
+     */
+    /**
+     * Get the rendered HTML for a post via WordPress's normal content
+     * pipeline, plus additional DB-only sources (no HTTP requests — see
+     * class docblock) that commonly hold real content even when
+     * post_content itself is empty:
+     *
+     *  - WooCommerce short description (post_excerpt) — many product
+     *    pages carry their real marketing copy/CTAs there instead of
+     *    the main content editor.
      */
     private function get_post_content( WP_Post $post ): string {
         $parts = [];
 
-        // Source 1: WordPress content pipeline.
-        $wp_content = apply_filters( 'the_content', $post->post_content );
-        if ( ! empty( trim( $wp_content ) ) ) {
-            $parts[] = $wp_content;
+        $main = trim( (string) apply_filters( 'the_content', $post->post_content ) );
+        if ( $main !== '' ) {
+            $parts[] = $main;
         }
 
-        // Source 2: Elementor – parse _elementor_data JSON.
-        $elementor_html = $this->get_elementor_html( $post->ID );
-        if ( ! empty( $elementor_html ) ) {
-            $parts[] = $elementor_html;
+        // WooCommerce short description.
+        if ( $post->post_type === 'product' && ! empty( trim( (string) $post->post_excerpt ) ) ) {
+            $parts[] = (string) apply_filters( 'the_content', $post->post_excerpt );
         }
 
-        // Source 3: HTTP fetch – fires only when the above sources yielded
-        // no useful content (empty post_content AND no Elementor data).
+        // Block-theme (FSE) custom page template. On block themes,
+        // templates are stored as their own `wp_template` posts in the
+        // database rather than living inside the page's own content —
+        // if a page has a custom template assigned (Page attributes ->
+        // Template, in a theme like Powder or any other FSE theme), the
+        // page's post_content can be nearly empty while the template
+        // itself holds real content/blocks (including forms).
+        $template_content = $this->get_block_theme_template_content( $post->ID );
+        if ( ! empty( $template_content ) ) {
+            $parts[] = $template_content;
+        }
+
+        // Custom-field fallback (ACF, etc.). Classic (non-block) themes
+        // like Genesis commonly build a page's real visible content from
+        // custom fields via a dedicated page template, rather than the
+        // main content editor — e.g. a vendor/resource directory page
+        // where post_content is empty but postmeta holds the actual
+        // names/links/HTML rendered by the template. If nothing else has
+        // produced content yet, scan this post's own postmeta for values
+        // that look like real markup and include them. Deliberately only
+        // fires when the sources above found nothing, and only looks at
+        // this post's OWN meta (no cross-post guessing), to keep it safe
+        // and narrowly scoped.
         if ( empty( $parts ) ) {
-            $url      = get_permalink( $post->ID );
-            $fetched  = $this->fetch_rendered_html( $url );
-            if ( ! empty( $fetched ) ) {
-                $parts[] = $fetched;
+            $meta_content = $this->get_custom_field_content( $post->ID );
+            if ( ! empty( $meta_content ) ) {
+                $parts[] = $meta_content;
             }
         }
 
@@ -208,162 +396,248 @@ class BLS_Scanner {
     }
 
     /**
-     * Scan the homepage, regardless of whether it is a static page or
-     * the "Latest Posts" index (which has no post_id to query).
-     *
-     * @param int[] $already_scanned Post IDs already processed by run_full_scan.
-     * @return int Number of additional buttons found.
+     * Look for real, renderable content sitting in this post's own custom
+     * fields (postmeta) — the ACF/custom-field fallback described above.
+     * Only considers values that already look like markup (contain a tag
+     * likely to hold a button/link: <a, <button, <input, or a raw URL),
+     * so it won't accidentally ingest unrelated internal meta (layout
+     * flags, IDs, serialized config, etc.).
      */
-    private function scan_homepage( array $already_scanned ): int {
+    private function get_custom_field_content( int $post_id ): string {
+        $all_meta = get_post_meta( $post_id );
+        if ( empty( $all_meta ) || ! is_array( $all_meta ) ) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ( $all_meta as $key => $values ) {
+            // Skip WordPress/plugin-internal meta (leading underscore is
+            // the WP convention for "not meant to be rendered directly").
+            if ( strpos( $key, '_' ) === 0 ) {
+                continue;
+            }
+            foreach ( (array) $values as $value ) {
+                if ( ! is_string( $value ) || $value === '' ) {
+                    continue;
+                }
+                // Only interested in values that look like real markup —
+                // avoids pulling in serialized arrays, numeric flags, or
+                // plain unrelated text with no buttons/links to find.
+                if ( preg_match( '/<a\s|<button|<input|href=|https?:\/\//i', $value ) ) {
+                    $parts[] = (string) apply_filters( 'the_content', $value );
+                }
+            }
+        }
+
+        return implode( "\n", $parts );
+    }
+
+    /**
+     * Look up and return the rendered content of a page's assigned block
+     * theme template, if it has one other than the default. Returns ''
+     * if there's no custom template or it can't be found.
+     */
+    private function get_block_theme_template_content( int $post_id ): string {
+        $template_slug = get_page_template_slug( $post_id );
+        if ( empty( $template_slug ) ) {
+            return '';
+        }
+
+        // Normalize: block-theme template slugs are commonly stored as
+        // "templates/page-contact.html" or just "page-contact" depending
+        // on WP version / how it was assigned — strip both variants down
+        // to a bare slug for matching against wp_template post_name.
+        $slug = basename( $template_slug );
+        $slug = preg_replace( '/\.html$/', '', $slug );
+        if ( empty( $slug ) || $slug === 'default' ) {
+            return '';
+        }
+
+        $template_post = get_page_by_path( $slug, OBJECT, 'wp_template' );
+        if ( ! $template_post || empty( trim( $template_post->post_content ) ) ) {
+            return '';
+        }
+
+        return (string) apply_filters( 'the_content', $template_post->post_content );
+    }
+
+    /**
+     * Scan the homepage if it's a static front page. ("Latest Posts" mode
+     * has no dedicated content to scan and is skipped — its individual
+     * posts are already covered by the normal post-type loop.)
+     *
+     * @param array $progress Progress state (read for scanned_ids, not mutated here).
+     * @return int Number of additional buttons found (0 if nothing to do).
+     */
+    private function scan_homepage( array $progress ): int {
         $show_on_front = get_option( 'show_on_front', 'posts' );
         $page_on_front = (int) get_option( 'page_on_front', 0 );
+        $found_count   = 0;
+        $already_ran   = false;
 
-        if ( $show_on_front === 'page' && $page_on_front > 0 ) {
-            // Static front page – only re-scan if it was missed (e.g. content
-            // was empty in the main loop and we can now try HTTP fetch).
-            if ( in_array( $page_on_front, $already_scanned, true ) ) {
-                return 0; // Already handled.
-            }
+        if ( $show_on_front === 'page' && $page_on_front > 0 && ! in_array( $page_on_front, $progress['scanned_ids'], true ) ) {
             $post = get_post( $page_on_front );
             if ( $post ) {
-                return $this->scan_post( $post );
+                $found       = $this->scan_post( $post );
+                $found_count += $found ?? 0;
+                $already_ran  = true;
             }
         }
 
-        // "Latest Posts" homepage – no static page, must fetch via HTTP.
-        $html = $this->fetch_rendered_html( home_url( '/' ) );
-        if ( empty( $html ) ) {
-            return 0;
-        }
+        // Homepage-only live fetch. This is the ONE exception to the
+        // "no HTTP requests" rule elsewhere in this class — site-wide
+        // fetching was removed because it made scans slow/unreliable and
+        // firewall-prone, but a single request for a single known URL,
+        // run once per full scan (not once per page), carries none of
+        // that risk. This exists specifically to catch content that's
+        // hardcoded into a theme template rather than stored in the
+        // database — common for custom-built homepages.
+        $existing = BLS_Database::get_button_signatures_for_post( $page_on_front > 0 ? $page_on_front : 0, home_url( '/' ) );
+        $html     = $this->fetch_homepage_html();
 
-        $buttons = $this->extract_buttons( $html );
-        $count   = 0;
-
-        foreach ( $buttons as $btn ) {
-            BLS_Database::insert_result( [
-                'post_id'       => 0,
-                'post_title'    => __( 'Home Page', 'button-link-scanner' ),
-                'post_type'     => 'front_page',
-                'post_status'   => 'publish',
-                'post_url'      => home_url( '/' ),
-                'button_text'   => $btn['text'],
-                'button_html'   => $btn['html'],
-                'has_link'      => (int) $btn['has_link'],
-                'link_url'      => $btn['link_url'],
-                'has_title'     => (int) $btn['has_title'],
-                'title_text'    => $btn['title_text'],
-                'opens_new_tab' => (int) $btn['opens_new_tab'],
-                'button_type'   => $btn['button_type'],
-            ] );
-            $count++;
-        }
-
-        return $count;
-    }
-
-    // -------------------------------------------------------------------------
-    // Elementor support
-    // -------------------------------------------------------------------------
-
-    /**
-     * Extract button HTML from Elementor's _elementor_data meta.
-     * Returns a synthetic HTML string that the standard DOMDocument
-     * parser can then process normally.
-     */
-    private function get_elementor_html( int $post_id ): string {
-        $raw = get_post_meta( $post_id, '_elementor_data', true );
-        if ( empty( $raw ) ) {
-            return '';
-        }
-
-        $elements = json_decode( $raw, true );
-        if ( ! is_array( $elements ) ) {
-            return '';
-        }
-
-        $html = '';
-        $this->walk_elementor_elements( $elements, $html );
-        return $html;
-    }
-
-    /**
-     * Recursively walk Elementor element tree and synthesise button HTML.
-     */
-    private function walk_elementor_elements( array $elements, string &$html ): void {
-        foreach ( $elements as $element ) {
-            $widget_type = $element['widgetType'] ?? '';
-            $settings    = $element['settings']   ?? [];
-
-            switch ( $widget_type ) {
-
-                case 'button':
-                    // Standard Elementor Button widget.
-                    $text   = sanitize_text_field( $settings['text']          ?? 'Button' );
-                    $url    = esc_url_raw(          $settings['link']['url']   ?? '' );
-                    $new_tab = ! empty( $settings['link']['is_external'] ) ? ' target="_blank"' : '';
-                    $class  = 'elementor-button';
-                    $html  .= '<a class="' . $class . '" href="' . esc_attr( $url ?: '#' ) . '"' . $new_tab . '>'
-                            . esc_html( $text ) . '</a>' . "\n";
-                    break;
-
-                case 'icon-box':
-                case 'image-box':
-                    // These widgets often have a CTA link.
-                    $link_url = esc_url_raw( $settings['link']['url'] ?? '' );
-                    $btn_text = sanitize_text_field( $settings['button_text'] ?? $settings['title']['text'] ?? '' );
-                    if ( $link_url && $btn_text ) {
-                        $html .= '<a class="elementor-button" href="' . esc_attr( $link_url ) . '">'
-                               . esc_html( $btn_text ) . '</a>' . "\n";
-                    }
-                    break;
-
-                case 'call-to-action':
-                    $btn_url  = esc_url_raw( $settings['button_url']['url'] ?? '' );
-                    $btn_text = sanitize_text_field( $settings['button_text'] ?? '' );
-                    if ( $btn_text ) {
-                        $html .= '<a class="elementor-button" href="' . esc_attr( $btn_url ?: '#' ) . '">'
-                               . esc_html( $btn_text ) . '</a>' . "\n";
-                    }
-                    break;
-            }
-
-            // Recurse into child elements.
-            if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
-                $this->walk_elementor_elements( $element['elements'], $html );
+        if ( ! empty( $html ) ) {
+            $buttons = $this->extract_buttons( $html );
+            foreach ( $buttons as $btn ) {
+                $signature = $btn['text'] . '|' . $btn['link_url'];
+                if ( in_array( $signature, $existing, true ) ) {
+                    continue; // Already captured via the database pass above.
+                }
+                BLS_Database::insert_result( [
+                    'post_id'       => $page_on_front > 0 ? $page_on_front : 0,
+                    'post_title'    => __( 'Home Page (theme template)', 'button-link-scanner' ),
+                    'post_type'     => 'front_page',
+                    'post_status'   => 'publish',
+                    'post_url'      => home_url( '/' ),
+                    'button_text'   => $btn['text'],
+                    'button_html'   => $btn['html'],
+                    'has_link'      => (int) $btn['has_link'],
+                    'link_url'      => $btn['link_url'],
+                    'has_title'     => (int) $btn['has_title'],
+                    'title_text'    => $btn['title_text'],
+                    'opens_new_tab' => (int) $btn['opens_new_tab'],
+                    'button_type'   => $btn['button_type'],
+                ] );
+                $found_count++;
             }
         }
+
+        return $found_count;
     }
 
-    // -------------------------------------------------------------------------
-    // HTTP fetch fallback
-    // -------------------------------------------------------------------------
+    /**
+     * Live-fetch each page on the "needs manual check" list and re-check
+     * for buttons. Bounded and scoped — unlike the removed site-wide HTTP
+     * fallback, this only ever touches a short, already-identified list
+     * (capped at 20 pages regardless of how many were flagged), so it
+     * carries none of the batch-scale timeout/firewall risk. Real
+     * content found this way (e.g. a page whose content comes from a
+     * mechanism this scanner's DB-only sources can't see — a template
+     * that constructs links in PHP rather than storing them as data, for
+     * example) gets scanned and recorded properly; pages still empty
+     * after an actual live render are now confirmed empty, not just
+     * unexamined.
+     *
+     * @param array $skipped List of ['id'=>, 'title'=>, 'url'=>] entries.
+     * @return array{buttons_found:int, still_skipped:array} buttons found,
+     *               and the entries that are still genuinely empty.
+     */
+    private function recheck_skipped_pages( array $skipped ): array {
+        $buttons_found = 0;
+        $still_skipped = [];
+        $checked       = 0;
+        $max_rechecks  = 20;
+
+        foreach ( $skipped as $entry ) {
+            if ( $checked >= $max_rechecks ) {
+                // Safety cap — if there are more than this many flagged
+                // pages, something bigger is going on than a handful of
+                // edge cases, and re-fetching dozens of pages live starts
+                // to reintroduce the exact timeout risk this is meant to
+                // avoid. Leave the rest flagged for manual review as-is.
+                $still_skipped[] = $entry;
+                continue;
+            }
+            $checked++;
+
+            $html = $this->fetch_live_page_html( $entry['url'] );
+            if ( empty( $html ) ) {
+                $still_skipped[] = $entry; // Fetch failed — still unconfirmed either way.
+                continue;
+            }
+
+            $buttons = $this->extract_buttons( $html );
+            if ( empty( $buttons ) ) {
+                $still_skipped[] = $entry; // Confirmed empty via a real render, not just unexamined.
+                continue;
+            }
+
+            $post = get_post( (int) $entry['id'] );
+            $url  = $entry['url'];
+            foreach ( $buttons as $btn ) {
+                BLS_Database::insert_result( [
+                    'post_id'       => (int) $entry['id'],
+                    'post_title'    => $post ? $post->post_title : $entry['title'],
+                    'post_type'     => $post ? $post->post_type : 'page',
+                    'post_status'   => $post ? $post->post_status : 'publish',
+                    'post_url'      => $url,
+                    'button_text'   => $btn['text'],
+                    'button_html'   => $btn['html'],
+                    'has_link'      => (int) $btn['has_link'],
+                    'link_url'      => $btn['link_url'],
+                    'has_title'     => (int) $btn['has_title'],
+                    'title_text'    => $btn['title_text'],
+                    'opens_new_tab' => (int) $btn['opens_new_tab'],
+                    'button_type'   => $btn['button_type'],
+                ] );
+                $buttons_found++;
+            }
+            // Found real content — drop it from the skipped list entirely.
+        }
+
+        return [ 'buttons_found' => $buttons_found, 'still_skipped' => $still_skipped ];
+    }
 
     /**
-     * Fetch the fully-rendered HTML of a URL via wp_remote_get.
-     * Used as a last resort when post_content and meta are both empty
-     * (covers Divi, Beaver Builder, WPBakery, and any unknown builders).
+     * Fetch a single page's live, rendered HTML. Scoped to the bounded
+     * recheck above (max 20 calls per full scan) — see that method's
+     * docblock for why this is safe despite the "no HTTP requests"
+     * principle elsewhere in this class.
      */
-    private function fetch_rendered_html( string $url ): string {
+    private function fetch_live_page_html( string $url ): string {
         if ( empty( $url ) ) {
             return '';
         }
 
         $response = wp_remote_get( $url, [
-            'timeout'    => 20,
-            'user-agent' => 'WordPress/BLS-Scanner',
+            'timeout'    => 10,
+            'user-agent' => 'WordPress/BLS-Scanner (manual-check recheck)',
             'sslverify'  => apply_filters( 'bls_fetch_sslverify', true ),
-            'cookies'    => [], // no auth cookies – public content only
         ] );
 
-        if ( is_wp_error( $response ) ) {
+        if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
             return '';
         }
 
-        if ( (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
+        return (string) wp_remote_retrieve_body( $response );
+    }
+
+    /**
+     * Fetch the live, fully-rendered homepage HTML. Scoped to exactly one
+     * URL, called exactly once per full scan — see scan_homepage() above
+     * for why this is safe despite the "no HTTP requests" rule elsewhere.
+     */
+    private function fetch_homepage_html(): string {
+        $response = wp_remote_get( home_url( '/' ), [
+            'timeout'    => 10,
+            'user-agent' => 'WordPress/BLS-Scanner (homepage check)',
+            'sslverify'  => apply_filters( 'bls_fetch_sslverify', true ),
+        ] );
+
+        if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
             return '';
         }
 
-        return wp_remote_retrieve_body( $response );
+        return (string) wp_remote_retrieve_body( $response );
     }
 
     // -------------------------------------------------------------------------
@@ -436,6 +710,62 @@ class BLS_Scanner {
             }
         }
 
+        // 5. Plain content hyperlinks — real <a href> links with real text
+        // that AREN'T already styled/classed as buttons (those were
+        // captured in pass 1). Tracked as a separate button_type
+        // ('hyperlink') specifically so they can be filtered and worked
+        // with independently from buttons/CTAs — e.g. an inline link in
+        // blog post body copy, like "29 Ventada, Rancho Mission Viejo"
+        // linking out to a listing detail page. Only meaningful, real
+        // links are captured: skip empty/anchor-only hrefs, and skip
+        // anything already flagged as UI chrome (nav, GF, etc.) via the
+        // same node_should_skip() used everywhere else.
+        foreach ( $xpath->query( '//a[@href]' ) as $node ) {
+            if ( $this->node_should_skip( $node ) ) continue;
+            if ( $this->node_is_button( $node ) ) continue; // already captured in pass 1
+
+            $href = trim( $node->getAttribute( 'href' ) );
+            $text = trim( $node->textContent );
+            if ( $href === '' || $href === '#' || $text === '' ) {
+                continue; // Not a meaningful, checkable content link.
+            }
+
+            $entry = $this->describe_anchor( $node, 'hyperlink' );
+            $entry['button_type'] = 'hyperlink';
+            $key = md5( $entry['html'] );
+            if ( ! isset( $seen[ $key ] ) ) {
+                $buttons[]    = $entry;
+                $seen[ $key ] = true;
+            }
+        }
+
+        // 5. Plain content hyperlinks — any <a href> with real text that
+        // wasn't already captured above as a button-styled element. This
+        // is a separate category from buttons ("Button Kind" = hyperlink)
+        // so both can be sorted/filtered/applied independently: a body-
+        // copy link like "29 Ventada, Rancho Mission Viejo" pointing to
+        // an old IDX Broker URL is just as worth catching as a styled
+        // button, but it's a different kind of thing to fix and belongs
+        // in its own bucket, not mixed in with CTA buttons.
+        foreach ( $anchor_nodes as $node ) {
+            if ( $this->node_should_skip( $node ) ) continue;
+            if ( $this->node_is_button( $node ) ) continue; // already captured in pass 1
+
+            $text = trim( $node->textContent );
+            $href = trim( $node->getAttribute( 'href' ) );
+            if ( $text === '' || $href === '' || $href === '#' ) {
+                continue; // no real label or no real destination — nothing to track
+            }
+
+            $entry = $this->describe_anchor( $node, 'hyperlink' );
+            $entry['button_type'] = 'hyperlink';
+            $key = md5( $entry['html'] );
+            if ( ! isset( $seen[ $key ] ) ) {
+                $buttons[]    = $entry;
+                $seen[ $key ] = true;
+            }
+        }
+
         return $buttons;
     }
 
@@ -455,10 +785,35 @@ class BLS_Scanner {
             }
         }
 
-        $aria = strtolower( $node->getAttribute( 'aria-label' ) );
+        $aria  = strtolower( $node->getAttribute( 'aria-label' ) );
+        $title = strtolower( $node->getAttribute( 'title' ) );
+
         if ( $aria !== '' ) {
             foreach ( self::SKIP_ARIA_PATTERNS as $pattern ) {
                 if ( str_contains( $aria, $pattern ) ) {
+                    return true;
+                }
+            }
+        }
+
+        // An element with NO visible text, NO aria-label, and NO title,
+        // AND a class name suggestive of a navigation/slider control
+        // (prev/next/arrow/pause/play/nav/slide/carousel/gallery), is
+        // almost certainly decorative UI chrome from a gallery/carousel
+        // widget — not an authored CTA. Common pattern: real estate
+        // listing photo galleries render prev/next arrows and a
+        // play/pause toggle as empty <a>/<button> elements with only a
+        // class name and no accessible label at all (an accessibility
+        // gap in the widget itself, not something this site's author
+        // wrote). Scoped to elements that also look like nav controls by
+        // class name, rather than skipping ALL unlabeled elements
+        // outright — a genuinely empty-label image-wrapped CTA link
+        // elsewhere should still be scanned for a missing/broken href.
+        $visible_text = trim( $node->textContent );
+        if ( $visible_text === '' && $aria === '' && $title === '' ) {
+            $nav_indicators = [ 'prev', 'next', 'arrow', 'pause', 'play', 'nav', 'slide', 'carousel', 'gallery', 'control', 'indicator', 'dot', 'thumb', 'slick', 'swiper', 'glide', 'splide', 'flickity', 'owl-' ];
+            foreach ( $nav_indicators as $indicator ) {
+                if ( str_contains( $class, $indicator ) ) {
                     return true;
                 }
             }
@@ -535,12 +890,29 @@ class BLS_Scanner {
         $title    = '';
         $has_link = false;
         $new_tab  = false;
+        $type     = strtolower( $node->getAttribute( 'type' ) ?: 'submit' ); // <button> defaults to type=submit
 
         if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
             $href     = trim( $parent->getAttribute( 'href' ) );
             $title    = trim( $parent->getAttribute( 'title' ) );
             $has_link = ! empty( $href ) && $href !== '#';
             $new_tab  = $parent->getAttribute( 'target' ) === '_blank';
+        } elseif ( in_array( $type, [ 'submit', 'button' ], true ) ) {
+            // Same PayPal-style case as describe_input(): a <button> with
+            // no <a> wrapper submits its enclosing <form> — that form's
+            // action attribute is the real, checkable destination.
+            $form = $node->parentNode;
+            while ( $form && ! ( $form instanceof DOMElement && strtolower( $form->nodeName ) === 'form' ) ) {
+                $form = $form->parentNode;
+            }
+            if ( $form instanceof DOMElement ) {
+                $action = trim( $form->getAttribute( 'action' ) );
+                if ( ! empty( $action ) ) {
+                    $href     = $action;
+                    $has_link = true;
+                    $new_tab  = $form->getAttribute( 'target' ) === '_blank';
+                }
+            }
         }
 
         return [
@@ -562,12 +934,32 @@ class BLS_Scanner {
         $title    = '';
         $has_link = false;
         $new_tab  = false;
+        $type     = strtolower( $node->getAttribute( 'type' ) );
 
         if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
             $href     = trim( $parent->getAttribute( 'href' ) );
             $title    = trim( $parent->getAttribute( 'title' ) );
             $has_link = ! empty( $href ) && $href !== '#';
             $new_tab  = $parent->getAttribute( 'target' ) === '_blank';
+        } elseif ( in_array( $type, [ 'submit', 'button', 'image' ], true ) ) {
+            // Submit/button inputs don't carry their own href — the real
+            // destination is the enclosing <form>'s action attribute.
+            // Missing this meant PayPal-style donate buttons (rendered as
+            // <form action="https://paypal.com/..."><input type="submit">)
+            // always showed as "no link", even when the form's action URL
+            // was a real, checkable destination that could be broken.
+            $form = $node->parentNode;
+            while ( $form && ! ( $form instanceof DOMElement && strtolower( $form->nodeName ) === 'form' ) ) {
+                $form = $form->parentNode;
+            }
+            if ( $form instanceof DOMElement ) {
+                $action = trim( $form->getAttribute( 'action' ) );
+                if ( ! empty( $action ) ) {
+                    $href     = $action;
+                    $has_link = true;
+                    $new_tab  = $form->getAttribute( 'target' ) === '_blank';
+                }
+            }
         }
 
         return [

@@ -1,0 +1,71 @@
+<?php defined( 'ABSPATH' ) || exit; ?>
+<div class="wrap bls-wrap">
+    <h1><?php esc_html_e( 'Broken Links', 'button-link-scanner' ); ?> <span class="bls-version-badge">v<?php echo esc_html( BLS_VERSION ); ?></span></h1>
+    <p><?php esc_html_e( 'Every button link that failed its last health check (404, server error, or unreachable). A link is checked in the background on whatever schedule is set on the Dashboard, or on demand below.', 'button-link-scanner' ); ?></p>
+
+    <p>
+        <button id="bls-check-links-now" class="button button-primary">
+            <?php esc_html_e( 'Check Links Now', 'button-link-scanner' ); ?>
+        </button>
+        <span id="bls-link-check-status" class="bls-status"></span>
+    </p>
+
+    <?php if ( $last_run ) : ?>
+        <p class="bls-meta">
+            <?php printf(
+                esc_html__( 'Last checked: %s', 'button-link-scanner' ),
+                esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $last_run ) ) )
+            ); ?>
+        </p>
+    <?php endif; ?>
+
+    <?php if ( empty( $broken_links ) && ! $last_run ) : ?>
+        <div class="bls-card bls-card--notice">
+            <p><strong><?php esc_html_e( "This site hasn't been checked yet.", 'button-link-scanner' ); ?></strong>
+            <?php esc_html_e( 'Click "Check Links Now" above to run the first check and populate this report.', 'button-link-scanner' ); ?></p>
+        </div>
+    <?php elseif ( empty( $broken_links ) ) : ?>
+        <div class="bls-card bls-card--notice">
+            <p><?php esc_html_e( 'No broken links on file as of the last check. Nice.', 'button-link-scanner' ); ?></p>
+        </div>
+    <?php else : ?>
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e( 'Button', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Broken Link', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Found On', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Status', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Broken Since', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Actions', 'button-link-scanner' ); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ( $broken_links as $row ) : ?>
+                <tr data-id="<?php echo (int) $row->id; ?>">
+                    <td><strong><?php echo esc_html( $row->button_text ); ?></strong></td>
+                    <td><a href="<?php echo esc_url( $row->link_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $row->link_url ); ?></a></td>
+                    <td>
+                        <?php if ( $row->post_url ) : ?>
+                            <a href="<?php echo esc_url( $row->post_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $row->post_title ); ?></a>
+                        <?php else : ?>
+                            <em><?php esc_html_e( 'unknown', 'button-link-scanner' ); ?></em>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <span class="bls-badge bls-badge--danger">
+                            <?php echo $row->http_status > 0 ? 'HTTP ' . (int) $row->http_status : esc_html( $row->error_message ?: __( 'unreachable', 'button-link-scanner' ) ); ?>
+                        </span>
+                    </td>
+                    <td><?php echo $row->first_broken_at ? esc_html( wp_date( get_option( 'date_format' ), strtotime( $row->first_broken_at ) ) ) : '—'; ?></td>
+                    <td>
+                        <button class="button button-small bls-dismiss-broken-link" data-id="<?php echo (int) $row->id; ?>">
+                            <?php esc_html_e( 'Mark Fixed', 'button-link-scanner' ); ?>
+                        </button>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>

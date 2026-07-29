@@ -3,8 +3,9 @@ defined( 'ABSPATH' ) || exit;
 
 class BLS_Database {
 
-    const RESULTS_TABLE    = 'bls_results';
-    const BUTTON_MAP_TABLE = 'bls_button_map';
+    const RESULTS_TABLE     = 'bls_results';
+    const BUTTON_MAP_TABLE  = 'bls_button_map';
+    const LINK_HEALTH_TABLE = 'bls_link_health';
 
     /**
      * Create/upgrade plugin tables on activation.
@@ -15,6 +16,7 @@ class BLS_Database {
 
         $results_table = $wpdb->prefix . self::RESULTS_TABLE;
         $map_table     = $wpdb->prefix . self::BUTTON_MAP_TABLE;
+        $health_table  = $wpdb->prefix . self::LINK_HEALTH_TABLE;
 
         $sql_results = "CREATE TABLE {$results_table} (
             id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -53,15 +55,39 @@ class BLS_Database {
             UNIQUE KEY button_text_hash (button_text_hash)
         ) {$charset};";
 
+        // Tracks the live health of every distinct link_url found by a
+        // scan — separate from the scan results themselves, since a link
+        // can go bad at any time between scans (see BLS_Link_Checker).
+        $sql_health = "CREATE TABLE {$health_table} (
+            id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            url_hash       CHAR(32)     NOT NULL DEFAULT '',
+            link_url       TEXT         NOT NULL,
+            button_text    TEXT         NOT NULL DEFAULT '',
+            post_id        BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            post_title     TEXT         NOT NULL DEFAULT '',
+            post_url       TEXT         NOT NULL DEFAULT '',
+            http_status    INT(11)      NOT NULL DEFAULT 0,
+            is_broken       TINYINT(1)   NOT NULL DEFAULT 0,
+            error_message  VARCHAR(255) NOT NULL DEFAULT '',
+            last_checked   DATETIME     NULL,
+            first_broken_at DATETIME    NULL,
+            notified_at    DATETIME     NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY url_hash (url_hash),
+            KEY is_broken (is_broken)
+        ) {$charset};";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql_results );
         dbDelta( $sql_map );
+        dbDelta( $sql_health );
 
         update_option( 'bls_db_version', BLS_VERSION );
     }
 
     public static function deactivate() {
         wp_clear_scheduled_hook( 'bls_scheduled_scan' );
+        wp_clear_scheduled_hook( 'bls_link_check_tick' );
     }
 
     // -------------------------------------------------------------------------
@@ -80,6 +106,31 @@ class BLS_Database {
     }
 
     /**
+     * Return "button_text|link_url" signatures already stored for a given
+     * post/URL in the current scan. Used to avoid inserting duplicate
+     * buttons when a supplemental content source (e.g. the homepage's
+     * live-fetch pass) covers some of the same ground as the DB pass.
+     *
+     * @return string[]
+     */
+    public static function get_button_signatures_for_post( int $post_id, string $url ): array {
+        global $wpdb;
+        $table = $wpdb->prefix . self::RESULTS_TABLE;
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT button_text, link_url FROM {$table} WHERE post_id = %d OR post_url = %s",
+            $post_id,
+            $url
+        ) );
+
+        $signatures = [];
+        foreach ( (array) $rows as $row ) {
+            $signatures[] = $row->button_text . '|' . $row->link_url;
+        }
+        return $signatures;
+    }
+
+    /**
      * Return paginated scan results with optional filters.
      */
     public static function get_results( array $args = [] ) {
@@ -92,6 +143,7 @@ class BLS_Database {
             'has_link'   => '',   // '' | '0' | '1'
             'has_title'  => '',
             'post_type'  => '',
+            'kind'       => '',   // '' | 'buttons' | 'hyperlink'
             'search'     => '',
             'orderby'    => 'post_title',
             'order'      => 'ASC',
@@ -112,6 +164,11 @@ class BLS_Database {
         if ( ! empty( $args['post_type'] ) ) {
             $where[]  = 'post_type = %s';
             $params[] = $args['post_type'];
+        }
+        if ( $args['kind'] === 'hyperlink' ) {
+            $where[] = "button_type = 'hyperlink'";
+        } elseif ( $args['kind'] === 'buttons' ) {
+            $where[] = "button_type != 'hyperlink'";
         }
         if ( ! empty( $args['search'] ) ) {
             $where[]  = '(post_title LIKE %s OR button_text LIKE %s OR link_url LIKE %s)';
@@ -146,12 +203,14 @@ class BLS_Database {
         $table = $wpdb->prefix . self::RESULTS_TABLE;
         return $wpdb->get_row(
             "SELECT
-                COUNT(*)                                 AS total_buttons,
-                SUM(has_link = 1)                        AS with_link,
-                SUM(has_link = 0)                        AS without_link,
-                SUM(has_link = 1 AND has_title = 0)      AS missing_title,
-                SUM(has_link = 1 AND has_title = 1)      AS complete,
-                COUNT(DISTINCT post_id)                  AS posts_scanned
+                COUNT(*)                                        AS total_buttons,
+                SUM(has_link = 1)                               AS with_link,
+                SUM(has_link = 0)                                AS without_link,
+                SUM(has_link = 1 AND has_title = 0)              AS missing_title,
+                SUM(has_link = 1 AND has_title = 1)              AS complete,
+                COUNT(DISTINCT post_id)                          AS posts_scanned,
+                SUM(button_type = 'hyperlink')                   AS hyperlink_count,
+                SUM(button_type != 'hyperlink')                  AS button_count
             FROM {$table}",
             ARRAY_A
         );

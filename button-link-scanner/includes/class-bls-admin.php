@@ -12,13 +12,51 @@ class BLS_Admin {
     public static function init() {
         add_action( 'admin_menu',            [ __CLASS__, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
-        add_action( 'wp_ajax_bls_run_scan',        [ __CLASS__, 'ajax_run_scan' ] );
+        add_action( 'admin_notices',         [ __CLASS__, 'broken_link_notice' ] );
+        add_action( 'wp_ajax_bls_scan_start',      [ __CLASS__, 'ajax_scan_start' ] );
+        add_action( 'wp_ajax_bls_scan_batch',      [ __CLASS__, 'ajax_scan_batch' ] );
         add_action( 'wp_ajax_bls_save_map_entry',  [ __CLASS__, 'ajax_save_map_entry' ] );
         add_action( 'wp_ajax_bls_apply_map',       [ __CLASS__, 'ajax_apply_map' ] );
         add_action( 'wp_ajax_bls_delete_map',      [ __CLASS__, 'ajax_delete_map' ] );
         add_action( 'wp_ajax_bls_preview_apply',   [ __CLASS__, 'ajax_preview_apply' ] );
-        add_action( 'wp_ajax_bls_toggle_schedule', [ __CLASS__, 'ajax_toggle_schedule' ] );
+        add_action( 'wp_ajax_bls_auto_fill_titles', [ __CLASS__, 'ajax_auto_fill_titles' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
+        add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
+        add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
+        add_action( 'wp_ajax_bls_save_link_schedule',  [ __CLASS__, 'ajax_save_link_schedule' ] );
+        add_action( 'wp_ajax_bls_dismiss_broken_link', [ __CLASS__, 'ajax_dismiss_broken_link' ] );
+    }
+
+    /**
+     * Site-wide dismissible admin notice when broken links are on file.
+     * This is the "notice posted in the dashboard" half of the feature —
+     * the other half (email) fires from BLS_Link_Checker as soon as a
+     * link is first detected as broken, regardless of whether anyone
+     * visits wp-admin.
+     */
+    public static function broken_link_notice() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        if ( get_current_screen() && strpos( get_current_screen()->id, self::MENU_SLUG ) !== false ) {
+            return; // Don't double up with the in-page summary on our own screens.
+        }
+
+        $count = BLS_Link_Checker::get_broken_count();
+        if ( $count < 1 ) {
+            return;
+        }
+
+        printf(
+            '<div class="notice notice-error is-dismissible"><p>%s <a href="%s">%s</a></p></div>',
+            sprintf(
+                /* translators: %d: number of broken links */
+                esc_html( _n( 'Button Link Scanner found %d broken link on your site.', 'Button Link Scanner found %d broken links on your site.', $count, 'button-link-scanner' ) ),
+                (int) $count
+            ),
+            esc_url( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-broken-links' ) ),
+            esc_html__( 'View report', 'button-link-scanner' )
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -56,17 +94,8 @@ class BLS_Admin {
 
         add_submenu_page(
             self::MENU_SLUG,
-            __( 'Link Trends', 'button-link-scanner' ),
-            __( 'Link Trends', 'button-link-scanner' ),
-            'manage_options',
-            self::MENU_SLUG . '-trends',
-            [ __CLASS__, 'page_trends' ]
-        );
-
-        add_submenu_page(
-            self::MENU_SLUG,
             __( 'Button Map', 'button-link-scanner' ),
-            __( 'Button Map', 'button-link-scanner' ),
+            __( 'Button Map & Trends', 'button-link-scanner' ),
             'manage_options',
             self::MENU_SLUG . '-map',
             [ __CLASS__, 'page_button_map' ]
@@ -79,6 +108,15 @@ class BLS_Admin {
             'manage_options',
             self::MENU_SLUG . '-gf',
             [ __CLASS__, 'page_gf_confirmations' ]
+        );
+
+        add_submenu_page(
+            self::MENU_SLUG,
+            __( 'Broken Links', 'button-link-scanner' ),
+            __( 'Broken Links', 'button-link-scanner' ),
+            'manage_options',
+            self::MENU_SLUG . '-broken-links',
+            [ __CLASS__, 'page_broken_links' ]
         );
     }
 
@@ -107,12 +145,42 @@ class BLS_Admin {
     // -------------------------------------------------------------------------
 
     public static function page_dashboard() {
-        $summary       = BLS_Database::get_summary();
-        $last_scan     = BLS_Database::get_last_scan_date();
-        $scheduled     = wp_next_scheduled( 'bls_scheduled_scan' );
-        $schedule_freq = get_option( 'bls_schedule_freq', '' );
+        $summary        = BLS_Database::get_summary();
+        $last_scan      = BLS_Database::get_last_scan_date();
+        $skipped_pages  = get_option( 'bls_last_scan_skipped', [] );
+
+        // Detect a scan that was started but never finished — e.g. the
+        // browser tab driving the batch loop was navigated away from or
+        // closed mid-scan. The server-side queue/progress options are
+        // still sitting there in that case, but nothing on a fresh page
+        // load would otherwise show it, leaving results looking silently
+        // empty/reset with no explanation.
+        $stuck_queue    = get_option( BLS_Scanner::QUEUE_OPTION, null );
+        $stuck_progress = get_option( BLS_Scanner::PROGRESS_OPTION, null );
+        $scan_abandoned = ( $stuck_queue !== null && $stuck_progress !== null );
+
+        // Broken-link monitoring state, for the dashboard card.
+        $broken_count      = BLS_Link_Checker::get_broken_count();
+        $link_check_last   = BLS_Link_Checker::get_last_run();
+        $link_check_freq   = get_option( 'bls_link_check_freq', '' );
+        $link_check_email  = get_option( 'bls_link_check_email', get_option( 'admin_email' ) );
+
+        // Last Auto-Fill Missing Titles result — persisted so it's still
+        // visible after a reload (see ajax_auto_fill_titles) rather than
+        // only living in transient JS status text that vanishes.
+        $auto_fill_result = get_option( 'bls_last_auto_fill_result', null );
 
         include BLS_PLUGIN_DIR . 'admin/views/dashboard.php';
+    }
+
+    // -------------------------------------------------------------------------
+    // Page: Broken Links
+    // -------------------------------------------------------------------------
+
+    public static function page_broken_links() {
+        $broken_links = BLS_Link_Checker::get_broken_links( 500 );
+        $last_run     = BLS_Link_Checker::get_last_run();
+        include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 
     // -------------------------------------------------------------------------
@@ -124,6 +192,7 @@ class BLS_Admin {
             'has_link'  => isset( $_GET['has_link'] )  ? sanitize_text_field( $_GET['has_link'] )  : '',
             'has_title' => isset( $_GET['has_title'] ) ? sanitize_text_field( $_GET['has_title'] ) : '',
             'post_type' => isset( $_GET['post_type'] ) ? sanitize_text_field( $_GET['post_type'] ) : '',
+            'kind'      => isset( $_GET['kind'] )      ? sanitize_text_field( $_GET['kind'] )      : '',
             'search'    => isset( $_GET['s'] )         ? sanitize_text_field( $_GET['s'] )         : '',
             'page'      => isset( $_GET['paged'] )     ? max( 1, (int) $_GET['paged'] )            : 1,
             'per_page'  => 50,
@@ -138,21 +207,13 @@ class BLS_Admin {
     }
 
     // -------------------------------------------------------------------------
-    // Page: Trends
-    // -------------------------------------------------------------------------
-
-    public static function page_trends() {
-        $trends = BLS_Database::get_trends( 200 );
-        include BLS_PLUGIN_DIR . 'admin/views/trends.php';
-    }
-
-    // -------------------------------------------------------------------------
-    // Page: Button Map
+    // Page: Button Map (includes Link Trends — the two are one workflow:
+    // see a label's usage, then assign/fix it, right in the same place)
     // -------------------------------------------------------------------------
 
     public static function page_button_map() {
         $map_entries = BLS_Database::get_button_map( 500 );
-        $trends      = BLS_Database::get_trends( 500 ); // used to pre-populate
+        $trends      = BLS_Database::get_trends( 200 );
         include BLS_PLUGIN_DIR . 'admin/views/button-map.php';
     }
 
@@ -183,20 +244,100 @@ class BLS_Admin {
             wp_send_json_error( 'Unauthorized' );
         }
 
+        ob_start();
         $scanner = new BLS_GF_Scanner();
         $result  = $scanner->run_full_scan();
+        self::discard_stray_output();
         wp_send_json_success( $result );
     }
 
-    public static function ajax_run_scan() {
+    /**
+     * Discard any output that accumulated in the buffer during a scan.
+     *
+     * A scan calls apply_filters('the_content', ...) on every post, which
+     * runs every OTHER active plugin's and the theme's content filters too
+     * (Divi, WooCommerce, Yoast, etc.). If any of those emit a PHP notice
+     * or warning — common on sites mixing plugin/theme versions — that text
+     * gets printed straight into the HTTP response, landing right in the
+     * middle of our JSON and breaking it (a valid-looking JSON body that
+     * still throws a client-side "parsererror" is the tell-tale sign).
+     *
+     * We can't fix what other code prints, but we CAN make sure it never
+     * reaches the response: buffer everything during the scan and throw
+     * the buffer away right before sending our own clean JSON. Anything
+     * unexpected gets logged so it's visible on the dashboard instead of
+     * silently corrupting the request.
+     */
+    private static function discard_stray_output(): void {
+        if ( ob_get_level() > 0 ) {
+            $stray = ob_get_clean();
+            if ( trim( $stray ) !== '' ) {
+                $stripped = trim( wp_strip_all_tags( $stray ) );
+                // If stripping tags left nothing visible (e.g. the stray
+                // output was just markup/whitespace with no text), fall
+                // back to a raw escaped representation so the log entry
+                // is never blank — invisible characters (BOM, control
+                // chars) show up explicitly instead of vanishing.
+                $snippet = $stripped !== ''
+                    ? substr( $stripped, 0, 300 )
+                    : 'raw bytes: ' . substr( wp_json_encode( $stray ), 0, 300 );
+                update_option( 'bls_last_scan_error', 'Suppressed unexpected output from another plugin/theme during scan: ' . $snippet, false );
+            }
+        }
+    }
+
+    /**
+     * Kick off a batched scan: clears old results and builds the work
+     * queue. The browser then calls ajax_scan_batch repeatedly until done,
+     * so no single HTTP request risks a server/gateway timeout.
+     */
+    public static function ajax_scan_start() {
         check_ajax_referer( 'bls_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $scanner = new BLS_Scanner();
-        $result  = $scanner->run_full_scan();
-        wp_send_json_success( $result );
+        delete_option( 'bls_last_scan_error' );
+        ob_start();
+        try {
+            $scanner = new BLS_Scanner();
+            $result  = $scanner->start_scan();
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            update_option( 'bls_last_scan_error', $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), false );
+            wp_send_json_error( 'Scan start failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Process one batch of the scan queue. Called repeatedly by the browser
+     * until the response reports done = true.
+     */
+    public static function ajax_scan_batch() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $batch_size = isset( $_POST['batch_size'] ) ? max( 1, (int) $_POST['batch_size'] ) : BLS_Scanner::DEFAULT_BATCH_SIZE;
+
+        ob_start();
+        try {
+            $scanner = new BLS_Scanner();
+            $result  = $scanner->run_batch( $batch_size );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            update_option( 'bls_last_scan_error', $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), false );
+            wp_send_json_error( 'Batch failed: ' . $e->getMessage() );
+        }
     }
 
     public static function ajax_save_map_entry() {
@@ -258,23 +399,116 @@ class BLS_Admin {
         wp_send_json_success( $preview );
     }
 
-    public static function ajax_toggle_schedule() {
+    public static function ajax_auto_fill_titles() {
         check_ajax_referer( 'bls_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $freq = sanitize_text_field( $_POST['freq'] ?? '' );
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->auto_fill_missing_titles();
+            self::discard_stray_output();
 
-        wp_clear_scheduled_hook( 'bls_scheduled_scan' );
-        update_option( 'bls_schedule_freq', '' );
+            // Persist this so it's visible on the Dashboard permanently
+            // (until the next run), not just as a JS message that
+            // disappears on reload/navigation — needed for sharing/
+            // screenshotting the actual outcome, especially when it
+            // reports 0 processed and the reason isn't obvious.
+            update_option( 'bls_last_auto_fill_result', array_merge( $result, [
+                'time' => current_time( 'mysql' ),
+            ] ), false );
 
-        $valid = [ 'daily', 'twicedaily', 'weekly' ];
-        if ( in_array( $freq, $valid, true ) ) {
-            wp_schedule_event( time(), $freq, 'bls_scheduled_scan' );
-            update_option( 'bls_schedule_freq', $freq );
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            $error_msg = 'Auto-fill failed: ' . $e->getMessage();
+            update_option( 'bls_last_auto_fill_result', [
+                'error' => $error_msg,
+                'time'  => current_time( 'mysql' ),
+            ], false );
+            wp_send_json_error( $error_msg );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Broken-link monitoring
+    // -------------------------------------------------------------------------
+
+    public static function ajax_link_check_start() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
         }
 
-        wp_send_json_success( [ 'freq' => $freq ] );
+        ob_start();
+        try {
+            BLS_Link_Checker::start_check();
+            self::discard_stray_output();
+            wp_send_json_success( BLS_Link_Checker::get_check_progress() );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Link check failed to start: ' . $e->getMessage() );
+        }
+    }
+
+    public static function ajax_link_check_tick() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        ob_start();
+        try {
+            $result = BLS_Link_Checker::run_tick();
+            self::discard_stray_output();
+            $result['broken_count'] = BLS_Link_Checker::get_broken_count();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Link check batch failed: ' . $e->getMessage() );
+        }
+    }
+
+    public static function ajax_save_link_schedule() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $freq  = sanitize_text_field( wp_unslash( $_POST['freq']  ?? '' ) );
+        $email = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
+
+        BLS_Link_Checker::update_schedule( $freq );
+        if ( ! empty( $email ) ) {
+            update_option( 'bls_link_check_email', $email );
+        }
+
+        wp_send_json_success( [ 'freq' => $freq, 'email' => $email ] );
+    }
+
+    /**
+     * Mark a single broken link as dismissed/fixed without needing a full
+     * re-check — useful once you've manually confirmed/corrected it.
+     */
+    public static function ajax_dismiss_broken_link() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        global $wpdb;
+        $id    = (int) ( $_POST['id'] ?? 0 );
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+        $wpdb->update( $table, [ 'is_broken' => 0, 'first_broken_at' => null ], [ 'id' => $id ] );
+
+        wp_send_json_success( [ 'id' => $id ] );
     }
 }

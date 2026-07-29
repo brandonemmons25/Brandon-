@@ -18,7 +18,11 @@
             .html(msg);
     }
 
-    function ajax(action, data, done, fail) {
+    function ajax(action, data, done, fail, opts) {
+        opts = opts || {};
+        var retries = opts.retries || 0;
+        var maxRetries = opts.maxRetries !== undefined ? opts.maxRetries : 3;
+
         $.post(BLS.ajax_url, $.extend({ action: action, nonce: BLS.nonce }, data))
             .done(function (res) {
                 if (res.success) {
@@ -27,8 +31,33 @@
                     if (fail) fail(res.data || 'An error occurred.');
                 }
             })
-            .fail(function () {
-                if (fail) fail('Request failed. Please try again.');
+            .fail(function (jqXHR) {
+                // Transient errors (rate limiting, brief 502/504, dropped
+                // connection) get a few automatic retries with backoff
+                // before we give up and report to the user.
+                var status = jqXHR ? jqXHR.status : 0;
+                var transient = (status === 0 || status === 429 || status === 502 || status === 503 || status === 504);
+
+                if (transient && retries < maxRetries) {
+                    var delay = 1000 * Math.pow(2, retries); // 1s, 2s, 4s
+                    setTimeout(function () {
+                        ajax(action, data, done, fail, { retries: retries + 1, maxRetries: maxRetries });
+                    }, delay);
+                    return;
+                }
+
+                // Build a real diagnostic instead of a generic message, so
+                // the actual cause shows up right on the page.
+                var statusText = jqXHR && jqXHR.statusText ? jqXHR.statusText : 'no connection';
+                var bodySnippet = '';
+                if (jqXHR && jqXHR.responseText) {
+                    bodySnippet = jqXHR.responseText.replace(/<[^>]*>/g, ' ').trim().substring(0, 200);
+                }
+                var msg = 'Request failed (HTTP ' + (status || '0') + ' ' + statusText + ')'
+                    + (retries > 0 ? ' after ' + retries + ' retr' + (retries === 1 ? 'y' : 'ies') : '')
+                    + (bodySnippet ? ': ' + bodySnippet : '');
+
+                if (fail) fail(msg);
             });
     }
 
@@ -37,41 +66,69 @@
     // -------------------------------------------------------------------------
 
     $('#bls-run-scan').on('click', function () {
-        var $btn    = $(this);
+        var $btn    = $('#bls-run-scan, #bls-resume-scan');
         var $status = $('#bls-scan-status');
 
         $btn.prop('disabled', true);
         setStatus($status, BLS.strings.scanning + spinner(), '');
 
-        ajax('bls_run_scan', {}, function (data) {
-            $btn.prop('disabled', false);
-            var msg = BLS.strings.scan_complete + ' ' + (data.buttons_found || 0) + ' buttons found.';
-            setStatus($status, msg, 'ok');
-            // Reload to refresh stats.
-            setTimeout(function () { location.reload(); }, 1200);
+        // Step 1: build the work queue (fast, single request).
+        ajax('bls_scan_start', {}, function () {
+            runScanBatchLoop($btn, $status);
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, err, 'error');
         });
     });
 
-    // -------------------------------------------------------------------------
-    // Dashboard: Scheduled scanning
-    // -------------------------------------------------------------------------
+    // Resume a scan that was interrupted (browser tab navigated away or
+    // closed mid-run) — the server-side queue/progress are still intact,
+    // so this just continues the batch loop instead of rebuilding the
+    // queue from scratch via bls_scan_start.
+    $('#bls-resume-scan').on('click', function () {
+        var $btn    = $('#bls-run-scan, #bls-resume-scan');
+        var $status = $('#bls-scan-status');
 
-    $('#bls-save-schedule').on('click', function () {
-        var $status = $('#bls-schedule-status');
-        var freq    = $('#bls-schedule-freq').val();
+        $btn.prop('disabled', true);
+        setStatus($status, BLS.strings.scanning + spinner(), '');
+        runScanBatchLoop($btn, $status);
+    });
 
-        setStatus($status, spinner(), '');
+    // Step 2 (shared by both Run and Resume): process the queue a few
+    // posts at a time, looping until the server reports done = true.
+    // Each request is small and fast, so no single HTTP call risks a
+    // gateway/PHP timeout regardless of site size. IMPORTANT: this loop
+    // only continues while this browser tab/page stays open — navigating
+    // away mid-scan stops it, leaving the server-side queue incomplete
+    // until "Resume Interrupted Scan" (shown automatically on next
+    // Dashboard load) is used to pick it back up.
+    function runScanBatchLoop($btn, $status) {
+        ajax('bls_scan_batch', { batch_size: 5 }, function (data) {
+            var pct = data.total_items > 0
+                ? Math.round((data.processed / data.total_items) * 100)
+                : 100;
+            setStatus(
+                $status,
+                BLS.strings.scanning + ' (' + data.processed + '/' + data.total_items + ' — ' + pct + '%)' + spinner(),
+                ''
+            );
 
-        ajax('bls_toggle_schedule', { freq: freq }, function (data) {
-            var msg = data.freq ? 'Schedule saved: ' + data.freq : 'Scheduling disabled.';
-            setStatus($status, msg, 'ok');
+            if (data.done) {
+                $btn.prop('disabled', false);
+                var msg = BLS.strings.scan_complete + ' ' + (data.buttons_found || 0) + ' buttons found.';
+                setStatus($status, msg, 'ok');
+                setTimeout(function () { location.reload(); }, 1200);
+            } else {
+                // Small pause between batches — avoids firing a rapid
+                // burst of requests that some hosting firewalls/rate
+                // limiters may flag as bot-like traffic.
+                setTimeout(function () { runScanBatchLoop($btn, $status); }, 400);
+            }
         }, function (err) {
+            $btn.prop('disabled', false);
             setStatus($status, err, 'error');
         });
-    });
+    }
 
     // -------------------------------------------------------------------------
     // Results / Trends: "Add to Map" quick-button
@@ -302,6 +359,114 @@
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Dashboard: Auto-Fill Missing Titles
+    // -------------------------------------------------------------------------
+
+    $('#bls-auto-fill-titles').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-auto-fill-status');
+
+        if (!confirm('This will add a descriptive title to every button that has a link but no title, writing directly into the actual page content. Existing titles are never touched. Continue?')) {
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Generating titles...' + spinner(), '');
+
+        ajax('bls_auto_fill_titles', {}, function (data) {
+            $btn.prop('disabled', false);
+            var msg = data.titles_added + ' title(s) added across ' + data.posts_updated + ' page(s).';
+            if (data.titles_injected > 0) {
+                msg += ' ' + data.titles_injected + ' more added live at render time (dynamic/shortcode-generated buttons with no stored anchor to write to directly).';
+            }
+            if (data.could_not_apply > 0) {
+                msg += ' ' + data.could_not_apply + ' button(s) couldn\'t be fixed at all — see the Dashboard for why.';
+            }
+            setStatus($status, msg, 'ok');
+            setTimeout(function () { location.reload(); }, 2000);
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Dashboard: Broken Link Monitoring — "Check Links Now"
+    // -------------------------------------------------------------------------
+
+    $('#bls-check-links-now').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-link-check-status');
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Checking links...' + spinner(), '');
+
+        ajax('bls_link_check_start', {}, function () {
+            runNextTick();
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+
+        function runNextTick() {
+            ajax('bls_link_check_tick', {}, function (data) {
+                if (data.done) {
+                    $btn.prop('disabled', false);
+                    var msg = data.broken_count > 0
+                        ? data.broken_count + ' broken link(s) found.'
+                        : 'All links check out fine.';
+                    setStatus($status, msg, data.broken_count > 0 ? 'error' : 'ok');
+                    setTimeout(function () { location.reload(); }, 1200);
+                } else {
+                    setStatus($status, 'Checking links... (' + data.remaining + ' remaining)' + spinner(), '');
+                    setTimeout(runNextTick, 400);
+                }
+            }, function (err) {
+                $btn.prop('disabled', false);
+                setStatus($status, err, 'error');
+            });
+        }
+    });
+
+    // -------------------------------------------------------------------------
+    // Dashboard: Broken Link Monitoring — save schedule
+    // -------------------------------------------------------------------------
+
+    $('#bls-save-link-schedule').on('click', function () {
+        var $status = $('#bls-link-schedule-status');
+        var freq    = $('#bls-link-check-freq').val();
+        var email   = $.trim($('#bls-link-check-email').val());
+
+        setStatus($status, spinner(), '');
+
+        ajax('bls_save_link_schedule', { freq: freq, email: email }, function (data) {
+            var msg = data.freq ? 'Saved — checking ' + data.freq + '.' : 'Automatic checking disabled.';
+            setStatus($status, msg, 'ok');
+        }, function (err) {
+            setStatus($status, err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Broken Links page: Mark Fixed
+    // -------------------------------------------------------------------------
+
+    $(document).on('click', '.bls-dismiss-broken-link', function () {
+        var $btn = $(this);
+        var $row = $btn.closest('tr');
+        var id   = $btn.data('id');
+
+        $btn.prop('disabled', true);
+
+        ajax('bls_dismiss_broken_link', { id: id }, function () {
+            $row.fadeOut(300, function () { $(this).remove(); });
+        }, function (err) {
+            $btn.prop('disabled', false);
+            alert('Error: ' + err);
         });
     });
 

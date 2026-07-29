@@ -1,6 +1,6 @@
 <?php defined( 'ABSPATH' ) || exit; ?>
 <div class="wrap bls-wrap">
-    <h1><?php esc_html_e( 'Scan Results', 'button-link-scanner' ); ?></h1>
+    <h1><?php esc_html_e( 'Scan Results', 'button-link-scanner' ); ?> <span class="bls-version-badge">v<?php echo esc_html( BLS_VERSION ); ?></span></h1>
 
     <!-- Filters -->
     <form method="get" class="bls-filter-bar">
@@ -31,6 +31,12 @@
             <?php endforeach; ?>
         </select>
         <?php endif; ?>
+
+        <select name="kind">
+            <option value=""          <?php selected( $filters['kind'], '' ); ?>><?php esc_html_e( 'All kinds', 'button-link-scanner' ); ?></option>
+            <option value="buttons"   <?php selected( $filters['kind'], 'buttons' ); ?>><?php esc_html_e( 'Buttons only', 'button-link-scanner' ); ?></option>
+            <option value="hyperlink" <?php selected( $filters['kind'], 'hyperlink' ); ?>><?php esc_html_e( 'Hyperlinks only', 'button-link-scanner' ); ?></option>
+        </select>
 
         <button type="submit" class="button"><?php esc_html_e( 'Filter', 'button-link-scanner' ); ?></button>
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results' ) ); ?>" class="button">

@@ -3,7 +3,7 @@
 $gf_active = class_exists( 'GFForms' ) || class_exists( 'GFAPI' );
 ?>
 <div class="wrap bls-wrap">
-    <h1><?php esc_html_e( 'Gravity Forms – Confirmation Check', 'button-link-scanner' ); ?></h1>
+    <h1><?php esc_html_e( 'Gravity Forms – Confirmation Check', 'button-link-scanner' ); ?> <span class="bls-version-badge">v<?php echo esc_html( BLS_VERSION ); ?></span></h1>
 
     <?php if ( ! $gf_active ) : ?>
     <div class="bls-card bls-card--notice">
