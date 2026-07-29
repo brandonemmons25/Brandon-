@@ -512,4 +512,39 @@
             .replace(/"/g, '&quot;');
     }
 
+    // -------------------------------------------------------------------------
+    // Auto-resume interrupted batch jobs on page load
+    // -------------------------------------------------------------------------
+    // Both Site Scan and Auto-Fill run as a client-side loop tied to one
+    // specific page load's JS — closing the tab, navigating away, or even
+    // just reloading the dashboard to check progress kills the loop with
+    // no way for it to continue on its own. Requiring a manual click to
+    // pick it back up every single time that happens is easy to forget
+    // and easy to mistake for the whole feature being broken (this is
+    // exactly what made testing on a 1300+ page site so confusing — a
+    // scan repeatedly looked "stuck" or "reset" when it had actually just
+    // been interrupted by an ordinary page reload). Instead, the moment
+    // this page loads, pick either job back up automatically if the
+    // server-side queue/progress from a previous run is still sitting
+    // there unfinished. Continues the EXISTING stored queue (not a
+    // restart) for the scan; Auto-Fill is naturally safe to just
+    // re-request a batch against its existing queue the same way, since
+    // run_auto_fill_batch() only ever consumes from what's already
+    // stored. The manual "Resume Interrupted Scan" button stays as a
+    // visible fallback/indicator that something was mid-run.
+    if ($('#bls-resume-scan').length) {
+        var $scanBtn = $('#bls-run-scan, #bls-resume-scan');
+        var $scanStatus = $('#bls-scan-status');
+        $scanBtn.prop('disabled', true);
+        setStatus($scanStatus, BLS.strings.scanning + spinner(), '');
+        runScanBatchLoop($scanBtn, $scanStatus);
+    }
+    if ($('#bls-autofill-abandoned-notice').length) {
+        var $fillBtn = $('#bls-auto-fill-titles');
+        var $fillStatus = $('#bls-auto-fill-status');
+        $fillBtn.prop('disabled', true);
+        setStatus($fillStatus, 'Resuming interrupted run...' + spinner(), '');
+        runAutoFillBatchLoop($fillBtn, $fillStatus);
+    }
+
 }(jQuery));

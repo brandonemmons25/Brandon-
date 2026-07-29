@@ -160,6 +160,13 @@ class BLS_Admin {
         $stuck_progress = get_option( BLS_Scanner::PROGRESS_OPTION, null );
         $scan_abandoned = ( $stuck_queue !== null && $stuck_progress !== null );
 
+        // Same detection, same reason, for Auto-Fill Missing Titles — it's
+        // the identical client-side batch-loop pattern, so it's exposed to
+        // the exact same "tab reload/navigate kills the loop" risk.
+        $stuck_autofill_queue    = get_option( BLS_Updater::AUTOFILL_QUEUE_OPTION, null );
+        $stuck_autofill_progress = get_option( BLS_Updater::AUTOFILL_PROGRESS_OPTION, null );
+        $autofill_abandoned      = ( $stuck_autofill_queue !== null && $stuck_autofill_progress !== null );
+
         // Broken-link monitoring state, for the dashboard card.
         $broken_count      = BLS_Link_Checker::get_broken_count();
         $link_check_last   = BLS_Link_Checker::get_last_run();

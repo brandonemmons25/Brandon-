@@ -110,6 +110,19 @@
         </a>
     </div>
 
+    <?php if ( $autofill_abandoned ) : ?>
+        <!-- Marker element only — admin.js detects this by ID to auto-resume
+             on page load, same pattern as the scan's #bls-resume-scan check. -->
+        <p class="bls-meta" id="bls-autofill-abandoned-notice" style="color:#b26b00; font-weight:600; margin: 4px 0 12px;">
+            <?php printf(
+                /* translators: 1: pairs processed, 2: total pairs */
+                esc_html__( 'A previous Auto-Fill run was interrupted at %1$d of %2$d button/link combinations — likely from navigating away or reloading mid-run. Resuming automatically...', 'button-link-scanner' ),
+                (int) $stuck_autofill_progress['pairs_processed'],
+                (int) $stuck_autofill_progress['total_items']
+            ); ?>
+        </p>
+    <?php endif; ?>
+
     <?php if ( ! empty( $auto_fill_result ) ) : ?>
     <div class="bls-card bls-card--notice" id="bls-auto-fill-result">
         <p>
