@@ -204,6 +204,14 @@ class BLS_Updater {
     const AUTOFILL_DEFAULT_BATCH_SIZE = 5;
 
     /**
+     * Max individual title changes recorded in a run's audit log. Past
+     * this, changes still happen and are still counted — only the
+     * per-change detail stops being stored, and the overflow is reported
+     * as a count so the log never silently looks complete when it isn't.
+     */
+    const AUDIT_LOG_LIMIT = 500;
+
+    /**
      * Build the work queue: every distinct button/link pair (buttons AND
      * plain content hyperlinks alike — this was never scoped to buttons
      * only) that has a link but no title. Call once, then call
@@ -237,6 +245,12 @@ class BLS_Updater {
             'not_in_database'     => 0,
             'blocked_by_mismatch' => 0,
             'diagnostic'          => null,
+            // Audit trail of every title actually written, so a run can be
+            // reviewed/verified after the fact instead of being trusted on
+            // a summary count alone. Capped (see AUDIT_LOG_LIMIT) to keep
+            // this option row from growing without bound on a large site.
+            'changes'             => [],
+            'changes_truncated'   => 0,
         ], false );
 
         return [ 'total_items' => count( $queue ) ];
@@ -308,6 +322,8 @@ class BLS_Updater {
                     // matching this post+text+link — see mark_titles_applied().
                     $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, $result['count'] );
 
+                    $this->log_change( $progress, $post, $pair, $generated_title, $result['count'], 'content' );
+
                     $progress['posts_updated']++;
                     $progress['titles_added'] += $result['count'];
                 } elseif ( ! empty( $result['render_only'] ) ) {
@@ -321,6 +337,7 @@ class BLS_Updater {
                     // on the page, even though nothing changed in the DB.
                     BLS_Render_Injector::queue( (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title );
                     $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, $result['count'] );
+                    $this->log_change( $progress, $post, $pair, $generated_title, $result['count'], 'render' );
                     $progress['titles_injected']++;
                 } else {
                     $progress['could_not_apply']++;
@@ -399,6 +416,35 @@ class BLS_Updater {
      * next full site scan rebuilds this table from the live page anyway,
      * so any remaining row-identity ambiguity self-corrects there.
      */
+    /**
+     * Record one applied change in the run's audit log, so the dashboard
+     * can show exactly WHICH buttons were changed and what title each one
+     * received — not just how many. A count alone gives no way to spot a
+     * bad generated title, or to verify a run did what it claims.
+     *
+     * $method distinguishes 'content' (written into stored content, will
+     * persist as-is) from 'render' (applied live by BLS_Render_Injector on
+     * each page load, nothing changed in the database) — a meaningful
+     * difference when auditing or undoing.
+     */
+    private function log_change( array &$progress, WP_Post $post, array $pair, string $title, int $count, string $method ): void {
+        if ( count( $progress['changes'] ) >= self::AUDIT_LOG_LIMIT ) {
+            $progress['changes_truncated']++;
+            return;
+        }
+
+        $progress['changes'][] = [
+            'post_id'     => $post->ID,
+            'post_title'  => $post->post_title,
+            'post_url'    => get_permalink( $post->ID ),
+            'button_text' => $pair['button_text'],
+            'link_url'    => $pair['link_url'],
+            'new_title'   => $title,
+            'count'       => $count,
+            'method'      => $method,
+        ];
+    }
+
     private function mark_titles_applied( string $res_table, int $post_id, string $button_text, string $link_url, string $title, int $limit ): void {
         global $wpdb;
         if ( $limit < 1 ) {

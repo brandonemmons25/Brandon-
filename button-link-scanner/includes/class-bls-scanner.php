@@ -131,6 +131,39 @@ class BLS_Scanner {
     ];
 
     /**
+     * Class/id fragments marking site-wide chrome regions (header, footer,
+     * sidebar, nav) in a LIVE-FETCHED full page. Used only by
+     * strip_site_chrome() — see that method for why this matters.
+     *
+     * Deliberately conservative: only fragments that are unambiguously
+     * theme chrome, never generic words like "widget" or "menu" on their
+     * own, which can legitimately appear inside real page content.
+     * Genesis-oriented (both known client sites run it) but the names are
+     * common across most classic themes.
+     */
+    const SITE_CHROME_PATTERNS = [
+        'site-header',
+        'site-footer',
+        'site-navigation',
+        'main-navigation',
+        'nav-primary',
+        'nav-secondary',
+        'navbar',
+        'sidebar',
+        'widget-area',
+        'footer-widgets',
+        'site-info',
+        'breadcrumb',
+        'skip-link',
+        'sub-footer',
+        'top-bar',
+        'utility-bar',
+        'social-icons',
+        'off-canvas',
+        'mobile-menu',
+    ];
+
+    /**
      * aria-label substrings (lowercase) that identify nav/UI-only buttons.
      * These are never authored CTA buttons and should not appear in results.
      */
@@ -569,7 +602,9 @@ class BLS_Scanner {
         $html     = $this->fetch_homepage_html();
 
         if ( ! empty( $html ) ) {
-            $buttons = $this->extract_buttons( $html );
+            // Live fetch returns the whole page — drop site-wide chrome so
+            // the footer/nav/sidebar isn't recorded as homepage content.
+            $buttons = $this->extract_buttons( $this->strip_site_chrome( $html ) );
             foreach ( $buttons as $btn ) {
                 $signature = $btn['text'] . '|' . $btn['link_url'];
                 if ( in_array( $signature, $existing, true ) ) {
@@ -638,7 +673,12 @@ class BLS_Scanner {
                 continue;
             }
 
-            $buttons = $this->extract_buttons( $html );
+            // Live fetch returns the whole page — drop site-wide chrome
+            // first, otherwise every empty-content page contributes its own
+            // duplicate copy of the same footer/sidebar links (and those
+            // rows are guaranteed Auto-Fill dead ends). See
+            // strip_site_chrome().
+            $buttons = $this->extract_buttons( $this->strip_site_chrome( $html ) );
             if ( empty( $buttons ) ) {
                 $still_skipped[] = $entry; // Confirmed empty via a real render, not just unexamined.
                 continue;
@@ -716,6 +756,83 @@ class BLS_Scanner {
     // -------------------------------------------------------------------------
     // Button detection (DOM parsing)
     // -------------------------------------------------------------------------
+
+    /**
+     * Remove site-wide chrome (header, footer, nav, sidebar) from a
+     * LIVE-FETCHED full page before extracting buttons from it.
+     *
+     * Only the two live-fetch paths need this — scan_homepage() and
+     * recheck_skipped_pages() request a real rendered URL, so what comes
+     * back is the ENTIRE page: theme header, nav menus, footer widgets,
+     * sidebars, everything. The normal DB path (get_post_content()) never
+     * sees any of that, since post_content holds only the page's own
+     * authored content.
+     *
+     * Without this, every page that fell back to a live fetch contributed
+     * a fresh copy of the same footer/sidebar links — a footer phone
+     * number, a newsletter signup in a widget — producing one result row
+     * per page for what is really ONE link the site owner maintains in
+     * one place. Beyond inflating counts and the "missing title" total,
+     * those rows are guaranteed Auto-Fill dead ends: a footer widget's
+     * markup isn't in any post's content, excerpt, template, or meta, so
+     * there's nothing writable to attach a title to and the diagnostic
+     * correctly reports "text found: no, href found: no" every time.
+     *
+     * Stripping chrome here means site-wide furniture is simply not
+     * treated as page content — the same principle already applied to
+     * nav toggles, WooCommerce UI, and Gravity Forms controls in
+     * node_should_skip(), just at the region level instead of per-node.
+     */
+    private function strip_site_chrome( string $html ): string {
+        if ( trim( $html ) === '' ) {
+            return '';
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+        libxml_clear_errors();
+
+        $xpath  = new DOMXPath( $dom );
+        $remove = [];
+
+        // Structural HTML5 landmarks — unambiguous by definition.
+        foreach ( $xpath->query( '//header | //footer | //nav | //aside' ) as $node ) {
+            $remove[] = $node;
+        }
+
+        // ARIA landmarks, for themes that use <div role="..."> instead.
+        foreach ( $xpath->query( '//*[@role="banner" or @role="contentinfo" or @role="navigation" or @role="complementary" or @role="search"]' ) as $node ) {
+            $remove[] = $node;
+        }
+
+        // Class/id naming conventions, for themes predating both of the above.
+        foreach ( $xpath->query( '//*[@class or @id]' ) as $node ) {
+            $class = strtolower( $node->getAttribute( 'class' ) );
+            $id    = strtolower( $node->getAttribute( 'id' ) );
+            foreach ( self::SITE_CHROME_PATTERNS as $pattern ) {
+                if ( str_contains( $class, $pattern ) || str_contains( $id, $pattern ) ) {
+                    $remove[] = $node;
+                    break;
+                }
+            }
+        }
+
+        // Collected first, removed after — mutating during an active
+        // DOMNodeList iteration skips nodes.
+        foreach ( $remove as $node ) {
+            if ( $node->parentNode ) {
+                $node->parentNode->removeChild( $node );
+            }
+        }
+
+        $out = (string) $dom->saveHTML();
+        $out = preg_replace( '/^.*<body>/s', '', $out );
+        $out = preg_replace( '/<\/body>.*$/s', '', $out );
+        $out = preg_replace( '/^<\?xml[^>]+>\n?/', '', $out );
+
+        return trim( (string) $out );
+    }
 
     /**
      * Parse HTML and return an array of button descriptor arrays.

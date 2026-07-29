@@ -162,6 +162,66 @@
             <?php if ( (int) $auto_fill_result['pairs_processed'] === 0 ) : ?>
                 <p style="margin-top:8px;"><em><?php esc_html_e( 'Zero pairs checked means the scan found no buttons currently missing a title at the time this ran — either everything is already covered, or a fresh scan hasn\'t been run since content last changed.', 'button-link-scanner' ); ?></em></p>
             <?php endif; ?>
+
+            <?php if ( ! empty( $auto_fill_result['changes'] ) ) : ?>
+                <details style="margin-top:12px;">
+                    <summary style="cursor:pointer; font-weight:600;">
+                        <?php printf(
+                            /* translators: %d: number of changes */
+                            esc_html__( 'Show exactly what was changed (%d)', 'button-link-scanner' ),
+                            count( $auto_fill_result['changes'] )
+                        ); ?>
+                    </summary>
+                    <table class="widefat striped" style="margin-top:8px;">
+                        <thead>
+                            <tr>
+                                <th><?php esc_html_e( 'Page', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'Button / link text', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'Links to', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'Title set to', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'How', 'button-link-scanner' ); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ( $auto_fill_result['changes'] as $c ) : ?>
+                            <tr>
+                                <td>
+                                    <?php if ( ! empty( $c['post_url'] ) ) : ?>
+                                        <a href="<?php echo esc_url( $c['post_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $c['post_title'] ); ?></a>
+                                    <?php else : ?>
+                                        <?php echo esc_html( $c['post_title'] ); ?>
+                                    <?php endif; ?>
+                                    <br><span class="bls-meta">ID <?php echo (int) $c['post_id']; ?></span>
+                                </td>
+                                <td><?php echo esc_html( $c['button_text'] ); ?></td>
+                                <td style="word-break:break-all; font-size:0.85em;"><?php echo esc_html( $c['link_url'] ); ?></td>
+                                <td><strong><?php echo esc_html( $c['new_title'] ); ?></strong>
+                                    <?php if ( (int) $c['count'] > 1 ) : ?>
+                                        <br><span class="bls-meta"><?php printf( esc_html__( '%d occurrences on this page', 'button-link-scanner' ), (int) $c['count'] ); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ( $c['method'] === 'render' ) : ?>
+                                        <span title="<?php esc_attr_e( 'Applied live on each page load — nothing was changed in the database, because this button has no stored anchor to write to.', 'button-link-scanner' ); ?>"><?php esc_html_e( 'Live (render)', 'button-link-scanner' ); ?></span>
+                                    <?php else : ?>
+                                        <span title="<?php esc_attr_e( 'Written directly into the stored page content.', 'button-link-scanner' ); ?>"><?php esc_html_e( 'Saved to content', 'button-link-scanner' ); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php if ( ! empty( $auto_fill_result['changes_truncated'] ) ) : ?>
+                        <p class="bls-meta" style="margin-top:6px;">
+                            <?php printf(
+                                /* translators: %d: number of additional changes not listed */
+                                esc_html__( '%d more change(s) were applied but not listed individually (audit log is capped per run).', 'button-link-scanner' ),
+                                (int) $auto_fill_result['changes_truncated']
+                            ); ?>
+                        </p>
+                    <?php endif; ?>
+                </details>
+            <?php endif; ?>
             <?php if ( ! empty( $auto_fill_result['diagnostic'] ) ) :
                 $diag = $auto_fill_result['diagnostic'];
             ?>
