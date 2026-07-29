@@ -304,11 +304,9 @@ class BLS_Updater {
                     // from post_content directly, so without this the
                     // fix would be invisible anywhere in the plugin's UI
                     // until a full "Run Full Scan Now" was done again.
-                    $wpdb->update(
-                        $res_table,
-                        [ 'has_title' => 1, 'title_text' => $generated_title ],
-                        [ 'post_id' => (int) $post_id, 'button_text' => $pair['button_text'], 'link_url' => $pair['link_url'], 'has_title' => 0 ]
-                    );
+                    // Bounded to $result['count'] rows, NOT every row
+                    // matching this post+text+link — see mark_titles_applied().
+                    $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, $result['count'] );
 
                     $progress['posts_updated']++;
                     $progress['titles_added'] += $result['count'];
@@ -322,11 +320,7 @@ class BLS_Updater {
                     // a visitor's/SEO's perspective the title now exists
                     // on the page, even though nothing changed in the DB.
                     BLS_Render_Injector::queue( (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title );
-                    $wpdb->update(
-                        $res_table,
-                        [ 'has_title' => 1, 'title_text' => $generated_title ],
-                        [ 'post_id' => (int) $post_id, 'button_text' => $pair['button_text'], 'link_url' => $pair['link_url'], 'has_title' => 0 ]
-                    );
+                    $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, $result['count'] );
                     $progress['titles_injected']++;
                 } else {
                     $progress['could_not_apply']++;
@@ -375,6 +369,52 @@ class BLS_Updater {
         }
 
         return array_merge( $progress, [ 'done' => $done ] );
+    }
+
+    /**
+     * Mark up to $limit result-table rows for this post+text+link as
+     * having a title now — bounded to exactly how many anchors were
+     * actually confirmed changed, NOT every row that happens to share
+     * this post+text+link.
+     *
+     * Why this matters: the same visible text + href can legitimately
+     * exist as more than one DISTINCT row for a single post — e.g. an
+     * identical "Schedule a private tour" CTA repeated across several
+     * property cards/widgets on one page, each recorded separately by
+     * the scanner because their surrounding markup differs (dedup is by
+     * exact outer HTML, not by text+href). A plain
+     * `WHERE post_id=X AND button_text=Y AND link_url=Z AND has_title=0`
+     * update with no LIMIT would flip ALL of those rows to has_title=1
+     * the moment just ONE of their underlying anchors got fixed — even
+     * ones whose actual on-page anchor was never touched, since the fix
+     * only ever writes to ONE content source at a time (see
+     * rewrite_missing_title(), which returns as soon as the first source
+     * succeeds). $wpdb->update() has no LIMIT support at all, so this
+     * uses a raw prepared query instead specifically to add one.
+     *
+     * This doesn't guarantee it flips the exact SAME rows whose anchors
+     * were modified (MySQL doesn't guarantee which rows a LIMIT without
+     * ORDER BY picks) — but it guarantees the COUNT never exceeds what
+     * was actually confirmed fixed, which is what actually matters: the
+     * next full site scan rebuilds this table from the live page anyway,
+     * so any remaining row-identity ambiguity self-corrects there.
+     */
+    private function mark_titles_applied( string $res_table, int $post_id, string $button_text, string $link_url, string $title, int $limit ): void {
+        global $wpdb;
+        if ( $limit < 1 ) {
+            return;
+        }
+
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$res_table} SET has_title = 1, title_text = %s
+             WHERE post_id = %d AND button_text = %s AND link_url = %s AND has_title = 0
+             LIMIT %d",
+            $title,
+            $post_id,
+            $button_text,
+            $link_url,
+            $limit
+        ) );
     }
 
     /**
@@ -642,7 +682,7 @@ class BLS_Updater {
             $result = $this->apply_title_to_html( $rendered, $button_text, $link_url, $title );
             $all_candidates = array_merge( $all_candidates, $result['candidates'] );
             if ( $result['changed'] ) {
-                return [ 'applied' => false, 'render_only' => true, 'count' => 0, 'candidates' => $all_candidates ];
+                return [ 'applied' => false, 'render_only' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
             }
         }
 
@@ -679,7 +719,7 @@ class BLS_Updater {
                 $result = $this->apply_title_to_html( $rendered_meta, $button_text, $link_url, $title );
                 $all_candidates = array_merge( $all_candidates, $result['candidates'] );
                 if ( $result['changed'] ) {
-                    return [ 'applied' => false, 'render_only' => true, 'count' => 0, 'candidates' => $all_candidates ];
+                    return [ 'applied' => false, 'render_only' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
                 }
             }
         }
