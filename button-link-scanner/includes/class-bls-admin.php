@@ -19,7 +19,8 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_apply_map',       [ __CLASS__, 'ajax_apply_map' ] );
         add_action( 'wp_ajax_bls_delete_map',      [ __CLASS__, 'ajax_delete_map' ] );
         add_action( 'wp_ajax_bls_preview_apply',   [ __CLASS__, 'ajax_preview_apply' ] );
-        add_action( 'wp_ajax_bls_auto_fill_titles', [ __CLASS__, 'ajax_auto_fill_titles' ] );
+        add_action( 'wp_ajax_bls_auto_fill_start', [ __CLASS__, 'ajax_auto_fill_start' ] );
+        add_action( 'wp_ajax_bls_auto_fill_batch', [ __CLASS__, 'ajax_auto_fill_batch' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
@@ -399,7 +400,14 @@ class BLS_Admin {
         wp_send_json_success( $preview );
     }
 
-    public static function ajax_auto_fill_titles() {
+    /**
+     * Kick off a batched Auto-Fill run: builds the work queue of every
+     * button/link pair missing a title. The browser then calls
+     * ajax_auto_fill_batch repeatedly until done, same pattern as
+     * ajax_scan_start/ajax_scan_batch — see BLS_Updater::run_auto_fill_batch()
+     * for why a single pass isn't safe on a real site's full scope.
+     */
+    public static function ajax_auto_fill_start() {
         check_ajax_referer( 'bls_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -408,29 +416,47 @@ class BLS_Admin {
         ob_start();
         try {
             $updater = new BLS_Updater();
-            $result  = $updater->auto_fill_missing_titles();
+            $result  = $updater->start_auto_fill();
             self::discard_stray_output();
-
-            // Persist this so it's visible on the Dashboard permanently
-            // (until the next run), not just as a JS message that
-            // disappears on reload/navigation — needed for sharing/
-            // screenshotting the actual outcome, especially when it
-            // reports 0 processed and the reason isn't obvious.
-            update_option( 'bls_last_auto_fill_result', array_merge( $result, [
-                'time' => current_time( 'mysql' ),
-            ] ), false );
-
             wp_send_json_success( $result );
         } catch ( \Throwable $e ) {
             if ( ob_get_level() > 0 ) {
                 ob_end_clean();
             }
-            $error_msg = 'Auto-fill failed: ' . $e->getMessage();
+            wp_send_json_error( 'Auto-fill start failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Process one batch of the Auto-Fill queue. Called repeatedly by the
+     * browser until the response reports done = true.
+     */
+    public static function ajax_auto_fill_batch() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $batch_size = isset( $_POST['batch_size'] ) ? max( 1, (int) $_POST['batch_size'] ) : BLS_Updater::AUTOFILL_DEFAULT_BATCH_SIZE;
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->run_auto_fill_batch( $batch_size );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            // Persist the failure the same way a completed run persists
+            // its result, so it's visible on the Dashboard after reload
+            // instead of only in a JS message that vanishes on navigation.
             update_option( 'bls_last_auto_fill_result', [
-                'error' => $error_msg,
+                'error' => 'Auto-fill failed: ' . $e->getMessage(),
                 'time'  => current_time( 'mysql' ),
             ], false );
-            wp_send_json_error( $error_msg );
+            wp_send_json_error( 'Auto-fill batch failed: ' . $e->getMessage() );
         }
     }
 

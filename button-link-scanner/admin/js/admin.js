@@ -370,29 +370,58 @@
         var $btn    = $(this);
         var $status = $('#bls-auto-fill-status');
 
-        if (!confirm('This will add a descriptive title to every button that has a link but no title, writing directly into the actual page content. Existing titles are never touched. Continue?')) {
+        if (!confirm('This will add a descriptive title to every button or hyperlink that has a link but no title, writing directly into the actual page content where possible. Existing titles are never touched. This can take a while on a large site — it runs in small batches so it never times out. Continue?')) {
             return;
         }
 
         $btn.prop('disabled', true);
-        setStatus($status, 'Generating titles...' + spinner(), '');
+        setStatus($status, 'Starting...' + spinner(), '');
 
-        ajax('bls_auto_fill_titles', {}, function (data) {
-            $btn.prop('disabled', false);
-            var msg = data.titles_added + ' title(s) added across ' + data.posts_updated + ' page(s).';
-            if (data.titles_injected > 0) {
-                msg += ' ' + data.titles_injected + ' more added live at render time (dynamic/shortcode-generated buttons with no stored anchor to write to directly).';
-            }
-            if (data.could_not_apply > 0) {
-                msg += ' ' + data.could_not_apply + ' button(s) couldn\'t be fixed at all — see the Dashboard for why.';
-            }
-            setStatus($status, msg, 'ok');
-            setTimeout(function () { location.reload(); }, 2000);
+        // Same two-step batched pattern as Run Scan: build the queue once
+        // (fast), then process it a few pairs at a time via repeated
+        // requests, so no single HTTP call risks a PHP/gateway timeout
+        // regardless of how many buttons/hyperlinks are missing a title.
+        ajax('bls_auto_fill_start', {}, function () {
+            runAutoFillBatchLoop($btn, $status);
         }, function (err) {
             $btn.prop('disabled', false);
             setStatus($status, err, 'error');
         });
     });
+
+    function runAutoFillBatchLoop($btn, $status) {
+        ajax('bls_auto_fill_batch', { batch_size: 5 }, function (data) {
+            var pct = data.total_items > 0
+                ? Math.round((data.pairs_processed / data.total_items) * 100)
+                : 100;
+            setStatus(
+                $status,
+                'Generating titles... (' + data.pairs_processed + '/' + data.total_items + ' — ' + pct + '%)' + spinner(),
+                ''
+            );
+
+            if (data.done) {
+                $btn.prop('disabled', false);
+                var msg = data.titles_added + ' title(s) added across ' + data.posts_updated + ' page(s).';
+                if (data.titles_injected > 0) {
+                    msg += ' ' + data.titles_injected + ' more added live at render time (dynamic/shortcode-generated buttons with no stored anchor to write to directly).';
+                }
+                if (data.could_not_apply > 0) {
+                    msg += ' ' + data.could_not_apply + ' button(s) couldn\'t be fixed at all — see the Dashboard for why.';
+                }
+                setStatus($status, msg, 'ok');
+                setTimeout(function () { location.reload(); }, 1200);
+            } else {
+                // Small pause between batches — avoids firing a rapid
+                // burst of requests that some hosting firewalls/rate
+                // limiters may flag as bot-like traffic.
+                setTimeout(function () { runAutoFillBatchLoop($btn, $status); }, 400);
+            }
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    }
 
     // -------------------------------------------------------------------------
     // Dashboard: Broken Link Monitoring — "Check Links Now"

@@ -194,17 +194,25 @@ class BLS_Updater {
     // Auto-Fill Missing Titles
     // -------------------------------------------------------------------------
 
+    /** Option name used to persist the remaining-work queue between AJAX batch calls. */
+    const AUTOFILL_QUEUE_OPTION = 'bls_autofill_queue';
+
+    /** Option name used to persist running totals between AJAX batch calls. */
+    const AUTOFILL_PROGRESS_OPTION = 'bls_autofill_progress';
+
+    /** Default number of button/link pairs processed per batch. */
+    const AUTOFILL_DEFAULT_BATCH_SIZE = 5;
+
     /**
-     * Find every button that has a link but no title, generate a
-     * descriptive title ("button text – destination page title"), and
-     * write it into the actual post content — but ONLY where a title is
-     * currently missing. Existing hrefs/titles are never touched, so this
-     * is safe to run repeatedly without risk of overwriting anything
-     * intentional.
+     * Build the work queue: every distinct button/link pair (buttons AND
+     * plain content hyperlinks alike — this was never scoped to buttons
+     * only) that has a link but no title. Call once, then call
+     * run_auto_fill_batch() repeatedly until it reports done = true — see
+     * that method's docblock for why this can't be a single pass.
      *
-     * @return array { pairs_processed: int, posts_updated: int, titles_added: int }
+     * @return array { total_items: int }
      */
-    public function auto_fill_missing_titles(): array {
+    public function start_auto_fill(): array {
         global $wpdb;
         $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
 
@@ -213,18 +221,65 @@ class BLS_Updater {
              WHERE has_link = 1 AND has_title = 0 AND link_url != ''"
         );
 
-        $pairs_processed       = 0;
-        $posts_updated         = 0;
-        $titles_added          = 0;
-        $titles_injected       = 0; // Applied live via BLS_Render_Injector, not written to the DB — see rewrite_missing_title().
-        $could_not_apply       = 0;
-        $not_in_database       = 0; // No matching anchor even in fully rendered content — genuinely nowhere to attach a title.
-        $blocked_by_mismatch   = 0; // A matching anchor WAS found in a writable source, but its href didn't match or it already has a title — a real, fixable data issue.
-        $diagnostic            = null; // Captured from the first hard failure only — enough to reveal the pattern.
-
+        $queue = [];
         foreach ( $pairs as $pair ) {
-            $pairs_processed++;
-            $generated_title = $this->generate_auto_title( $pair->button_text, $pair->link_url );
+            $queue[] = [ 'button_text' => $pair->button_text, 'link_url' => $pair->link_url ];
+        }
+
+        update_option( self::AUTOFILL_QUEUE_OPTION, $queue, false );
+        update_option( self::AUTOFILL_PROGRESS_OPTION, [
+            'total_items'         => count( $queue ),
+            'pairs_processed'     => 0,
+            'posts_updated'       => 0,
+            'titles_added'        => 0,
+            'titles_injected'     => 0,
+            'could_not_apply'     => 0,
+            'not_in_database'     => 0,
+            'blocked_by_mismatch' => 0,
+            'diagnostic'          => null,
+        ], false );
+
+        return [ 'total_items' => count( $queue ) ];
+    }
+
+    /**
+     * Process the next batch of pairs from the stored queue.
+     *
+     * A single pass over every missing-title pair was never going to
+     * scale: this isn't scoped to the handful of styled buttons a site
+     * has (98 here) — it's every button OR plain content hyperlink
+     * missing a title, which on a real site is easily in the thousands
+     * (5,902 on this one). Each pair can involve DOM parsing across up
+     * to 6 content sources per matching post, so running the whole queue
+     * in one synchronous HTTP request risked exactly the kind of
+     * open-ended hang a fixed PHP max_execution_time can't survive.
+     * Batched the same way the scanner already is: a handful of pairs
+     * per call, looping via repeated AJAX requests until done.
+     *
+     * @param  int $batch_size How many pairs to process this call.
+     * @return array { done: bool, pairs_processed: int, total_items: int, ...running totals }
+     */
+    public function run_auto_fill_batch( int $batch_size = self::AUTOFILL_DEFAULT_BATCH_SIZE ): array {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        $queue    = get_option( self::AUTOFILL_QUEUE_OPTION, null );
+        $progress = get_option( self::AUTOFILL_PROGRESS_OPTION, null );
+
+        // Defensive: if state is missing (e.g. batch called without a
+        // prior start_auto_fill()), initialise fresh rather than
+        // fatal-erroring — same defensive pattern as the scanner's run_batch().
+        if ( $queue === null || $progress === null ) {
+            $this->start_auto_fill();
+            $queue    = get_option( self::AUTOFILL_QUEUE_OPTION, [] );
+            $progress = get_option( self::AUTOFILL_PROGRESS_OPTION );
+        }
+
+        $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
+
+        foreach ( $batch as $pair ) {
+            $progress['pairs_processed']++;
+            $generated_title = $this->generate_auto_title( $pair['button_text'], $pair['link_url'] );
             if ( empty( $generated_title ) ) {
                 continue;
             }
@@ -232,8 +287,8 @@ class BLS_Updater {
             $post_ids = $wpdb->get_col( $wpdb->prepare(
                 "SELECT DISTINCT post_id FROM {$res_table}
                  WHERE button_text = %s AND link_url = %s AND has_title = 0",
-                $pair->button_text,
-                $pair->link_url
+                $pair['button_text'],
+                $pair['link_url']
             ) );
 
             foreach ( $post_ids as $post_id ) {
@@ -242,7 +297,7 @@ class BLS_Updater {
                     continue;
                 }
 
-                $result = $this->rewrite_missing_title( $post, $pair->button_text, $pair->link_url, $generated_title );
+                $result = $this->rewrite_missing_title( $post, $pair['button_text'], $pair['link_url'], $generated_title );
                 if ( $result['applied'] ) {
                     // Update the results table to match, right now — the
                     // Dashboard/Results pages read from this table, not
@@ -252,11 +307,11 @@ class BLS_Updater {
                     $wpdb->update(
                         $res_table,
                         [ 'has_title' => 1, 'title_text' => $generated_title ],
-                        [ 'post_id' => (int) $post_id, 'button_text' => $pair->button_text, 'link_url' => $pair->link_url, 'has_title' => 0 ]
+                        [ 'post_id' => (int) $post_id, 'button_text' => $pair['button_text'], 'link_url' => $pair['link_url'], 'has_title' => 0 ]
                     );
 
-                    $posts_updated++;
-                    $titles_added += $result['count'];
+                    $progress['posts_updated']++;
+                    $progress['titles_added'] += $result['count'];
                 } elseif ( ! empty( $result['render_only'] ) ) {
                     // The anchor only exists AFTER shortcode/widget
                     // rendering — nowhere in raw storage to persist a
@@ -266,15 +321,15 @@ class BLS_Updater {
                     // the rest of the plugin's UI reflects reality: from
                     // a visitor's/SEO's perspective the title now exists
                     // on the page, even though nothing changed in the DB.
-                    BLS_Render_Injector::queue( (int) $post_id, $pair->button_text, $pair->link_url, $generated_title );
+                    BLS_Render_Injector::queue( (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title );
                     $wpdb->update(
                         $res_table,
                         [ 'has_title' => 1, 'title_text' => $generated_title ],
-                        [ 'post_id' => (int) $post_id, 'button_text' => $pair->button_text, 'link_url' => $pair->link_url, 'has_title' => 0 ]
+                        [ 'post_id' => (int) $post_id, 'button_text' => $pair['button_text'], 'link_url' => $pair['link_url'], 'has_title' => 0 ]
                     );
-                    $titles_injected++;
+                    $progress['titles_injected']++;
                 } else {
-                    $could_not_apply++;
+                    $progress['could_not_apply']++;
 
                     // A candidate found in a writable raw source (post
                     // content, WC excerpt, block template, custom field)
@@ -283,36 +338,43 @@ class BLS_Updater {
                     // after checking fully rendered content above, means
                     // there's genuinely no anchor to attach a title to.
                     if ( empty( $result['candidates'] ) ) {
-                        $not_in_database++;
+                        $progress['not_in_database']++;
                     } else {
-                        $blocked_by_mismatch++;
+                        $progress['blocked_by_mismatch']++;
                     }
 
-                    // Diagnose exactly why, from the FIRST failure — this
-                    // is the automated equivalent of manually opening the
-                    // code editor to check raw content by hand: a plain
-                    // substring search (no DOM parsing at all) reveals
+                    // Diagnose exactly why, from the FIRST failure only —
+                    // a plain substring search (no DOM parsing) reveals
                     // whether the button's text/URL literally exist
                     // anywhere in this post's raw stored content.
-                    if ( $diagnostic === null ) {
-                        $raw_text_found = str_contains( $post->post_content, $pair->button_text );
-                        $raw_href_found = str_contains( $post->post_content, $pair->link_url );
-                        $diagnostic = [
-                            'post_id'          => (int) $post_id,
-                            'post_title'       => $post->post_title,
-                            'button_text'      => $pair->button_text,
-                            'link_url'         => $pair->link_url,
-                            'text_in_raw'      => $raw_text_found,
-                            'href_in_raw'      => $raw_href_found,
-                            'content_snippet'  => substr( $post->post_content, 0, 300 ),
-                            'candidates'       => $result['candidates'] ?? [],
+                    if ( $progress['diagnostic'] === null ) {
+                        $progress['diagnostic'] = [
+                            'post_id'         => (int) $post_id,
+                            'post_title'      => $post->post_title,
+                            'button_text'     => $pair['button_text'],
+                            'link_url'        => $pair['link_url'],
+                            'text_in_raw'     => str_contains( $post->post_content, $pair['button_text'] ),
+                            'href_in_raw'     => str_contains( $post->post_content, $pair['link_url'] ),
+                            'content_snippet' => substr( $post->post_content, 0, 300 ),
+                            'candidates'      => $result['candidates'] ?? [],
                         ];
                     }
                 }
             }
         }
 
-        return compact( 'pairs_processed', 'posts_updated', 'titles_added', 'titles_injected', 'could_not_apply', 'not_in_database', 'blocked_by_mismatch', 'diagnostic' );
+        $done = empty( $queue );
+
+        if ( $done ) {
+            update_option( 'bls_last_auto_fill_result', array_merge( $progress, [ 'time' => current_time( 'mysql' ) ] ), false );
+            delete_option( self::AUTOFILL_QUEUE_OPTION );
+            delete_option( self::AUTOFILL_PROGRESS_OPTION );
+        } else {
+            update_option( self::AUTOFILL_QUEUE_OPTION, $queue, false );
+            update_option( self::AUTOFILL_PROGRESS_OPTION, $progress, false );
+        }
+
+        return array_merge( $progress, [ 'done' => $done ] );
     }
 
     /**
