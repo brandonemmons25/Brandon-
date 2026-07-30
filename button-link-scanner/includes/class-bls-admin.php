@@ -21,6 +21,8 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_preview_apply',   [ __CLASS__, 'ajax_preview_apply' ] );
         add_action( 'wp_ajax_bls_auto_fill_start', [ __CLASS__, 'ajax_auto_fill_start' ] );
         add_action( 'wp_ajax_bls_auto_fill_batch', [ __CLASS__, 'ajax_auto_fill_batch' ] );
+        add_action( 'wp_ajax_bls_wipe_titles_start', [ __CLASS__, 'ajax_wipe_titles_start' ] );
+        add_action( 'wp_ajax_bls_wipe_titles_batch', [ __CLASS__, 'ajax_wipe_titles_batch' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
@@ -177,6 +179,13 @@ class BLS_Admin {
         // visible after a reload (see ajax_auto_fill_titles) rather than
         // only living in transient JS status text that vanishes.
         $auto_fill_result = get_option( 'bls_last_auto_fill_result', null );
+
+        // Same for the title wipe (undo), including its own
+        // interrupted-run detection so a killed wipe can auto-resume.
+        $wipe_result          = get_option( 'bls_last_wipe_result', null );
+        $stuck_wipe_queue     = get_option( BLS_Updater::WIPE_QUEUE_OPTION, null );
+        $stuck_wipe_progress  = get_option( BLS_Updater::WIPE_PROGRESS_OPTION, null );
+        $wipe_abandoned       = ( $stuck_wipe_queue !== null && $stuck_wipe_progress !== null );
 
         include BLS_PLUGIN_DIR . 'admin/views/dashboard.php';
     }
@@ -464,6 +473,57 @@ class BLS_Admin {
                 'time'  => current_time( 'mysql' ),
             ], false );
             wp_send_json_error( 'Auto-fill batch failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Kick off a batched wipe of auto-generated titles. Browser then calls
+     * ajax_wipe_titles_batch repeatedly until done — same pattern as the
+     * scan and Auto-Fill.
+     */
+    public static function ajax_wipe_titles_start() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->start_title_wipe();
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Title wipe start failed: ' . $e->getMessage() );
+        }
+    }
+
+    public static function ajax_wipe_titles_batch() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $batch_size = isset( $_POST['batch_size'] ) ? max( 1, (int) $_POST['batch_size'] ) : BLS_Updater::WIPE_DEFAULT_BATCH_SIZE;
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->run_title_wipe_batch( $batch_size );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            update_option( 'bls_last_wipe_result', [
+                'error' => 'Title wipe failed: ' . $e->getMessage(),
+                'time'  => current_time( 'mysql' ),
+            ], false );
+            wp_send_json_error( 'Title wipe batch failed: ' . $e->getMessage() );
         }
     }
 

@@ -513,6 +513,61 @@
     }
 
     // -------------------------------------------------------------------------
+    // Dashboard: Remove Auto-Filled Titles (undo)
+    // -------------------------------------------------------------------------
+
+    $('#bls-wipe-titles').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-wipe-status');
+
+        if (!confirm(
+            'This removes title attributes that merely repeat the link\'s own text — the ones Auto-Fill generates.\n\n'
+            + 'Titles a person wrote that say something different are left alone. Any titles being applied live at render time are also cleared.\n\n'
+            + 'This edits page content and cannot be undone automatically. Continue?'
+        )) {
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Starting...' + spinner(), '');
+
+        ajax('bls_wipe_titles_start', {}, function () {
+            runWipeBatchLoop($btn, $status);
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    function runWipeBatchLoop($btn, $status) {
+        ajax('bls_wipe_titles_batch', { batch_size: 5 }, function (data) {
+            var pct = data.total_items > 0
+                ? Math.round((data.posts_processed / data.total_items) * 100)
+                : 100;
+            setStatus(
+                $status,
+                'Removing titles... (' + data.posts_processed + '/' + data.total_items + ' — ' + pct + '%)' + spinner(),
+                ''
+            );
+
+            if (data.done) {
+                $btn.prop('disabled', false);
+                setStatus(
+                    $status,
+                    data.titles_removed + ' title(s) removed across ' + data.posts_changed + ' page(s).',
+                    'ok'
+                );
+                setTimeout(function () { location.reload(); }, 1200);
+            } else {
+                setTimeout(function () { runWipeBatchLoop($btn, $status); }, 400);
+            }
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    }
+
+    // -------------------------------------------------------------------------
     // Auto-resume interrupted batch jobs on page load
     // -------------------------------------------------------------------------
     // Both Site Scan and Auto-Fill run as a client-side loop tied to one
@@ -545,6 +600,13 @@
         $fillBtn.prop('disabled', true);
         setStatus($fillStatus, 'Resuming interrupted run...' + spinner(), '');
         runAutoFillBatchLoop($fillBtn, $fillStatus);
+    }
+    if ($('#bls-wipe-abandoned-notice').length) {
+        var $wipeBtn = $('#bls-wipe-titles');
+        var $wipeStatus = $('#bls-wipe-status');
+        $wipeBtn.prop('disabled', true);
+        setStatus($wipeStatus, 'Resuming interrupted removal...' + spinner(), '');
+        runWipeBatchLoop($wipeBtn, $wipeStatus);
     }
 
 }(jQuery));

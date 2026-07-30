@@ -211,6 +211,13 @@ class BLS_Updater {
      */
     const AUDIT_LOG_LIMIT = 500;
 
+    /** Queue/progress options for the batched title wipe (see start_title_wipe()). */
+    const WIPE_QUEUE_OPTION    = 'bls_wipe_queue';
+    const WIPE_PROGRESS_OPTION = 'bls_wipe_progress';
+
+    /** Default number of posts processed per wipe batch. */
+    const WIPE_DEFAULT_BATCH_SIZE = 5;
+
     /**
      * Build the work queue: every distinct button/link pair (buttons AND
      * plain content hyperlinks alike — this was never scoped to buttons
@@ -464,47 +471,24 @@ class BLS_Updater {
     }
 
     /**
-     * Generate "button text – destination context" for a button/link
-     * pair. Internal links use the actual destination page's title
-     * (most descriptive, matches how the button is really used); external
-     * or unresolvable links fall back to the domain name, since there's
-     * no page title to pull from without an outbound fetch.
+     * The generated title is simply the button/link's own visible text.
+     *
+     * Earlier versions appended destination context — "Button Text –
+     * Destination Page Title", falling back to the domain for external
+     * links. In practice that mostly produced redundancy, because a CTA's
+     * text usually already names where it goes ("Mortgage Info" linking to
+     * the Mortgage Info page became "Mortgage Info – Mortgage Info"), and
+     * a title that restates the link text with a dash and a repeat adds
+     * nothing for a visitor or a search engine. Copying the text verbatim
+     * is what's actually wanted.
+     *
+     * $link_url is intentionally still accepted: callers pass a
+     * (text, url) pair throughout, and keeping the signature stable means
+     * destination-aware behavior can return later without rewiring
+     * everything.
      */
     private function generate_auto_title( string $button_text, string $link_url ): string {
-        $button_text = trim( $button_text );
-        if ( $button_text === '' ) {
-            return '';
-        }
-
-        $check_url = trim( $link_url );
-        if ( $check_url === '' || $check_url === '#' ) {
-            return $button_text;
-        }
-        if ( ! preg_match( '#^https?://#i', $check_url ) ) {
-            // Relative path — resolve against this site to look up the
-            // destination post, same normalization used by the link
-            // health checker.
-            $check_url = home_url( '/' . ltrim( $check_url, '/' ) );
-        }
-
-        $post_id = url_to_postid( $check_url );
-        if ( $post_id > 0 ) {
-            $dest_title = get_the_title( $post_id );
-            if ( ! empty( $dest_title ) ) {
-                return $button_text . ' – ' . $dest_title;
-            }
-        }
-
-        // External (or unresolvable internal) link — use the domain as
-        // context instead, since there's no page title to pull from
-        // without making an outbound request.
-        $host = wp_parse_url( $check_url, PHP_URL_HOST );
-        if ( ! empty( $host ) ) {
-            $host = preg_replace( '/^www\./i', '', $host );
-            return $button_text . ' – ' . $host;
-        }
-
-        return $button_text;
+        return trim( $button_text );
     }
 
     /**
@@ -778,5 +762,306 @@ class BLS_Updater {
         // That's a genuine, honest limit: there's no reachable place to
         // save a fix, live or persisted.
         return [ 'applied' => false, 'count' => 0, 'candidates' => $all_candidates ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Remove Auto-Filled Titles (undo)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build the work queue for a title wipe: every post the scanner has
+     * recorded a button/link on.
+     *
+     * Deliberately NOT driven by the last run's audit log. That log only
+     * covers one run, and titles on a site like this were applied across
+     * several runs of several plugin versions — an undo that only reaches
+     * the most recent run would leave most of them in place. Working from
+     * the results table instead means this wipes titles applied by ANY
+     * earlier run, including ones from versions that predate the audit log
+     * entirely, which is exactly what's needed for a site already filled
+     * in before this feature existed.
+     *
+     * @return array { total_items: int }
+     */
+    public function start_title_wipe(): array {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        $post_ids = $wpdb->get_col(
+            "SELECT DISTINCT post_id FROM {$res_table} WHERE post_id > 0 ORDER BY post_id ASC"
+        );
+
+        $queue = array_map( 'intval', (array) $post_ids );
+
+        update_option( self::WIPE_QUEUE_OPTION, $queue, false );
+        update_option( self::WIPE_PROGRESS_OPTION, [
+            'total_items'       => count( $queue ),
+            'posts_processed'   => 0,
+            'posts_changed'     => 0,
+            'titles_removed'    => 0,
+            'injections_cleared' => 0,
+            'changes'           => [],
+            'changes_truncated' => 0,
+        ], false );
+
+        return [ 'total_items' => count( $queue ) ];
+    }
+
+    /**
+     * Process the next batch of posts, removing auto-generated titles.
+     * Batched for the same reason the scan and Auto-Fill are — see
+     * run_auto_fill_batch().
+     *
+     * @param  int $batch_size How many posts to process this call.
+     * @return array { done: bool, ...running totals }
+     */
+    public function run_title_wipe_batch( int $batch_size = self::WIPE_DEFAULT_BATCH_SIZE ): array {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        $queue    = get_option( self::WIPE_QUEUE_OPTION, null );
+        $progress = get_option( self::WIPE_PROGRESS_OPTION, null );
+
+        if ( $queue === null || $progress === null ) {
+            $this->start_title_wipe();
+            $queue    = get_option( self::WIPE_QUEUE_OPTION, [] );
+            $progress = get_option( self::WIPE_PROGRESS_OPTION );
+        }
+
+        $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
+
+        foreach ( $batch as $post_id ) {
+            $progress['posts_processed']++;
+            $post = get_post( (int) $post_id );
+            if ( ! $post ) {
+                continue;
+            }
+
+            $removed = $this->remove_titles_for_post( $post, $progress );
+            if ( $removed > 0 ) {
+                $progress['posts_changed']++;
+                $progress['titles_removed'] += $removed;
+
+                // Re-flag the affected rows as missing a title so the rest
+                // of the plugin's UI matches reality immediately, rather
+                // than waiting on the next full scan. Row-by-row against
+                // the same auto-generated test used on the content itself,
+                // keyed by each row's unique id: a blanket
+                // "has_title = 0 WHERE post_id = X" would also clear rows
+                // whose human-written titles were deliberately KEPT,
+                // reporting them as missing when they're still there.
+                $rows = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT id, button_text, title_text FROM {$res_table}
+                     WHERE post_id = %d AND has_title = 1",
+                    (int) $post->ID
+                ) );
+                foreach ( (array) $rows as $row ) {
+                    if ( ! $this->looks_auto_generated( (string) $row->title_text, (string) $row->button_text ) ) {
+                        continue;
+                    }
+                    $wpdb->update(
+                        $res_table,
+                        [ 'has_title' => 0, 'title_text' => '' ],
+                        [ 'id' => (int) $row->id ]
+                    );
+                }
+            }
+        }
+
+        $done = empty( $queue );
+
+        if ( $done ) {
+            // Also drop every queued render-time injection. Those titles
+            // were never written to content — they're re-applied on each
+            // page load from this option — so clearing it is what actually
+            // removes them from the live site.
+            $injections = get_option( BLS_Render_Injector::OPTION, [] );
+            if ( is_array( $injections ) ) {
+                foreach ( $injections as $rules ) {
+                    $progress['injections_cleared'] += count( (array) $rules );
+                }
+            }
+            delete_option( BLS_Render_Injector::OPTION );
+
+            update_option( 'bls_last_wipe_result', array_merge( $progress, [ 'time' => current_time( 'mysql' ) ] ), false );
+            delete_option( self::WIPE_QUEUE_OPTION );
+            delete_option( self::WIPE_PROGRESS_OPTION );
+        } else {
+            update_option( self::WIPE_QUEUE_OPTION, $queue, false );
+            update_option( self::WIPE_PROGRESS_OPTION, $progress, false );
+        }
+
+        return array_merge( $progress, [ 'done' => $done ] );
+    }
+
+    /**
+     * Strip auto-generated titles from every writable source for one post,
+     * mirroring the same four sources Auto-Fill writes to.
+     *
+     * @return int Number of title attributes removed.
+     */
+    private function remove_titles_for_post( WP_Post $post, array &$progress ): int {
+        $removed = 0;
+
+        $result = $this->remove_titles_from_html( $post->post_content );
+        if ( $result['changed'] ) {
+            wp_update_post( [ 'ID' => $post->ID, 'post_content' => $result['html'] ] );
+            $removed += $result['count'];
+            $this->log_wipe( $progress, $post, $result['removed'], 'content' );
+        }
+
+        if ( ! empty( trim( (string) $post->post_excerpt ) ) ) {
+            $result = $this->remove_titles_from_html( $post->post_excerpt );
+            if ( $result['changed'] ) {
+                wp_update_post( [ 'ID' => $post->ID, 'post_excerpt' => $result['html'] ] );
+                $removed += $result['count'];
+                $this->log_wipe( $progress, $post, $result['removed'], 'excerpt' );
+            }
+        }
+
+        $template_slug = get_page_template_slug( $post->ID );
+        if ( ! empty( $template_slug ) ) {
+            $slug = preg_replace( '/\.html$/', '', basename( $template_slug ) );
+            if ( ! empty( $slug ) && $slug !== 'default' ) {
+                $template_post = get_page_by_path( $slug, OBJECT, 'wp_template' );
+                if ( $template_post && ! empty( trim( $template_post->post_content ) ) ) {
+                    $result = $this->remove_titles_from_html( $template_post->post_content );
+                    if ( $result['changed'] ) {
+                        wp_update_post( [ 'ID' => $template_post->ID, 'post_content' => $result['html'] ] );
+                        $removed += $result['count'];
+                        $this->log_wipe( $progress, $post, $result['removed'], 'template' );
+                    }
+                }
+            }
+        }
+
+        foreach ( (array) get_post_meta( $post->ID ) as $key => $values ) {
+            if ( strpos( $key, '_' ) === 0 ) {
+                continue;
+            }
+            foreach ( (array) $values as $value ) {
+                if ( ! is_string( $value ) || $value === '' ) {
+                    continue;
+                }
+                if ( ! preg_match( '/<a\s|<button|<input/i', $value ) ) {
+                    continue;
+                }
+                $result = $this->remove_titles_from_html( $value );
+                if ( $result['changed'] ) {
+                    update_post_meta( $post->ID, $key, $result['html'], $value );
+                    $removed += $result['count'];
+                    $this->log_wipe( $progress, $post, $result['removed'], 'custom field: ' . $key );
+                }
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Remove title attributes that this plugin generated, from one HTML
+     * string. Titles a human wrote are left alone.
+     *
+     * The test is the anchor's own text, not a stored ledger — which is
+     * what lets this undo titles applied by earlier plugin versions that
+     * kept no record. A title is treated as auto-generated when, after the
+     * same Unicode normalization used for matching, it either:
+     *
+     *   - equals the element's visible text (the current format, which
+     *     copies the text verbatim), or
+     *   - begins with that text followed by more (the older
+     *     "Button Text – Destination Page Title" format).
+     *
+     * Both mean "this title just restates the link text", which is
+     * precisely what Auto-Fill produces and what a human writing a
+     * genuinely descriptive title would not.
+     *
+     * @return array { html: string, changed: bool, count: int, removed: array }
+     */
+    private function remove_titles_from_html( string $html ): array {
+        if ( trim( $html ) === '' || stripos( $html, 'title=' ) === false ) {
+            return [ 'html' => $html, 'changed' => false, 'count' => 0, 'removed' => [] ];
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+        libxml_clear_errors();
+
+        $changed = false;
+        $count   = 0;
+        $removed = [];
+
+        foreach ( [ 'a', 'button', 'input' ] as $tag ) {
+            foreach ( iterator_to_array( $dom->getElementsByTagName( $tag ) ) as $node ) {
+                $title = trim( $node->getAttribute( 'title' ) );
+                if ( $title === '' ) {
+                    continue;
+                }
+
+                $label = $tag === 'input'
+                    ? trim( $node->getAttribute( 'value' ) )
+                    : trim( $node->textContent );
+
+                if ( ! $this->looks_auto_generated( $title, $label ) ) {
+                    continue; // Human-written — leave it exactly as it is.
+                }
+
+                $node->removeAttribute( 'title' );
+                $changed = true;
+                $count++;
+                $removed[] = [ 'text' => $label, 'title' => $title ];
+            }
+        }
+
+        if ( ! $changed ) {
+            return [ 'html' => $html, 'changed' => false, 'count' => 0, 'removed' => [] ];
+        }
+
+        $new_html = $this->strip_dom_wrapper( (string) $dom->saveHTML(), $html );
+
+        return [ 'html' => $new_html, 'changed' => true, 'count' => $count, 'removed' => $removed ];
+    }
+
+    /**
+     * True when a title merely restates the element's own visible text —
+     * see remove_titles_from_html() for why that's the signal used.
+     */
+    private function looks_auto_generated( string $title, string $label ): bool {
+        $t = $this->normalize_button_text( $title );
+        $l = $this->normalize_button_text( $label );
+
+        if ( $t === '' || $l === '' ) {
+            return false;
+        }
+        if ( $t === $l ) {
+            return true; // Current format: title is a verbatim copy of the text.
+        }
+
+        // Older format: "<text> – <destination>". Normalization has already
+        // reduced the separator to a space, so this is a prefix test.
+        return str_starts_with( $t, $l . ' ' );
+    }
+
+    /**
+     * Record removals for one post in the wipe's audit log, so the result
+     * shows exactly which titles were taken off — same reasoning as
+     * log_change() for the apply direction.
+     */
+    private function log_wipe( array &$progress, WP_Post $post, array $removed, string $source ): void {
+        foreach ( $removed as $entry ) {
+            if ( count( $progress['changes'] ) >= self::AUDIT_LOG_LIMIT ) {
+                $progress['changes_truncated']++;
+                continue;
+            }
+            $progress['changes'][] = [
+                'post_id'      => $post->ID,
+                'post_title'   => $post->post_title,
+                'post_url'     => get_permalink( $post->ID ),
+                'button_text'  => $entry['text'],
+                'removed_title' => $entry['title'],
+                'source'       => $source,
+            ];
+        }
     }
 }

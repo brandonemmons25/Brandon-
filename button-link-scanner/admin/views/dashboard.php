@@ -105,10 +105,89 @@
             <?php esc_html_e( 'Auto-Fill Missing Titles', 'button-link-scanner' ); ?>
         </button>
         <span id="bls-auto-fill-status" class="bls-status"></span>
+        <button id="bls-wipe-titles" class="button button-link-delete" style="color:#b32d2e;">
+            <?php esc_html_e( 'Remove Auto-Filled Titles', 'button-link-scanner' ); ?>
+        </button>
+        <span id="bls-wipe-status" class="bls-status"></span>
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-map' ) ); ?>" class="button button-primary">
             <?php esc_html_e( 'Manage Button Map & Trends', 'button-link-scanner' ); ?>
         </a>
     </div>
+
+    <?php if ( $wipe_abandoned ) : ?>
+        <p class="bls-meta" id="bls-wipe-abandoned-notice" style="color:#b26b00; font-weight:600; margin:4px 0 12px;">
+            <?php printf(
+                /* translators: 1: posts processed, 2: total posts */
+                esc_html__( 'A previous title removal was interrupted at %1$d of %2$d pages — likely from navigating away or reloading mid-run. Resuming automatically...', 'button-link-scanner' ),
+                (int) $stuck_wipe_progress['posts_processed'],
+                (int) $stuck_wipe_progress['total_items']
+            ); ?>
+        </p>
+    <?php endif; ?>
+
+    <?php if ( ! empty( $wipe_result ) ) : ?>
+    <div class="bls-card bls-card--notice" id="bls-wipe-result">
+        <p>
+            <strong><?php esc_html_e( 'Last title removal:', 'button-link-scanner' ); ?></strong>
+            <?php echo esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $wipe_result['time'] ) ) ); ?>
+        </p>
+        <?php if ( ! empty( $wipe_result['error'] ) ) : ?>
+            <p style="color:#b32d2e; font-weight:600;"><?php echo esc_html( $wipe_result['error'] ); ?></p>
+        <?php else : ?>
+            <ul style="margin:6px 0 0 20px; list-style:disc;">
+                <li><?php printf( esc_html__( 'Titles removed from content: %d', 'button-link-scanner' ), (int) $wipe_result['titles_removed'] ); ?></li>
+                <li><?php printf( esc_html__( 'Pages changed: %d', 'button-link-scanner' ), (int) $wipe_result['posts_changed'] ); ?></li>
+                <li><?php printf( esc_html__( 'Queued render-time titles cleared: %d', 'button-link-scanner' ), (int) $wipe_result['injections_cleared'] ); ?></li>
+            </ul>
+            <?php if ( ! empty( $wipe_result['changes'] ) ) : ?>
+                <details style="margin-top:12px;">
+                    <summary style="cursor:pointer; font-weight:600;">
+                        <?php printf(
+                            /* translators: %d: number of removals */
+                            esc_html__( 'Show exactly what was removed (%d)', 'button-link-scanner' ),
+                            count( $wipe_result['changes'] )
+                        ); ?>
+                    </summary>
+                    <table class="widefat striped" style="margin-top:8px;">
+                        <thead>
+                            <tr>
+                                <th><?php esc_html_e( 'Page', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'Button / link text', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'Title removed', 'button-link-scanner' ); ?></th>
+                                <th><?php esc_html_e( 'From', 'button-link-scanner' ); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ( $wipe_result['changes'] as $c ) : ?>
+                            <tr>
+                                <td>
+                                    <?php if ( ! empty( $c['post_url'] ) ) : ?>
+                                        <a href="<?php echo esc_url( $c['post_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $c['post_title'] ); ?></a>
+                                    <?php else : ?>
+                                        <?php echo esc_html( $c['post_title'] ); ?>
+                                    <?php endif; ?>
+                                    <br><span class="bls-meta">ID <?php echo (int) $c['post_id']; ?></span>
+                                </td>
+                                <td><?php echo esc_html( $c['button_text'] ); ?></td>
+                                <td><del><?php echo esc_html( $c['removed_title'] ); ?></del></td>
+                                <td><span class="bls-meta"><?php echo esc_html( $c['source'] ); ?></span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php if ( ! empty( $wipe_result['changes_truncated'] ) ) : ?>
+                        <p class="bls-meta" style="margin-top:6px;">
+                            <?php printf(
+                                esc_html__( '%d more removal(s) were applied but not listed individually (audit log is capped per run).', 'button-link-scanner' ),
+                                (int) $wipe_result['changes_truncated']
+                            ); ?>
+                        </p>
+                    <?php endif; ?>
+                </details>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <?php if ( $autofill_abandoned ) : ?>
         <!-- Marker element only — admin.js detects this by ID to auto-resume
