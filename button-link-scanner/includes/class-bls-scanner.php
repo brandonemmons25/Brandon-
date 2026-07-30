@@ -793,7 +793,29 @@ class BLS_Scanner {
         $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
         libxml_clear_errors();
 
-        $xpath  = new DOMXPath( $dom );
+        $xpath = new DOMXPath( $dom );
+
+        // Locate the main content region, if the theme marks one. Used two
+        // ways: to narrow what's returned, and — more importantly — to
+        // PROTECT it and its ancestors from removal below. Without that
+        // guard, one over-broad pattern can silently delete the entire
+        // page: Genesis wraps content in <div class="content-sidebar-wrap">,
+        // which a naive "does the class contain 'sidebar'" test matches,
+        // taking the real content down with it.
+        $main = null;
+        foreach ( [ '//main', '//*[@role="main"]', '//*[@id="content"]', '//*[@id="primary"]', '//*[@id="main"]' ] as $query ) {
+            $found = $xpath->query( $query );
+            if ( $found && $found->length > 0 ) {
+                $main = $found->item( 0 );
+                break;
+            }
+        }
+
+        $protected = [];
+        for ( $node = $main; $node !== null; $node = $node->parentNode ) {
+            $protected[] = $node;
+        }
+
         $remove = [];
 
         // Structural HTML5 landmarks — unambiguous by definition.
@@ -806,24 +828,43 @@ class BLS_Scanner {
             $remove[] = $node;
         }
 
-        // Class/id naming conventions, for themes predating both of the above.
+        // Class/id naming conventions, for themes predating both of the
+        // above. Matched per whitespace-separated TOKEN, not as a raw
+        // substring — "content-sidebar-wrap" must not match "sidebar",
+        // while "sidebar", "sidebar-primary", and "primary-sidebar" all
+        // must.
         foreach ( $xpath->query( '//*[@class or @id]' ) as $node ) {
-            $class = strtolower( $node->getAttribute( 'class' ) );
-            $id    = strtolower( $node->getAttribute( 'id' ) );
-            foreach ( self::SITE_CHROME_PATTERNS as $pattern ) {
-                if ( str_contains( $class, $pattern ) || str_contains( $id, $pattern ) ) {
-                    $remove[] = $node;
-                    break;
-                }
+            $tokens = preg_split(
+                '/\s+/',
+                strtolower( $node->getAttribute( 'class' ) . ' ' . $node->getAttribute( 'id' ) ),
+                -1,
+                PREG_SPLIT_NO_EMPTY
+            );
+            if ( $this->tokens_match_chrome( (array) $tokens ) ) {
+                $remove[] = $node;
             }
         }
 
         // Collected first, removed after — mutating during an active
         // DOMNodeList iteration skips nodes.
         foreach ( $remove as $node ) {
+            if ( in_array( $node, $protected, true ) ) {
+                continue; // Contains the main content region — never remove.
+            }
             if ( $node->parentNode ) {
                 $node->parentNode->removeChild( $node );
             }
+        }
+
+        // With chrome gone, prefer returning just the main region when one
+        // was identified — anything left outside it is site furniture the
+        // patterns above didn't happen to name.
+        if ( $main !== null ) {
+            $inner = '';
+            foreach ( $main->childNodes as $child ) {
+                $inner .= (string) $dom->saveHTML( $child );
+            }
+            return trim( $inner );
         }
 
         $out = (string) $dom->saveHTML();
@@ -832,6 +873,28 @@ class BLS_Scanner {
         $out = preg_replace( '/^<\?xml[^>]+>\n?/', '', $out );
 
         return trim( (string) $out );
+    }
+
+    /**
+     * True if any single class/id token identifies a chrome region.
+     *
+     * Token-level, not substring: a token matches when it equals a
+     * pattern, or is a hyphenated extension of one on either side
+     * ("sidebar-primary", "primary-sidebar"). This is what keeps
+     * compound CONTENT wrappers like Genesis's "content-sidebar-wrap"
+     * from being mistaken for the sidebar itself.
+     */
+    private function tokens_match_chrome( array $tokens ): bool {
+        foreach ( $tokens as $token ) {
+            foreach ( self::SITE_CHROME_PATTERNS as $pattern ) {
+                if ( $token === $pattern
+                     || str_starts_with( $token, $pattern . '-' )
+                     || str_ends_with( $token, '-' . $pattern ) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
