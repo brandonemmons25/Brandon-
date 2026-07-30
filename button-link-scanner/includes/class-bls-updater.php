@@ -522,6 +522,85 @@ class BLS_Updater {
     }
 
     /**
+     * Compare two hrefs by destination rather than by exact string.
+     *
+     * The scanner records the href it saw in RENDERED output, while
+     * Auto-Fill matches against hrefs in RAW stored content — and the two
+     * routinely differ in ways that mean nothing about where the link
+     * actually goes: a relative path in the editor rendered as absolute,
+     * http vs https, www vs bare host, a trailing slash added or dropped,
+     * HTML entities decoded, or a mailto: address differing only in case.
+     * An exact string comparison rejected all of those, so a link whose
+     * text matched perfectly and which was sitting right there in the
+     * content still came back as "blocked by an href/title mismatch" and
+     * never got its title.
+     *
+     * Safe to be lenient here because href is only ever the SECOND test —
+     * the anchor's normalized text must already match, so this is
+     * confirming "same destination", not searching for a link.
+     */
+    private function hrefs_match( string $a, string $b ): bool {
+        $na = $this->normalize_href( $a );
+        return $na !== '' && $na === $this->normalize_href( $b );
+    }
+
+    /**
+     * Reduce an href to a comparable form: scheme-and-formatting noise
+     * removed, relative paths resolved against this site.
+     */
+    private function normalize_href( string $href ): string {
+        $href = trim( html_entity_decode( $href, ENT_QUOTES, 'UTF-8' ) );
+        if ( $href === '' ) {
+            return '';
+        }
+
+        // Non-web schemes: mailto:/tel:/sms:. Case is meaningless in an
+        // email address for this purpose, and phone numbers get written
+        // with arbitrary punctuation ("+1-702-580-6101" vs "17025806101"),
+        // so reduce those to digits.
+        if ( preg_match( '#^(mailto|tel|sms|callto):#i', $href, $m ) ) {
+            $scheme = strtolower( $m[1] );
+            $value  = strtolower( substr( $href, strlen( $m[0] ) ) );
+            if ( $scheme !== 'mailto' ) {
+                // Digits only — "+1-702-580-6101" and "17025806101" are the
+                // same number written two ways. A missing country code is
+                // left as a real difference rather than guessed at.
+                $value = preg_replace( '/[^0-9]/', '', $value );
+            }
+            return $scheme . ':' . $value;
+        }
+
+        // In-page anchors have no destination to resolve.
+        if ( str_starts_with( $href, '#' ) ) {
+            return strtolower( $href );
+        }
+
+        if ( str_starts_with( $href, '//' ) ) {
+            $href = 'https:' . $href;
+        }
+        if ( ! preg_match( '#^[a-z][a-z0-9+.\-]*://#i', $href ) ) {
+            // Relative — resolve against this site, the same assumption the
+            // scanner and link checker already make.
+            $href = home_url( '/' . ltrim( $href, '/' ) );
+        }
+
+        $parts = wp_parse_url( $href );
+        if ( empty( $parts['host'] ) ) {
+            return strtolower( $href );
+        }
+
+        // Scheme is deliberately dropped: http and https on the same
+        // host+path are the same destination as far as identifying an
+        // anchor goes.
+        $host     = strtolower( preg_replace( '/^www\./i', '', $parts['host'] ) );
+        $path     = isset( $parts['path'] ) ? rtrim( $parts['path'], '/' ) : '';
+        $query    = isset( $parts['query'] ) ? '?' . $parts['query'] : '';
+        $fragment = isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
+
+        return $host . ( $path === '' ? '/' : $path ) . $query . $fragment;
+    }
+
+    /**
      * Core DOM logic, decoupled from any particular content source: given
      * a raw HTML string, add a title attribute to every matching button
      * that's missing one. Reused across every content source below —
@@ -556,7 +635,7 @@ class BLS_Updater {
                 $candidates[] = [
                     'text_matched' => true,
                     'href'         => $anchor_href,
-                    'href_matched' => $anchor_href === $target_link,
+                    'href_matched' => $this->hrefs_match( $anchor_href, $target_link ),
                     'has_title'    => trim( $anchor->getAttribute( 'title' ) ) !== '',
                 ];
             }
@@ -564,7 +643,7 @@ class BLS_Updater {
             if ( $text !== $normalized_text ) {
                 continue;
             }
-            if ( $anchor_href !== $target_link ) {
+            if ( ! $this->hrefs_match( $anchor_href, $target_link ) ) {
                 continue;
             }
             if ( trim( $anchor->getAttribute( 'title' ) ) !== '' ) {
@@ -595,7 +674,7 @@ class BLS_Updater {
                 while ( $form && ! ( $form instanceof DOMElement && strtolower( $form->nodeName ) === 'form' ) ) {
                     $form = $form->parentNode;
                 }
-                if ( ! $form || trim( $form->getAttribute( 'action' ) ) !== $target_link ) {
+                if ( ! $form || ! $this->hrefs_match( $form->getAttribute( 'action' ), $target_link ) ) {
                     continue;
                 }
 
