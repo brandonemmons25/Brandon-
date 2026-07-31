@@ -133,15 +133,23 @@ class BLS_Scanner {
     /**
      * Hostnames that identify IDX vendor-served content. Used to recognise
      * an IDX wrapper page — one whose visible content is produced by the
-     * vendor from its own subdomain (IDX Broker's "Advanced Search",
-     * "Results", "Details", "Listing ID", "Email Update Signup" and friends)
-     * rather than authored on this site.
+     * vendor from its own subdomain rather than authored on this site.
+     * Every IDX provider creates a similar set of these: "Advanced Search",
+     * "Basic Search", "Map Search", "Address", "Listing ID", "Results",
+     * "Details", "Email Update Signup".
      *
-     * These are hostnames rather than CSS classes or shortcode tags on
-     * purpose: a vendor's markup and class names change between versions and
-     * builds (see the React/MUI hashed classes that made a class-based filter
-     * useless), but the host its content is served from is stable and
-     * directly observable in the page.
+     * Vendor-neutral by design, and that has already proved its worth: the
+     * site this was built against (humboldthomeguide.com) turned out to run
+     * iHomeFinder/Optima Express, not IDX Broker as first assumed — the
+     * misleading clue was a leftover "IDX Broker" attribution link on one of
+     * its pages, presumably from an earlier provider. Matching on the host
+     * serving the content meant the filter worked regardless.
+     *
+     * Hostnames rather than CSS classes or shortcode tags on purpose: a
+     * vendor's markup and class names change between versions and builds
+     * (see the React/MUI hashed classes that made a class-based filter
+     * useless in v1.4.14), but the host its content is served from is stable
+     * and directly observable in the page.
      */
     const IDX_VENDOR_HOST_PATTERNS = [
         'idxbroker.com',
