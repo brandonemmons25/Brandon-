@@ -216,6 +216,9 @@
                 <li><?php printf( esc_html__( 'Titles added directly to content: %d', 'button-link-scanner' ), (int) $auto_fill_result['titles_added'] ); ?></li>
                 <li><?php printf( esc_html__( 'Titles applied live at render time (dynamic/shortcode-generated buttons — e.g. an IDX listing template — where there\'s no stored anchor to write to directly): %d', 'button-link-scanner' ), (int) $auto_fill_result['titles_injected'] ); ?></li>
                 <li><?php printf( esc_html__( 'Pages updated: %d', 'button-link-scanner' ), (int) $auto_fill_result['posts_updated'] ); ?></li>
+                <?php if ( ! empty( $auto_fill_result['already_titled'] ) ) : ?>
+                    <li><?php printf( esc_html__( 'Already had a title — nothing to do: %d', 'button-link-scanner' ), (int) $auto_fill_result['already_titled'] ); ?></li>
+                <?php endif; ?>
                 <li style="<?php echo (int) $auto_fill_result['could_not_apply'] > 0 ? 'color:#b26b00; font-weight:600;' : ''; ?>">
                     <?php printf( esc_html__( 'Could not be applied automatically: %d', 'button-link-scanner' ), (int) $auto_fill_result['could_not_apply'] ); ?>
                 </li>

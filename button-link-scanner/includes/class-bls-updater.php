@@ -246,6 +246,8 @@ class BLS_Updater {
             'total_items'         => count( $queue ),
             'pairs_processed'     => 0,
             'posts_updated'       => 0,
+            'updated_post_ids'    => [], // Keyed set — counted as unique pages at the end.
+            'already_titled'      => 0,  // Found, already had a title: nothing to do (not a failure).
             'titles_added'        => 0,
             'titles_injected'     => 0,
             'could_not_apply'     => 0,
@@ -331,8 +333,25 @@ class BLS_Updater {
 
                     $this->log_change( $progress, $post, $pair, $generated_title, $result['count'], 'content' );
 
-                    $progress['posts_updated']++;
+                    // Unique pages, not (pair, page) applications — one page
+                    // with several distinct buttons was previously counted
+                    // once per button, so "Pages updated" could exceed the
+                    // number of pages on the site.
+                    $progress['updated_post_ids'][ (int) $post_id ] = true;
                     $progress['titles_added'] += $result['count'];
+                } elseif ( ! empty( $result['already_titled'] ) ) {
+                    // Found it, and it already has a title — nothing to do.
+                    // Sync the stale results row so it stops being reported
+                    // as missing on every subsequent run.
+                    $wpdb->query( $wpdb->prepare(
+                        "UPDATE {$res_table} SET has_title = 1, title_text = %s
+                         WHERE post_id = %d AND button_text = %s AND link_url = %s AND has_title = 0",
+                        $result['existing_title'] !== '' ? $result['existing_title'] : $generated_title,
+                        (int) $post_id,
+                        $pair['button_text'],
+                        $pair['link_url']
+                    ) );
+                    $progress['already_titled']++;
                 } elseif ( ! empty( $result['render_only'] ) ) {
                     // The anchor only exists AFTER shortcode/widget
                     // rendering — nowhere in raw storage to persist a
@@ -382,6 +401,9 @@ class BLS_Updater {
         }
 
         $done = empty( $queue );
+
+        // Resolve the unique-page set into the reported count.
+        $progress['posts_updated'] = count( (array) ( $progress['updated_post_ids'] ?? [] ) );
 
         if ( $done ) {
             update_option( 'bls_last_auto_fill_result', array_merge( $progress, [ 'time' => current_time( 'mysql' ) ] ), false );
@@ -637,6 +659,7 @@ class BLS_Updater {
                     'href'         => $anchor_href,
                     'href_matched' => $this->hrefs_match( $anchor_href, $target_link ),
                     'has_title'    => trim( $anchor->getAttribute( 'title' ) ) !== '',
+                    'existing_title' => trim( $anchor->getAttribute( 'title' ) ),
                 ];
             }
 
@@ -831,6 +854,41 @@ class BLS_Updater {
                     return [ 'applied' => false, 'render_only' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
                 }
             }
+        }
+
+        // Before reporting failure: check whether the anchor was found and
+        // simply already HAS a title. That isn't a failure at all — it's
+        // "nothing to do" — but it looked identical to one, because the
+        // only signal was "no title was written". The results row saying
+        // has_title = 0 is then just stale relative to the live content,
+        // and re-reporting it every run makes a finished button look
+        // permanently broken. Distinguished here so the caller can sync
+        // the row and count it as already-done.
+        $matched_href     = false;
+        $needs_title      = false;
+        $existing_title   = '';
+        foreach ( $all_candidates as $candidate ) {
+            if ( empty( $candidate['href_matched'] ) ) {
+                continue;
+            }
+            $matched_href = true;
+            if ( empty( $candidate['has_title'] ) ) {
+                $needs_title = true; // A real blocker exists — not "already done".
+                break;
+            }
+            if ( $existing_title === '' ) {
+                $existing_title = (string) ( $candidate['existing_title'] ?? '' );
+            }
+        }
+
+        if ( $matched_href && ! $needs_title ) {
+            return [
+                'applied'        => false,
+                'already_titled' => true,
+                'existing_title' => $existing_title,
+                'count'          => 0,
+                'candidates'     => $all_candidates,
+            ];
         }
 
         // None of the writable sources contained a literal match, even
