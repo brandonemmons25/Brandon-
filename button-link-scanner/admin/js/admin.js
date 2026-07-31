@@ -115,7 +115,7 @@
 
             if (data.done) {
                 $btn.prop('disabled', false);
-                var msg = BLS.strings.scan_complete + ' ' + (data.buttons_found || 0) + ' buttons found.';
+                var msg = BLS.strings.scan_complete + ' ' + (data.buttons_found || 0) + ' buttons & links found.';
                 setStatus($status, msg, 'ok');
                 setTimeout(function () { location.reload(); }, 1200);
             } else {
@@ -251,7 +251,7 @@
 
         ajax('bls_preview_apply', { map_id: mapId }, function (rows) {
             if (!rows || rows.length === 0) {
-                $content.html('<em>No matching buttons found in the current scan results.</em>');
+                $content.html('<em>No matching buttons or links found in the current scan results.</em>');
                 return;
             }
 
@@ -407,7 +407,7 @@
                     msg += ' ' + data.titles_injected + ' more added live at render time (dynamic/shortcode-generated buttons with no stored anchor to write to directly).';
                 }
                 if (data.could_not_apply > 0) {
-                    msg += ' ' + data.could_not_apply + ' button(s) couldn\'t be fixed at all — see the Dashboard for why.';
+                    msg += ' ' + data.could_not_apply + ' couldn\'t be fixed at all — see the Dashboard for why.';
                 }
                 setStatus($status, msg, 'ok');
                 setTimeout(function () { location.reload(); }, 1200);

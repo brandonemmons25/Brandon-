@@ -5,7 +5,7 @@
     <!-- Scan Controls -->
     <div class="bls-card bls-card--scan">
         <h2><?php esc_html_e( 'Site Scan', 'button-link-scanner' ); ?></h2>
-        <p><?php esc_html_e( 'Scans all published pages, posts, and custom post types for buttons. Results replace any previous scan.', 'button-link-scanner' ); ?></p>
+        <p><?php esc_html_e( 'Scans all published pages, posts, and custom post types for buttons and links. Results replace any previous scan.', 'button-link-scanner' ); ?></p>
         <button id="bls-run-scan" class="button button-primary button-hero">
             <?php esc_html_e( 'Run Full Scan Now', 'button-link-scanner' ); ?>
         </button>
@@ -70,7 +70,7 @@
             <p>
                 <?php printf(
                     /* translators: %d: number of pages */
-                    esc_html__( '%d page(s) were checked live and genuinely have no buttons — for example a front page built entirely from widget areas. Nothing to do.', 'button-link-scanner' ),
+                    esc_html__( '%d page(s) were checked live and genuinely have no buttons or links — for example a front page built entirely from widget areas. Nothing to do.', 'button-link-scanner' ),
                     $confirmed_empty
                 ); ?>
             </p>
@@ -93,7 +93,7 @@
     <div class="bls-summary-grid">
         <div class="bls-stat-card bls-stat-card--info">
             <span class="bls-stat-number"><?php echo (int) $summary['total_buttons']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'Total Buttons', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'Buttons & Links Found', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--info">
             <span class="bls-stat-number"><?php echo (int) $summary['posts_scanned']; ?></span>
@@ -101,15 +101,15 @@
         </div>
         <div class="bls-stat-card bls-stat-card--success">
             <span class="bls-stat-number"><?php echo (int) $summary['with_link']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'Buttons With Link', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'With Destination', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--danger">
             <span class="bls-stat-number"><?php echo (int) $summary['without_link']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'Buttons Missing Link', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'Missing Destination', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--warning">
             <span class="bls-stat-number"><?php echo (int) $summary['missing_title']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'Links Missing SEO Title', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'Missing SEO Title', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--success">
             <span class="bls-stat-number"><?php echo (int) $summary['complete']; ?></span>
@@ -120,7 +120,7 @@
     <p class="bls-meta">
         <?php printf(
             /* translators: 1: button count, 2: hyperlink count */
-            esc_html__( '%1$s buttons, %2$s hyperlinks — ', 'button-link-scanner' ),
+            esc_html__( 'Of those: %1$s styled buttons and %2$s plain text links — ', 'button-link-scanner' ),
             '<a href="' . esc_url( admin_url( 'admin.php?page=button-link-scanner-results&kind=buttons' ) ) . '">' . number_format_i18n( (int) $summary['button_count'] ) . '</a>',
             '<a href="' . esc_url( admin_url( 'admin.php?page=button-link-scanner-results&kind=hyperlink' ) ) . '">' . number_format_i18n( (int) $summary['hyperlink_count'] ) . '</a>'
         ); ?>
@@ -130,10 +130,10 @@
     <!-- Quick-action links -->
     <div class="bls-quick-actions">
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results&has_link=0' ) ); ?>" class="button button-secondary">
-            <?php esc_html_e( 'View Unlinked Buttons', 'button-link-scanner' ); ?>
+            <?php esc_html_e( 'View Missing Destinations', 'button-link-scanner' ); ?>
         </a>
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results&has_link=1&has_title=0' ) ); ?>" class="button button-secondary">
-            <?php esc_html_e( 'View Buttons Missing Title', 'button-link-scanner' ); ?>
+            <?php esc_html_e( 'View Missing SEO Titles', 'button-link-scanner' ); ?>
         </a>
         <button id="bls-auto-fill-titles" class="button button-secondary">
             <?php esc_html_e( 'Auto-Fill Missing Titles', 'button-link-scanner' ); ?>

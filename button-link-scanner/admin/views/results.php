@@ -16,7 +16,7 @@
         </select>
 
         <select name="has_title">
-            <option value=""  <?php selected( $filters['has_title'], '' ); ?>><?php esc_html_e( 'All (title status)', 'button-link-scanner' ); ?></option>
+            <option value=""  <?php selected( $filters['has_title'], '' ); ?>><?php esc_html_e( 'All (SEO title status)', 'button-link-scanner' ); ?></option>
             <option value="1" <?php selected( $filters['has_title'], '1' ); ?>><?php esc_html_e( 'Has SEO title', 'button-link-scanner' ); ?></option>
             <option value="0" <?php selected( $filters['has_title'], '0' ); ?>><?php esc_html_e( 'Missing SEO title', 'button-link-scanner' ); ?></option>
         </select>
@@ -47,7 +47,7 @@
     <!-- Results count -->
     <p class="bls-results-count">
         <?php printf(
-            esc_html( _n( '%s button found', '%s buttons found', $total, 'button-link-scanner' ) ),
+            esc_html( _n( '%s result found', '%s results found', $total, 'button-link-scanner' ) ),
             number_format_i18n( $total )
         ); ?>
     </p>
