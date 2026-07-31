@@ -14,7 +14,7 @@
         <p class="bls-meta">
             <?php printf(
                 esc_html__( 'Last checked: %s', 'button-link-scanner' ),
-                esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $last_run ) ) )
+                esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $last_run ) )
             ); ?>
         </p>
     <?php endif; ?>
@@ -57,7 +57,7 @@
                             <?php echo $row->http_status > 0 ? 'HTTP ' . (int) $row->http_status : esc_html( $row->error_message ?: __( 'unreachable', 'button-link-scanner' ) ); ?>
                         </span>
                     </td>
-                    <td><?php echo $row->first_broken_at ? esc_html( wp_date( get_option( 'date_format' ), strtotime( $row->first_broken_at ) ) ) : '—'; ?></td>
+                    <td><?php echo $row->first_broken_at ? esc_html( mysql2date( get_option( 'date_format' ), $row->first_broken_at ) ) : '—'; ?></td>
                     <td>
                         <button class="button button-small bls-dismiss-broken-link" data-id="<?php echo (int) $row->id; ?>">
                             <?php esc_html_e( 'Mark Fixed', 'button-link-scanner' ); ?>

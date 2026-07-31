@@ -30,7 +30,7 @@
                 <?php printf(
                     /* translators: %s: date/time */
                     esc_html__( 'Last scan: %s', 'button-link-scanner' ),
-                    esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $last_scan ) ) )
+                    esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $last_scan ) )
                 ); ?>
             </p>
         <?php endif; ?>
@@ -163,7 +163,7 @@
     <div class="bls-card bls-card--notice" id="bls-wipe-result">
         <p>
             <strong><?php esc_html_e( 'Last title removal:', 'button-link-scanner' ); ?></strong>
-            <?php echo esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $wipe_result['time'] ) ) ); ?>
+            <?php echo esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $wipe_result['time'] ) ); ?>
         </p>
         <?php if ( ! empty( $wipe_result['error'] ) ) : ?>
             <p style="color:#b32d2e; font-weight:600;"><?php echo esc_html( $wipe_result['error'] ); ?></p>
@@ -250,7 +250,7 @@
     <div class="bls-card bls-card--notice" id="bls-auto-fill-result">
         <p>
             <strong><?php esc_html_e( 'Last Auto-Fill run:', 'button-link-scanner' ); ?></strong>
-            <?php echo esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $auto_fill_result['time'] ) ) ); ?>
+            <?php echo esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $auto_fill_result['time'] ) ); ?>
         </p>
         <?php if ( ! empty( $auto_fill_result['error'] ) ) : ?>
             <p style="color:#b32d2e; font-weight:600;"><?php echo esc_html( $auto_fill_result['error'] ); ?></p>
@@ -436,7 +436,7 @@
             <p class="bls-meta">
                 <?php printf(
                     esc_html__( 'Last checked: %s', 'button-link-scanner' ),
-                    esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $link_check_last ) ) )
+                    esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $link_check_last ) )
                 ); ?>
             </p>
         <?php endif; ?>

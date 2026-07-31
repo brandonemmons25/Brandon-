@@ -37,7 +37,7 @@ $gf_active = class_exists( 'GFForms' ) || class_exists( 'GFAPI' );
             <p class="bls-meta">
                 <?php printf(
                     esc_html__( 'Last scan: %s', 'button-link-scanner' ),
-                    esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $last_scan ) ) )
+                    esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $last_scan ) )
                 ); ?>
             </p>
         <?php endif; ?>

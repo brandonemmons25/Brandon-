@@ -103,7 +103,7 @@
                 <td><?php echo esc_html( $entry->assigned_title ?: '—' ); ?></td>
                 <td class="bls-center"><?php echo $entry->opens_new_tab ? '&#10003;' : '&#8212;'; ?></td>
                 <td class="bls-center"><?php echo (int) $entry->apply_count; ?></td>
-                <td class="bls-center bls-meta"><?php echo esc_html( wp_date( get_option( 'date_format' ), strtotime( $entry->updated_at ) ) ); ?></td>
+                <td class="bls-center bls-meta"><?php echo esc_html( mysql2date( get_option( 'date_format' ), $entry->updated_at ) ); ?></td>
                 <td class="bls-action-cell">
                     <button class="button button-small bls-preview-apply" data-map-id="<?php echo (int) $entry->id; ?>">
                         <?php esc_html_e( 'Preview', 'button-link-scanner' ); ?>
