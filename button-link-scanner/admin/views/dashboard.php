@@ -45,7 +45,16 @@
     <?php if ( ! empty( $skipped_pages ) ) : ?>
     <div class="bls-card bls-card--notice">
         <h2><?php esc_html_e( 'Needs Manual Check', 'button-link-scanner' ); ?></h2>
-        <p><?php esc_html_e( 'These pages had no scannable content (rare — usually a page built entirely with client-side JS). They were not scanned for buttons.', 'button-link-scanner' ); ?></p>
+        <p><?php esc_html_e( 'These pages had no scannable content AND could not be verified by fetching them live — either the fetch failed, or there were more flagged pages than the per-scan recheck limit. Pages confirmed genuinely empty by a real page render are not listed here, since there is nothing to check.', 'button-link-scanner' ); ?></p>
+        <?php if ( $confirmed_empty > 0 ) : ?>
+            <p class="bls-meta">
+                <?php printf(
+                    /* translators: %d: number of pages */
+                    esc_html__( '%d further page(s) were checked live and confirmed to genuinely have no buttons — for example a front page built entirely from widget areas. Those are excluded from this list.', 'button-link-scanner' ),
+                    $confirmed_empty
+                ); ?>
+            </p>
+        <?php endif; ?>
         <ul>
             <?php foreach ( $skipped_pages as $p ) : ?>
                 <li><a href="<?php echo esc_url( $p['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $p['title'] ); ?></a></li>

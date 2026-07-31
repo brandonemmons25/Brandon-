@@ -342,6 +342,7 @@ class BLS_Scanner {
             update_option( 'bls_last_scan_total',   $progress['buttons_found'] );
             update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
             update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
+            update_option( 'bls_last_scan_confirmed_empty', (int) ( $recheck['confirmed_empty'] ?? 0 ), false );
             delete_option( self::QUEUE_OPTION );
             delete_option( self::PROGRESS_OPTION );
         } else {
@@ -555,16 +556,35 @@ class BLS_Scanner {
             return $content;
         }
 
-        $pattern = get_shortcode_regex();
-        return (string) preg_replace_callback( $pattern, function ( $m ) {
-            $tag = $m[2];
+        // Build the pattern from ONLY the vendor shortcodes actually
+        // registered on this site, rather than matching every shortcode and
+        // filtering in a callback. Narrower, faster, and it means a site
+        // with no IDX plugin active skips the regex entirely.
+        global $shortcode_tags;
+        $vendor_tags = [];
+        foreach ( array_keys( (array) $shortcode_tags ) as $tag ) {
             foreach ( self::VENDOR_SHORTCODE_PREFIXES as $prefix ) {
-                if ( str_starts_with( $tag, $prefix ) ) {
-                    return '';
+                if ( str_starts_with( (string) $tag, $prefix ) ) {
+                    $vendor_tags[] = $tag;
+                    break;
                 }
             }
-            return $m[0];
-        }, $content );
+        }
+        if ( empty( $vendor_tags ) ) {
+            return $content;
+        }
+
+        // get_shortcode_regex() returns an UNDELIMITED pattern — core wraps
+        // it in delimiters at every call site. Passing it straight to preg_*
+        // makes the call fail and return null, and casting that null to
+        // string silently produced an EMPTY document: every page containing
+        // any shortcode scanned as having no content at all, and got listed
+        // under "Needs Manual Check". That was the v1.4.15–1.4.20 behavior.
+        $stripped = preg_replace( '/' . get_shortcode_regex( $vendor_tags ) . '/s', '', $content );
+
+        // Belt and braces: a regex failure must never be allowed to blank
+        // real content. Fall back to the original on any error.
+        return is_string( $stripped ) ? $stripped : $content;
     }
 
     /**
@@ -645,15 +665,27 @@ class BLS_Scanner {
      * after an actual live render are now confirmed empty, not just
      * unexamined.
      *
+     * A page confirmed empty by a real render is DROPPED from the returned
+     * list rather than kept on it. "Needs Manual Check" exists to surface
+     * pages whose content this scanner might not be able to see — but if a
+     * live render of the page produces no buttons at all, there is nothing
+     * for anyone to check, and listing it is pure noise. Plenty of pages are
+     * legitimately empty: a front page built entirely from widget areas
+     * (common in real-estate themes like Agent One), or a placeholder whose
+     * content lives in the theme. Only pages that could NOT be verified —
+     * fetch failed, or past the recheck cap — stay on the list.
+     *
      * @param array $skipped List of ['id'=>, 'title'=>, 'url'=>] entries.
-     * @return array{buttons_found:int, still_skipped:array} buttons found,
-     *               and the entries that are still genuinely empty.
+     * @return array{buttons_found:int, still_skipped:array, confirmed_empty:int}
+     *               buttons found, the entries that remain UNVERIFIED, and how
+     *               many were confirmed genuinely empty and dropped.
      */
     private function recheck_skipped_pages( array $skipped ): array {
-        $buttons_found = 0;
-        $still_skipped = [];
-        $checked       = 0;
-        $max_rechecks  = 20;
+        $buttons_found   = 0;
+        $still_skipped   = [];
+        $confirmed_empty = 0;
+        $checked         = 0;
+        $max_rechecks    = 20;
 
         foreach ( $skipped as $entry ) {
             if ( $checked >= $max_rechecks ) {
@@ -680,7 +712,9 @@ class BLS_Scanner {
             // strip_site_chrome().
             $buttons = $this->extract_buttons( $this->strip_site_chrome( $html ) );
             if ( empty( $buttons ) ) {
-                $still_skipped[] = $entry; // Confirmed empty via a real render, not just unexamined.
+                // Verified empty by an actual render — nothing here for
+                // anyone to check, so drop it instead of reporting it.
+                $confirmed_empty++;
                 continue;
             }
 
@@ -707,7 +741,11 @@ class BLS_Scanner {
             // Found real content — drop it from the skipped list entirely.
         }
 
-        return [ 'buttons_found' => $buttons_found, 'still_skipped' => $still_skipped ];
+        return [
+            'buttons_found'   => $buttons_found,
+            'still_skipped'   => $still_skipped,
+            'confirmed_empty' => $confirmed_empty,
+        ];
     }
 
     /**
