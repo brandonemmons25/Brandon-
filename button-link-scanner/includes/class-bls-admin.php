@@ -151,7 +151,8 @@ class BLS_Admin {
         $summary        = BLS_Database::get_summary();
         $last_scan      = BLS_Database::get_last_scan_date();
         $skipped_pages  = get_option( 'bls_last_scan_skipped', [] );
-        $confirmed_empty = (int) get_option( 'bls_last_scan_confirmed_empty', 0 );
+        $confirmed_empty  = (int) get_option( 'bls_last_scan_confirmed_empty', 0 );
+        $idx_vendor_pages = (int) get_option( 'bls_last_scan_idx_vendor_pages', 0 );
 
         // Detect a scan that was started but never finished — e.g. the
         // browser tab driving the batch loop was navigated away from or

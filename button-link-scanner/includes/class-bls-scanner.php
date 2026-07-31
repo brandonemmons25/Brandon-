@@ -131,6 +131,26 @@ class BLS_Scanner {
     ];
 
     /**
+     * Hostnames that identify IDX vendor-served content. Used to recognise
+     * an IDX wrapper page — one whose visible content is produced by the
+     * vendor from its own subdomain (IDX Broker's "Advanced Search",
+     * "Results", "Details", "Listing ID", "Email Update Signup" and friends)
+     * rather than authored on this site.
+     *
+     * These are hostnames rather than CSS classes or shortcode tags on
+     * purpose: a vendor's markup and class names change between versions and
+     * builds (see the React/MUI hashed classes that made a class-based filter
+     * useless), but the host its content is served from is stable and
+     * directly observable in the page.
+     */
+    const IDX_VENDOR_HOST_PATTERNS = [
+        'idxbroker.com',
+        'idxhome.com',
+        'ihomefinder.com',
+        'idxre.com',
+    ];
+
+    /**
      * Class/id fragments marking site-wide chrome regions (header, footer,
      * sidebar, nav) in a LIVE-FETCHED full page. Used only by
      * strip_site_chrome() — see that method for why this matters.
@@ -343,6 +363,7 @@ class BLS_Scanner {
             update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
             update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
             update_option( 'bls_last_scan_confirmed_empty', (int) ( $recheck['confirmed_empty'] ?? 0 ), false );
+            update_option( 'bls_last_scan_idx_vendor_pages', (int) ( $recheck['idx_vendor_pages'] ?? 0 ), false );
             delete_option( self::QUEUE_OPTION );
             delete_option( self::PROGRESS_OPTION );
         } else {
@@ -681,11 +702,12 @@ class BLS_Scanner {
      *               many were confirmed genuinely empty and dropped.
      */
     private function recheck_skipped_pages( array $skipped ): array {
-        $buttons_found   = 0;
-        $still_skipped   = [];
-        $confirmed_empty = 0;
-        $checked         = 0;
-        $max_rechecks    = 20;
+        $buttons_found    = 0;
+        $still_skipped    = [];
+        $confirmed_empty  = 0;
+        $idx_vendor_pages = 0;
+        $checked          = 0;
+        $max_rechecks     = 20;
 
         foreach ( $skipped as $entry ) {
             if ( $checked >= $max_rechecks ) {
@@ -710,7 +732,26 @@ class BLS_Scanner {
             // duplicate copy of the same footer/sidebar links (and those
             // rows are guaranteed Auto-Fill dead ends). See
             // strip_site_chrome().
-            $buttons = $this->extract_buttons( $this->strip_site_chrome( $html ) );
+            $page_content = $this->strip_site_chrome( $html );
+
+            // IDX vendor wrapper page: its content region is served by the
+            // IDX provider from the provider's own subdomain, not authored
+            // here. Skip it outright — don't record its buttons, don't list
+            // it for manual review. Nothing on such a page is editable from
+            // WordPress, so recording it only produces rows that can never
+            // be fixed.
+            //
+            // Checked AFTER strip_site_chrome() deliberately: an IDX search
+            // widget or tracking script in a site-wide header/footer would
+            // otherwise match on every page and suppress the whole site.
+            // This looks only at the page's own content region, and only for
+            // pages that already had no scannable content in the database.
+            if ( $this->is_idx_vendor_page( $page_content ) ) {
+                $idx_vendor_pages++;
+                continue;
+            }
+
+            $buttons = $this->extract_buttons( $page_content );
             if ( empty( $buttons ) ) {
                 // Verified empty by an actual render — nothing here for
                 // anyone to check, so drop it instead of reporting it.
@@ -742,10 +783,42 @@ class BLS_Scanner {
         }
 
         return [
-            'buttons_found'   => $buttons_found,
-            'still_skipped'   => $still_skipped,
-            'confirmed_empty' => $confirmed_empty,
+            'buttons_found'    => $buttons_found,
+            'still_skipped'    => $still_skipped,
+            'confirmed_empty'  => $confirmed_empty,
+            'idx_vendor_pages' => $idx_vendor_pages,
         ];
+    }
+
+    /**
+     * True if this content region is IDX-vendor-served rather than authored
+     * on this site — i.e. an IDX wrapper page.
+     *
+     * Matching is on the vendor's HOSTNAME appearing in the page's own
+     * content region: IDX Broker and iHomeFinder serve their search,
+     * results, and listing-detail pages from their own subdomains, and embed
+     * scripts/iframes/links pointing there. Also catches the vendor's
+     * attribution link ("IDX Broker" / "Powered by ...") those pages carry,
+     * which is what previously showed up as an unfixable dead end.
+     *
+     * Callers must pass content that has already been through
+     * strip_site_chrome() — an IDX widget or tracking script sitting in a
+     * site-wide header or footer would otherwise match on every page and
+     * suppress the entire site.
+     */
+    private function is_idx_vendor_page( string $content ): bool {
+        if ( trim( $content ) === '' ) {
+            return false;
+        }
+
+        $patterns = apply_filters( 'bls_idx_vendor_host_patterns', self::IDX_VENDOR_HOST_PATTERNS );
+        foreach ( (array) $patterns as $pattern ) {
+            if ( stripos( $content, (string) $pattern ) !== false ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

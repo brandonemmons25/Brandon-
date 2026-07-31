@@ -42,24 +42,39 @@
         <?php endif; ?>
     </div>
 
-    <?php if ( ! empty( $skipped_pages ) ) : ?>
+    <?php if ( ! empty( $skipped_pages ) || $confirmed_empty > 0 || $idx_vendor_pages > 0 ) : ?>
     <div class="bls-card bls-card--notice">
-        <h2><?php esc_html_e( 'Needs Manual Check', 'button-link-scanner' ); ?></h2>
-        <p><?php esc_html_e( 'These pages had no scannable content AND could not be verified by fetching them live — either the fetch failed, or there were more flagged pages than the per-scan recheck limit. Pages confirmed genuinely empty by a real page render are not listed here, since there is nothing to check.', 'button-link-scanner' ); ?></p>
-        <?php if ( $confirmed_empty > 0 ) : ?>
-            <p class="bls-meta">
+        <h2><?php esc_html_e( 'Pages Not Scanned', 'button-link-scanner' ); ?></h2>
+
+        <?php if ( $idx_vendor_pages > 0 ) : ?>
+            <p>
                 <?php printf(
                     /* translators: %d: number of pages */
-                    esc_html__( '%d further page(s) were checked live and confirmed to genuinely have no buttons — for example a front page built entirely from widget areas. Those are excluded from this list.', 'button-link-scanner' ),
+                    esc_html__( '%d IDX page(s) skipped. Their content is served by the IDX provider from its own subdomain (search, results, listing detail, and similar), so nothing on them is editable from WordPress and there is nothing here to fix.', 'button-link-scanner' ),
+                    $idx_vendor_pages
+                ); ?>
+            </p>
+        <?php endif; ?>
+
+        <?php if ( $confirmed_empty > 0 ) : ?>
+            <p>
+                <?php printf(
+                    /* translators: %d: number of pages */
+                    esc_html__( '%d page(s) were checked live and genuinely have no buttons — for example a front page built entirely from widget areas. Nothing to do.', 'button-link-scanner' ),
                     $confirmed_empty
                 ); ?>
             </p>
         <?php endif; ?>
-        <ul>
-            <?php foreach ( $skipped_pages as $p ) : ?>
-                <li><a href="<?php echo esc_url( $p['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $p['title'] ); ?></a></li>
-            <?php endforeach; ?>
-        </ul>
+
+        <?php if ( ! empty( $skipped_pages ) ) : ?>
+            <h3 style="margin-bottom:4px;"><?php esc_html_e( 'Needs Manual Check', 'button-link-scanner' ); ?></h3>
+            <p><?php esc_html_e( 'These had no scannable content and could not be verified by fetching them live — either the fetch failed, or there were more flagged pages than the per-scan recheck limit. Worth a look:', 'button-link-scanner' ); ?></p>
+            <ul>
+                <?php foreach ( $skipped_pages as $p ) : ?>
+                    <li><a href="<?php echo esc_url( $p['url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $p['title'] ); ?></a></li>
+                <?php endforeach; ?>
+            </ul>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 
