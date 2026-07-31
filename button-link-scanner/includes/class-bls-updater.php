@@ -572,6 +572,24 @@ class BLS_Updater {
      */
     private function normalize_href( string $href ): string {
         $href = trim( html_entity_decode( $href, ENT_QUOTES, 'UTF-8' ) );
+
+        // Percent-decode, then collapse whitespace. The scanner reads hrefs
+        // from RENDERED output, where the browser/WordPress has already
+        // percent-encoded anything invalid, while Auto-Fill searches RAW
+        // stored content, which keeps whatever was actually typed. A URL
+        // containing spaces therefore arrives as "%20" on one side and a
+        // literal space on the other and never matches.
+        //
+        // Real example that exposed this: a link whose href is
+        // "http://TEA Accountability for Bryan/College Station Schools" —
+        // descriptive text pasted into the URL field, which the editor then
+        // prefixed with http:// and encoded. The link is broken either way,
+        // but it should not be reported as a matching failure of this plugin.
+        $decoded = rawurldecode( $href );
+        if ( $decoded !== '' ) {
+            $href = $decoded;
+        }
+        $href = trim( preg_replace( '/\s+/u', ' ', $href ) );
         if ( $href === '' ) {
             return '';
         }
