@@ -372,6 +372,7 @@ class BLS_Scanner {
             update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
             update_option( 'bls_last_scan_confirmed_empty', (int) ( $recheck['confirmed_empty'] ?? 0 ), false );
             update_option( 'bls_last_scan_idx_vendor_pages', (int) ( $recheck['idx_vendor_pages'] ?? 0 ), false );
+            update_option( 'bls_last_scan_offsite_redirects', (int) ( $recheck['offsite_redirects'] ?? 0 ), false );
             delete_option( self::QUEUE_OPTION );
             delete_option( self::PROGRESS_OPTION );
         } else {
@@ -714,6 +715,7 @@ class BLS_Scanner {
         $still_skipped    = [];
         $confirmed_empty  = 0;
         $idx_vendor_pages = 0;
+        $offsite_redirects = 0;
         $checked          = 0;
         $max_rechecks     = 20;
 
@@ -729,7 +731,18 @@ class BLS_Scanner {
             }
             $checked++;
 
-            $html = $this->fetch_live_page_html( $entry['url'] );
+            $fetched = $this->fetch_live_page_html( $entry['url'] );
+
+            // Redirects off-site (IDX wrapper pages point at the provider's
+            // own subdomain). The page has no content of its own — scanning
+            // whatever the other host returns would attribute a different
+            // site's buttons to this page. See fetch_live_page_html().
+            if ( ! empty( $fetched['offsite_redirect'] ) ) {
+                $offsite_redirects++;
+                continue;
+            }
+
+            $html = $fetched['html'];
             if ( empty( $html ) ) {
                 $still_skipped[] = $entry; // Fetch failed — still unconfirmed either way.
                 continue;
@@ -795,6 +808,7 @@ class BLS_Scanner {
             'still_skipped'    => $still_skipped,
             'confirmed_empty'  => $confirmed_empty,
             'idx_vendor_pages' => $idx_vendor_pages,
+            'offsite_redirects' => $offsite_redirects,
         ];
     }
 
@@ -835,11 +849,43 @@ class BLS_Scanner {
      * docblock for why this is safe despite the "no HTTP requests"
      * principle elsewhere in this class.
      */
-    private function fetch_live_page_html( string $url ): string {
+    private function fetch_live_page_html( string $url ): array {
         if ( empty( $url ) ) {
-            return '';
+            return [ 'html' => '', 'offsite_redirect' => false ];
         }
 
+        // Probe first WITHOUT following redirects.
+        //
+        // wp_remote_get() follows up to 5 redirects by default, and IDX
+        // wrapper pages routinely 301 straight to the provider's own search
+        // subdomain (e.g. an "Email Update Signup" page redirecting to
+        // search.<site>.com/idx/usersignup). Following that silently returns
+        // the OTHER host's HTML, which this scanner then parsed and recorded
+        // as though it were the WordPress page's own content — attributing
+        // buttons that exist on a completely different site to a local page,
+        // where they could never be found again or edited.
+        //
+        // A redirect to another host means the page has no content of its
+        // own to scan, full stop. Report it so the caller can skip it.
+        $probe = wp_remote_get( $url, [
+            'timeout'     => 10,
+            'redirection' => 0,
+            'user-agent'  => 'WordPress/BLS-Scanner (redirect probe)',
+            'sslverify'   => apply_filters( 'bls_fetch_sslverify', true ),
+        ] );
+
+        if ( ! is_wp_error( $probe ) ) {
+            $code = (int) wp_remote_retrieve_response_code( $probe );
+            if ( $code >= 300 && $code < 400 ) {
+                $location = (string) wp_remote_retrieve_header( $probe, 'location' );
+                if ( $location !== '' && $this->is_offsite_url( $location ) ) {
+                    return [ 'html' => '', 'offsite_redirect' => true ];
+                }
+            }
+        }
+
+        // Same-host (or no) redirect — safe to fetch normally and let
+        // WordPress follow it.
         $response = wp_remote_get( $url, [
             'timeout'    => 10,
             'user-agent' => 'WordPress/BLS-Scanner (manual-check recheck)',
@@ -847,10 +893,26 @@ class BLS_Scanner {
         ] );
 
         if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
-            return '';
+            return [ 'html' => '', 'offsite_redirect' => false ];
         }
 
-        return (string) wp_remote_retrieve_body( $response );
+        return [ 'html' => (string) wp_remote_retrieve_body( $response ), 'offsite_redirect' => false ];
+    }
+
+    /**
+     * True if this URL points at a different host than the site itself.
+     * A protocol-relative or root-relative target counts as same-site.
+     * "www." is ignored on both sides.
+     */
+    private function is_offsite_url( string $url ): bool {
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return false; // Relative redirect — still this site.
+        }
+
+        $home = strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+
+        return preg_replace( '/^www\./', '', $host ) !== preg_replace( '/^www\./', '', $home );
     }
 
     /**

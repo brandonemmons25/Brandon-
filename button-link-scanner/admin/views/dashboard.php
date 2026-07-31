@@ -42,7 +42,7 @@
         <?php endif; ?>
     </div>
 
-    <?php if ( ! empty( $skipped_pages ) || $confirmed_empty > 0 || $idx_vendor_pages > 0 ) : ?>
+    <?php if ( ! empty( $skipped_pages ) || $confirmed_empty > 0 || $idx_vendor_pages > 0 || $offsite_redirects > 0 ) : ?>
     <div class="bls-card bls-card--notice">
         <h2><?php esc_html_e( 'Pages Not Scanned', 'button-link-scanner' ); ?></h2>
 
@@ -52,6 +52,16 @@
                     /* translators: %d: number of pages */
                     esc_html__( '%d IDX page(s) skipped. Their content is served by the IDX provider from its own subdomain (search, results, listing detail, and similar), so nothing on them is editable from WordPress and there is nothing here to fix.', 'button-link-scanner' ),
                     $idx_vendor_pages
+                ); ?>
+            </p>
+        <?php endif; ?>
+
+        <?php if ( $offsite_redirects > 0 ) : ?>
+            <p>
+                <?php printf(
+                    /* translators: %d: number of pages */
+                    esc_html__( '%d page(s) redirect to another domain (typically an IDX provider\'s own search subdomain). They hold no content of their own, so there is nothing here to scan or fix.', 'button-link-scanner' ),
+                    $offsite_redirects
                 ); ?>
             </p>
         <?php endif; ?>
