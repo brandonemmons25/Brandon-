@@ -454,7 +454,28 @@ class BLS_Scanner {
      *    the main content editor.
      */
     private function get_post_content( WP_Post $post ): string {
+        // Tell BLS_Render_Injector which post is being rendered before any
+        // the_content filter runs. Its filter normally identifies the page via
+        // get_the_ID(), which returns false here (admin-AJAX, no main query),
+        // so without this the scanner renders content WITHOUT the titles the
+        // injector adds on a real page view — and then reports those buttons
+        // as still missing a title on every single scan, forever.
+        //
+        // try/finally so the context is always cleared even if a third-party
+        // filter throws; a stale context would attribute one post's injected
+        // titles to the next post scanned.
+        BLS_Render_Injector::set_context( $post->ID );
+
+        try {
+            return $this->gather_post_content( $post );
+        } finally {
+            BLS_Render_Injector::clear_context();
+        }
+    }
+
+    private function gather_post_content( WP_Post $post ): string {
         $parts = [];
+
 
         $main = trim( (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $post->post_content ) ) );
         if ( $main !== '' ) {

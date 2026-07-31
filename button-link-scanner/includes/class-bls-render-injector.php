@@ -21,6 +21,30 @@ class BLS_Render_Injector {
 
     const OPTION = 'bls_render_injections';
 
+    /**
+     * Post ID to fall back on when there is no main-query context.
+     *
+     * inject() normally identifies the page with get_the_ID(), which is
+     * correct on a real front-end request. The scanner, though, renders
+     * content by calling apply_filters('the_content', ...) directly from an
+     * admin-AJAX request — there is no main query, so get_the_ID() returns
+     * false, this filter bailed out, and the scanner never saw any
+     * render-injected title. Every full scan then re-reported those buttons
+     * as missing a title, Auto-Fill re-queued them, and the count never
+     * settled. BLS_Scanner sets this around its own render calls so a scan
+     * sees exactly what a visitor sees.
+     */
+    private static $context_post_id = 0;
+
+    /** Scope subsequent inject() calls to a specific post (see $context_post_id). */
+    public static function set_context( int $post_id ): void {
+        self::$context_post_id = $post_id;
+    }
+
+    public static function clear_context(): void {
+        self::$context_post_id = 0;
+    }
+
     public static function init(): void {
         add_filter( 'the_content', [ __CLASS__, 'inject' ], 999 );
     }
@@ -34,11 +58,22 @@ class BLS_Render_Injector {
             $rules = [];
         }
 
-        $rules[ $post_id ][] = [
+        $rule = [
             'text'  => $button_text,
             'link'  => trim( $link_url ),
             'title' => $title,
         ];
+
+        // Skip an identical existing rule. Without this, every Auto-Fill run
+        // appended a fresh copy of the same rule, so this option grew without
+        // bound on a site where the same buttons keep being re-queued.
+        foreach ( (array) ( $rules[ $post_id ] ?? [] ) as $existing ) {
+            if ( $existing == $rule ) {
+                return;
+            }
+        }
+
+        $rules[ $post_id ][] = $rule;
 
         update_option( self::OPTION, $rules, false );
     }
@@ -49,8 +84,11 @@ class BLS_Render_Injector {
             return $content;
         }
 
-        $post_id = get_the_ID();
-        if ( ! $post_id || empty( $rules[ $post_id ] ) ) {
+        $post_id = (int) get_the_ID();
+        if ( $post_id < 1 ) {
+            $post_id = self::$context_post_id; // Scanning, not serving a request.
+        }
+        if ( $post_id < 1 || empty( $rules[ $post_id ] ) ) {
             return $content;
         }
 
