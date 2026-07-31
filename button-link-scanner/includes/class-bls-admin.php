@@ -198,8 +198,9 @@ class BLS_Admin {
     // -------------------------------------------------------------------------
 
     public static function page_broken_links() {
-        $broken_links = BLS_Link_Checker::get_broken_links( 500 );
-        $last_run     = BLS_Link_Checker::get_last_run();
+        $broken_links     = BLS_Link_Checker::get_broken_links( 500 );
+        $unverified_links = BLS_Link_Checker::get_unverified_links( 500 );
+        $last_run         = BLS_Link_Checker::get_last_run();
         include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 

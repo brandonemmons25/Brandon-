@@ -68,4 +68,45 @@
             </tbody>
         </table>
     <?php endif; ?>
+
+    <?php if ( ! empty( $unverified_links ) ) : ?>
+        <h2 style="margin-top:28px;"><?php esc_html_e( 'Could Not Verify', 'button-link-scanner' ); ?></h2>
+        <p>
+            <?php esc_html_e( 'These answered with a login wall, bot protection, or a rate limit (401/403/408/429), or timed out even after a retry. That is not proof the link is dead — plenty of sites refuse anything that is not a real browser, and checking many links against one domain provokes rate limiting. They are listed for review but are not counted as broken and are never emailed.', 'button-link-scanner' ); ?>
+        </p>
+        <table class="widefat striped">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e( 'Link', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Link text', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Found on', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Response', 'button-link-scanner' ); ?></th>
+                    <th><?php esc_html_e( 'Last checked', 'button-link-scanner' ); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ( $unverified_links as $row ) : ?>
+                <tr>
+                    <td style="word-break:break-all; font-size:0.85em;">
+                        <a href="<?php echo esc_url( $row->link_url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $row->link_url ); ?></a>
+                    </td>
+                    <td><?php echo esc_html( $row->button_text ); ?></td>
+                    <td>
+                        <?php if ( $row->post_url ) : ?>
+                            <a href="<?php echo esc_url( $row->post_url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $row->post_title ); ?></a>
+                        <?php else : ?>
+                            <?php echo esc_html( $row->post_title ); ?>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <span class="bls-badge bls-badge--warning">
+                            <?php echo $row->http_status > 0 ? 'HTTP ' . (int) $row->http_status : esc_html( $row->error_message ?: __( 'no response', 'button-link-scanner' ) ); ?>
+                        </span>
+                    </td>
+                    <td><?php echo $row->last_checked ? esc_html( mysql2date( get_option( 'date_format' ), $row->last_checked ) ) : '—'; ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
 </div>

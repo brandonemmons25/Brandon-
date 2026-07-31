@@ -101,11 +101,11 @@
         </div>
         <div class="bls-stat-card bls-stat-card--success">
             <span class="bls-stat-number"><?php echo (int) $summary['with_link']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'With Destination', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'Has a URL', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--danger">
             <span class="bls-stat-number"><?php echo (int) $summary['without_link']; ?></span>
-            <span class="bls-stat-label"><?php esc_html_e( 'Missing Destination', 'button-link-scanner' ); ?></span>
+            <span class="bls-stat-label"><?php esc_html_e( 'No URL Set', 'button-link-scanner' ); ?></span>
         </div>
         <div class="bls-stat-card bls-stat-card--warning">
             <span class="bls-stat-number"><?php echo (int) $summary['missing_title']; ?></span>
@@ -130,7 +130,7 @@
     <!-- Quick-action links -->
     <div class="bls-quick-actions">
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results&has_link=0' ) ); ?>" class="button button-secondary">
-            <?php esc_html_e( 'View Missing Destinations', 'button-link-scanner' ); ?>
+            <?php esc_html_e( 'View Links With No URL', 'button-link-scanner' ); ?>
         </a>
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results&has_link=1&has_title=0' ) ); ?>" class="button button-secondary">
             <?php esc_html_e( 'View Missing SEO Titles', 'button-link-scanner' ); ?>
@@ -422,9 +422,25 @@
                     ); ?>
                 </a>
             </p>
+        <?php elseif ( ! BLS_Link_Checker::has_ever_run() ) : ?>
+            <p class="bls-meta" style="color:#b26b00; font-weight:600;">
+                <?php esc_html_e( 'Links have never been checked on this site — this is not a clean bill of health, just no data yet. Run a check below.', 'button-link-scanner' ); ?>
+            </p>
         <?php else : ?>
             <p class="bls-meta" style="color:#1a7a3c; font-weight:600;">
-                <?php esc_html_e( 'No broken links currently on file.', 'button-link-scanner' ); ?>
+                <?php esc_html_e( 'No broken links found in the last check.', 'button-link-scanner' ); ?>
+            </p>
+        <?php endif; ?>
+
+        <?php $unverified = BLS_Link_Checker::get_unverified_count(); ?>
+        <?php if ( $unverified > 0 ) : ?>
+            <p class="bls-meta">
+                <?php printf(
+                    /* translators: %d: number of links */
+                    esc_html__( '%d link(s) could not be verified — the server answered with a login wall, bot protection, or a rate limit (401/403/408/429), or timed out. That does not mean they are dead, so they are not counted as broken and are never emailed.', 'button-link-scanner' ),
+                    $unverified
+                ); ?>
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-broken-links' ) ); ?>"><?php esc_html_e( 'See the list', 'button-link-scanner' ); ?></a>
             </p>
         <?php endif; ?>
 

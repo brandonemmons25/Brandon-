@@ -217,8 +217,23 @@ class BLS_Link_Checker {
             $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
         }
 
+        // One more attempt, with a longer timeout, when the failure was a
+        // timeout rather than a real answer. A slow-but-working host was
+        // otherwise reported as broken. Not retried for 429, where an
+        // immediate second request just gets rate-limited again.
+        if ( self::classify( $response, $code ) === 'unverified' && self::is_timeout( $response ) ) {
+            $response = wp_remote_get( $check_url, [
+                'timeout'     => 20,
+                'redirection' => 5,
+                'user-agent'  => 'WordPress/BLS-LinkChecker',
+            ] );
+            $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+        }
+
         $error_message = is_wp_error( $response ) ? $response->get_error_message() : '';
-        $is_broken     = is_wp_error( $response ) || $code >= 400;
+
+        // Only a conclusive failure counts as broken. See classify().
+        $is_broken = self::classify( $response, $code ) === 'broken';
 
         $was_broken     = $existing ? (int) $existing->is_broken === 1 : false;
         $first_broken   = $existing && $existing->first_broken_at ? $existing->first_broken_at : null;
@@ -333,6 +348,93 @@ class BLS_Link_Checker {
             "SELECT * FROM {$table} WHERE is_broken = 1 ORDER BY first_broken_at DESC LIMIT %d",
             $limit
         ) );
+    }
+
+
+    /**
+     * Statuses that mean "the server answered, but not with the page" —
+     * without proving the link is dead.
+     *
+     * 401/403 are overwhelmingly bot protection and login walls; MLS, news
+     * and brokerage sites return them to anything without a browser session,
+     * while a human visitor gets through fine. 408/429 are the server asking
+     * to be left alone, which is exactly what checking thousands of links
+     * against the same handful of domains provokes.
+     *
+     * Reporting these as broken buried the genuine 404s: on a 2,900-link site
+     * it produced hundreds of "broken" links that were nothing of the sort,
+     * which trains people to ignore the alert entirely. They are now tracked
+     * separately as "couldn't verify" — visible, but not alarming and never
+     * emailed.
+     */
+    const INCONCLUSIVE_STATUSES = [ 401, 403, 408, 429 ];
+
+    /**
+     * Classify a response: 'broken', 'unverified', or 'ok'.
+     *
+     * Broken means conclusive: 404/410/5xx, or a transport error that proves
+     * there is nothing at the other end (DNS failure, connection refused) —
+     * which is where a malformed href like
+     * "http://TEA Accountability for Bryan/..." correctly lands.
+     */
+    private static function classify( $response, int $code ): string {
+        if ( is_wp_error( $response ) ) {
+            // A timeout says the host was slow, not that the link is dead.
+            return self::is_timeout( $response ) ? 'unverified' : 'broken';
+        }
+        if ( in_array( $code, self::INCONCLUSIVE_STATUSES, true ) ) {
+            return 'unverified';
+        }
+        if ( $code >= 400 ) {
+            return 'broken';
+        }
+        return 'ok';
+    }
+
+    /** True if a WP_Error represents a timeout rather than a hard failure. */
+    private static function is_timeout( $response ): bool {
+        if ( ! is_wp_error( $response ) ) {
+            return false;
+        }
+        $message = strtolower( $response->get_error_message() );
+        foreach ( [ 'timed out', 'timeout', 'operation too slow', 'cURL error 28' ] as $needle ) {
+            if ( str_contains( $message, strtolower( $needle ) ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Links the checker could not get a conclusive answer for — see
+     * INCONCLUSIVE_STATUSES. Derived from the stored status rather than a
+     * dedicated column so no schema migration is needed.
+     */
+    public static function get_unverified_links( int $limit = 500 ): array {
+        global $wpdb;
+        $table  = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+        $codes  = implode( ',', array_map( 'intval', self::INCONCLUSIVE_STATUSES ) );
+        return (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT * FROM {$table}
+             WHERE is_broken = 0 AND ( http_status IN ({$codes}) OR ( http_status = 0 AND error_message != '' ) )
+             ORDER BY last_checked DESC LIMIT %d",
+            $limit
+        ) );
+    }
+
+    public static function get_unverified_count(): int {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+        $codes = implode( ',', array_map( 'intval', self::INCONCLUSIVE_STATUSES ) );
+        return (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table}
+             WHERE is_broken = 0 AND ( http_status IN ({$codes}) OR ( http_status = 0 AND error_message != '' ) )"
+        );
+    }
+
+    /** True once a link check has actually run — distinct from "found none". */
+    public static function has_ever_run(): bool {
+        return (string) get_option( 'bls_link_check_last_run', '' ) !== '';
     }
 
     public static function get_broken_count(): int {
