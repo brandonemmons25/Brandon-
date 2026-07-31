@@ -211,6 +211,27 @@ class BLS_Updater {
      */
     const AUDIT_LOG_LIMIT = 500;
 
+    /**
+     * Subdirectory under wp-content/uploads where the COMPLETE log of a run
+     * is written as CSV, one row appended per change as it happens.
+     *
+     * The on-page table is deliberately capped (AUDIT_LOG_LIMIT) because it
+     * lives in a single wp_options row and renders as HTML — a run applying
+     * ~2,800 titles, which happens on a real site, would mean about a
+     * megabyte of serialized data re-read on every dashboard load and a
+     * table thousands of rows long. Streaming to a file instead keeps the
+     * option row small and the page fast while removing the ceiling
+     * entirely, and CSV is the more useful format for verifying a run or
+     * handing the record to someone else.
+     *
+     * Filenames carry a random suffix so the file isn't enumerable by URL,
+     * and an index.php is dropped in the directory to stop listing. The
+     * contents (page titles, page URLs, link URLs, generated titles) are all
+     * already-public information, so this is about not leaving it lying
+     * around guessable rather than protecting a secret.
+     */
+    const LOG_SUBDIR = 'bls-logs';
+
     /** Queue/progress options for the batched title wipe (see start_title_wipe()). */
     const WIPE_QUEUE_OPTION    = 'bls_wipe_queue';
     const WIPE_PROGRESS_OPTION = 'bls_wipe_progress';
@@ -241,6 +262,11 @@ class BLS_Updater {
             $queue[] = [ 'button_text' => $pair->button_text, 'link_url' => $pair->link_url ];
         }
 
+        $log = $this->create_log_file( 'auto-fill', [
+            'Page', 'Page ID', 'Page URL', 'Button/link text', 'Links to',
+            'Title set to', 'Occurrences on page', 'Applied via',
+        ] );
+
         update_option( self::AUTOFILL_QUEUE_OPTION, $queue, false );
         update_option( self::AUTOFILL_PROGRESS_OPTION, [
             'total_items'         => count( $queue ),
@@ -260,6 +286,10 @@ class BLS_Updater {
             // this option row from growing without bound on a large site.
             'changes'             => [],
             'changes_truncated'   => 0,
+            // Complete log streamed to CSV — the in-memory 'changes' list
+            // above is only the capped on-page preview. See LOG_SUBDIR.
+            'log_path'            => $log['path'] ?? '',
+            'log_url'             => $log['url'] ?? '',
         ], false );
 
         return [ 'total_items' => count( $queue ) ];
@@ -446,6 +476,66 @@ class BLS_Updater {
      * so any remaining row-identity ambiguity self-corrects there.
      */
     /**
+     * Create the CSV file for a run's complete log and write its header row.
+     * See LOG_SUBDIR for why this exists alongside the capped on-page table.
+     *
+     * Returns [] if the file can't be created (unwritable uploads dir, for
+     * instance). Every caller treats that as "no download link" and carries
+     * on — a logging problem must never stop the actual work.
+     *
+     * @return array{path?:string, url?:string}
+     */
+    private function create_log_file( string $prefix, array $headers ): array {
+        $uploads = wp_upload_dir();
+        if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+            return [];
+        }
+
+        $dir = trailingslashit( $uploads['basedir'] ) . self::LOG_SUBDIR;
+        if ( ! wp_mkdir_p( $dir ) ) {
+            return [];
+        }
+
+        $index = trailingslashit( $dir ) . 'index.php';
+        if ( ! file_exists( $index ) ) {
+            file_put_contents( $index, "<?php\n// Silence is golden.\n" );
+        }
+
+        $name = $prefix . '-' . gmdate( 'Ymd-His' ) . '-' . wp_generate_password( 16, false, false ) . '.csv';
+        $path = trailingslashit( $dir ) . $name;
+
+        $handle = fopen( $path, 'w' );
+        if ( ! $handle ) {
+            return [];
+        }
+        fputcsv( $handle, $headers );
+        fclose( $handle );
+
+        return [
+            'path' => $path,
+            'url'  => trailingslashit( $uploads['baseurl'] ) . self::LOG_SUBDIR . '/' . $name,
+        ];
+    }
+
+    /**
+     * Append one row to a run's CSV log. Opened and closed per row so an
+     * interrupted run (see the auto-resume handling) leaves a valid, complete
+     * file for everything processed up to that point rather than a truncated
+     * one.
+     */
+    private function append_log_row( string $path, array $row ): void {
+        if ( $path === '' || ! file_exists( $path ) ) {
+            return;
+        }
+        $handle = fopen( $path, 'a' );
+        if ( ! $handle ) {
+            return;
+        }
+        fputcsv( $handle, $row );
+        fclose( $handle );
+    }
+
+    /**
      * Record one applied change in the run's audit log, so the dashboard
      * can show exactly WHICH buttons were changed and what title each one
      * received — not just how many. A count alone gives no way to spot a
@@ -457,6 +547,18 @@ class BLS_Updater {
      * difference when auditing or undoing.
      */
     private function log_change( array &$progress, WP_Post $post, array $pair, string $title, int $count, string $method ): void {
+        // CSV gets every row, regardless of the on-page cap below.
+        $this->append_log_row( (string) ( $progress['log_path'] ?? '' ), [
+            $post->post_title,
+            $post->ID,
+            get_permalink( $post->ID ),
+            $pair['button_text'],
+            $pair['link_url'],
+            $title,
+            $count,
+            $method === 'render' ? 'live at render time' : 'saved to content',
+        ] );
+
         if ( count( $progress['changes'] ) >= self::AUDIT_LOG_LIMIT ) {
             $progress['changes_truncated']++;
             return;
@@ -948,6 +1050,10 @@ class BLS_Updater {
 
         $queue = array_map( 'intval', (array) $post_ids );
 
+        $log = $this->create_log_file( 'title-removal', [
+            'Page', 'Page ID', 'Page URL', 'Button/link text', 'Title removed', 'Removed from',
+        ] );
+
         update_option( self::WIPE_QUEUE_OPTION, $queue, false );
         update_option( self::WIPE_PROGRESS_OPTION, [
             'total_items'       => count( $queue ),
@@ -957,6 +1063,8 @@ class BLS_Updater {
             'injections_cleared' => 0,
             'changes'           => [],
             'changes_truncated' => 0,
+            'log_path'          => $log['path'] ?? '',
+            'log_url'           => $log['url'] ?? '',
         ], false );
 
         return [ 'total_items' => count( $queue ) ];
@@ -1205,6 +1313,16 @@ class BLS_Updater {
      */
     private function log_wipe( array &$progress, WP_Post $post, array $removed, string $source ): void {
         foreach ( $removed as $entry ) {
+            // CSV gets every row, regardless of the on-page cap below.
+            $this->append_log_row( (string) ( $progress['log_path'] ?? '' ), [
+                $post->post_title,
+                $post->ID,
+                get_permalink( $post->ID ),
+                $entry['text'],
+                $entry['title'],
+                $source,
+            ] );
+
             if ( count( $progress['changes'] ) >= self::AUDIT_LOG_LIMIT ) {
                 $progress['changes_truncated']++;
                 continue;

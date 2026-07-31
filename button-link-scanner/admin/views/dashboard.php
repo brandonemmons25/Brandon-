@@ -212,12 +212,22 @@
                     <?php if ( ! empty( $wipe_result['changes_truncated'] ) ) : ?>
                         <p class="bls-meta" style="margin-top:6px;">
                             <?php printf(
-                                esc_html__( '%d more removal(s) were applied but not listed individually (audit log is capped per run).', 'button-link-scanner' ),
+                                esc_html__( 'This table shows the first %1$d only — %2$d further removal(s) were applied. The CSV below has every one of them.', 'button-link-scanner' ),
+                                (int) BLS_Updater::AUDIT_LOG_LIMIT,
                                 (int) $wipe_result['changes_truncated']
                             ); ?>
                         </p>
                     <?php endif; ?>
                 </details>
+            <?php endif; ?>
+
+            <?php if ( ! empty( $wipe_result['log_url'] ) ) : ?>
+                <p style="margin-top:10px;">
+                    <a href="<?php echo esc_url( $wipe_result['log_url'] ); ?>" class="button button-secondary" download>
+                        <?php esc_html_e( 'Download full log (CSV)', 'button-link-scanner' ); ?>
+                    </a>
+                    <span class="bls-meta" style="margin-left:6px;"><?php esc_html_e( 'Every removal from this run, with no row limit.', 'button-link-scanner' ); ?></span>
+                </p>
             <?php endif; ?>
         <?php endif; ?>
     </div>
@@ -331,12 +341,22 @@
                         <p class="bls-meta" style="margin-top:6px;">
                             <?php printf(
                                 /* translators: %d: number of additional changes not listed */
-                                esc_html__( '%d more change(s) were applied but not listed individually (audit log is capped per run).', 'button-link-scanner' ),
+                                esc_html__( 'This table shows the first %1$d only — %2$d further change(s) were applied. The CSV below has every one of them.', 'button-link-scanner' ),
+                                (int) BLS_Updater::AUDIT_LOG_LIMIT,
                                 (int) $auto_fill_result['changes_truncated']
                             ); ?>
                         </p>
                     <?php endif; ?>
                 </details>
+            <?php endif; ?>
+
+            <?php if ( ! empty( $auto_fill_result['log_url'] ) ) : ?>
+                <p style="margin-top:10px;">
+                    <a href="<?php echo esc_url( $auto_fill_result['log_url'] ); ?>" class="button button-secondary" download>
+                        <?php esc_html_e( 'Download full log (CSV)', 'button-link-scanner' ); ?>
+                    </a>
+                    <span class="bls-meta" style="margin-left:6px;"><?php esc_html_e( 'Every change from this run, with no row limit.', 'button-link-scanner' ); ?></span>
+                </p>
             <?php endif; ?>
             <?php if ( ! empty( $auto_fill_result['diagnostic'] ) ) :
                 $diag = $auto_fill_result['diagnostic'];
