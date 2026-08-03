@@ -28,6 +28,7 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
         add_action( 'wp_ajax_bls_save_link_schedule',  [ __CLASS__, 'ajax_save_link_schedule' ] );
         add_action( 'wp_ajax_bls_dismiss_broken_link', [ __CLASS__, 'ajax_dismiss_broken_link' ] );
+        add_action( 'admin_post_bls_export_links_csv',  [ __CLASS__, 'export_links_csv' ] );
     }
 
     /**
@@ -529,6 +530,59 @@ class BLS_Admin {
             ], false );
             wp_send_json_error( 'Title wipe batch failed: ' . $e->getMessage() );
         }
+    }
+
+    /**
+     * Stream the complete link-health report as CSV.
+     *
+     * The on-screen table is capped (500 rows) and paging through hundreds of
+     * rows in the browser to work out what is actually wrong is miserable —
+     * reviewing this list a screenshot at a time is exactly how a bug where
+     * every mailto: link was reported as a 404 went unnoticed. One file with
+     * every row, including the status, makes the pattern obvious at a glance.
+     *
+     * Streamed rather than written to disk: nothing to clean up, and it always
+     * reflects the current state.
+     */
+    public static function export_links_csv() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'button-link-scanner' ) );
+        }
+        check_admin_referer( 'bls_export_links_csv' );
+
+        $filename = 'link-health-' . gmdate( 'Ymd-His' ) . '.csv';
+
+        nocache_headers();
+        header( 'Content-Type: text/csv; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+
+        $out = fopen( 'php://output', 'w' );
+        fputcsv( $out, [ 'Classification', 'Status', 'Link', 'Link text', 'Found on page', 'Page URL', 'Last checked', 'Broken since' ] );
+
+        $write = static function ( array $rows, string $label ) use ( $out ) {
+            foreach ( $rows as $row ) {
+                $status = (int) $row->http_status > 0
+                    ? 'HTTP ' . (int) $row->http_status
+                    : ( $row->error_message ?: 'no response' );
+                fputcsv( $out, [
+                    $label,
+                    $status,
+                    $row->link_url,
+                    $row->button_text,
+                    $row->post_title,
+                    $row->post_url,
+                    $row->last_checked,
+                    $row->first_broken_at,
+                ] );
+            }
+        };
+
+        // No row cap here — the whole point is to see everything.
+        $write( BLS_Link_Checker::get_broken_links( 100000 ), 'broken' );
+        $write( BLS_Link_Checker::get_unverified_links( 100000 ), 'could not verify' );
+
+        fclose( $out );
+        exit;
     }
 
     // -------------------------------------------------------------------------

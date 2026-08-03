@@ -77,15 +77,43 @@ class BLS_Link_Checker {
              GROUP BY link_url"
         );
 
-        $queue = [];
+        // Only enqueue things that can actually be fetched. The results table
+        // holds every link, mailto:/tel:/in-page anchors included, and those
+        // have no HTTP answer to give — checking them produced a 404 for every
+        // email and phone link on the site. resolve_checkable_url() is the
+        // single source of truth for "is this fetchable", used here and again
+        // per-item as a backstop.
+        $queue    = [];
+        $by_host  = [];
         foreach ( $rows as $row ) {
-            $queue[] = [
+            $checkable = self::resolve_checkable_url( $row->link_url );
+            if ( $checkable === null ) {
+                continue;
+            }
+
+            $item = [
                 'url'         => $row->link_url,
                 'button_text' => $row->button_text,
                 'post_id'     => (int) $row->post_id,
                 'post_title'  => $row->post_title,
                 'post_url'    => $row->post_url,
             ];
+
+            $host = strtolower( (string) wp_parse_url( $checkable, PHP_URL_HOST ) );
+            $by_host[ $host ][] = $item;
+        }
+
+        // Interleave by host rather than checking every link to one domain
+        // back to back. Hammering a single host in sequence is what earns a 429
+        // or a temporary block, which then gets reported as a link problem when
+        // it is really self-inflicted. Round-robin spreads the load.
+        while ( $by_host ) {
+            foreach ( array_keys( $by_host ) as $host ) {
+                $queue[] = array_shift( $by_host[ $host ] );
+                if ( empty( $by_host[ $host ] ) ) {
+                    unset( $by_host[ $host ] );
+                }
+            }
         }
 
         update_option( self::QUEUE_OPTION, $queue, false );
@@ -162,6 +190,26 @@ class BLS_Link_Checker {
             return null;
         }
 
+        // Non-HTTP schemes cannot be fetched: mailto:, tel:, sms:, callto:,
+        // javascript:, and so on. There is nothing to request, so there is
+        // nothing to be "broken" about in HTTP terms.
+        //
+        // Without this they fell through to the relative-path branch below and
+        // got resolved against the site, so "mailto:sales@example.com" became
+        // "https://thesite.com/mailto:sales@example.com" and 404'd. Every email
+        // and phone link on a site was therefore reported broken — on
+        // collegestationhomes.com that was most of the top of the report, and it
+        // buried the genuine failures underneath.
+        //
+        // The scheme has to appear before any slash so a relative path is never
+        // mistaken for one.
+        if ( preg_match( '#^([a-z][a-z0-9+.\-]*):#i', $url, $scheme_match ) ) {
+            $scheme = strtolower( $scheme_match[1] );
+            if ( $scheme !== 'http' && $scheme !== 'https' ) {
+                return null;
+            }
+        }
+
         // Already absolute.
         if ( preg_match( '#^https?://#i', $url ) ) {
             return $url;
@@ -187,11 +235,13 @@ class BLS_Link_Checker {
         $hash     = md5( $url );
         $check_url = self::resolve_checkable_url( $url );
 
-        // Pure in-page anchors (e.g. "#donations" with no path) always
-        // resolve to the current page — there's nothing external to test,
-        // so they're never meaningfully "broken". Skip checking entirely
-        // rather than recording a false failure.
+        // Nothing fetchable here — an in-page anchor, or a mailto:/tel:-style
+        // scheme. Skip rather than recording a false failure, and delete any
+        // row an earlier version recorded for it, so links wrongly marked
+        // broken before this fix clear on the next check instead of staying
+        // flagged forever.
         if ( $check_url === null ) {
+            $wpdb->delete( $table, [ 'url_hash' => $hash ] );
             return;
         }
 
@@ -221,7 +271,7 @@ class BLS_Link_Checker {
         // timeout rather than a real answer. A slow-but-working host was
         // otherwise reported as broken. Not retried for 429, where an
         // immediate second request just gets rate-limited again.
-        if ( self::classify( $response, $code ) === 'unverified' && self::is_timeout( $response ) ) {
+        if ( self::is_timeout( $response ) ) {
             $response = wp_remote_get( $check_url, [
                 'timeout'     => 20,
                 'redirection' => 5,
@@ -379,8 +429,11 @@ class BLS_Link_Checker {
      */
     private static function classify( $response, int $code ): string {
         if ( is_wp_error( $response ) ) {
-            // A timeout says the host was slow, not that the link is dead.
-            return self::is_timeout( $response ) ? 'unverified' : 'broken';
+            // A timeout or a TLS handshake/certificate problem says something
+            // about the connection, not that the page is gone — and an out of
+            // date CA bundle on the checking server produces the latter for
+            // sites that work fine in a browser.
+            return self::is_inconclusive_transport_error( $response ) ? 'unverified' : 'broken';
         }
         if ( in_array( $code, self::INCONCLUSIVE_STATUSES, true ) ) {
             return 'unverified';
@@ -397,8 +450,28 @@ class BLS_Link_Checker {
             return false;
         }
         $message = strtolower( $response->get_error_message() );
-        foreach ( [ 'timed out', 'timeout', 'operation too slow', 'cURL error 28' ] as $needle ) {
-            if ( str_contains( $message, strtolower( $needle ) ) ) {
+        foreach ( [ 'timed out', 'timeout', 'operation too slow', 'curl error 28' ] as $needle ) {
+            if ( str_contains( $message, $needle ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Transport failures that do not prove the link is dead: timeouts, and
+     * TLS/certificate problems. The latter matter because the checking server's
+     * CA bundle can be out of date, which makes perfectly reachable sites look
+     * broken. A genuinely dead host fails differently (DNS resolution,
+     * connection refused) and is still reported as broken.
+     */
+    private static function is_inconclusive_transport_error( $response ): bool {
+        if ( self::is_timeout( $response ) ) {
+            return true;
+        }
+        $message = strtolower( $response->get_error_message() );
+        foreach ( [ 'ssl', 'tls', 'certificate', 'curl error 35', 'curl error 60' ] as $needle ) {
+            if ( str_contains( $message, $needle ) ) {
                 return true;
             }
         }

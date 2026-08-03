@@ -69,6 +69,14 @@
         </table>
     <?php endif; ?>
 
+    <p style="margin-top:18px;">
+        <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_export_links_csv' ), 'bls_export_links_csv' ) ); ?>"
+           class="button button-secondary">
+            <?php esc_html_e( 'Download full link report (CSV)', 'button-link-scanner' ); ?>
+        </a>
+        <span class="bls-meta" style="margin-left:6px;"><?php esc_html_e( 'Every row, broken and unverified, with no cap.', 'button-link-scanner' ); ?></span>
+    </p>
+
     <?php if ( ! empty( $unverified_links ) ) : ?>
         <h2 style="margin-top:28px;"><?php esc_html_e( 'Could Not Verify', 'button-link-scanner' ); ?></h2>
         <p>
