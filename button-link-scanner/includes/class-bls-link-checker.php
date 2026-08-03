@@ -85,6 +85,7 @@ class BLS_Link_Checker {
         // per-item as a backstop.
         $queue    = [];
         $by_host  = [];
+        $keep     = [];
         foreach ( $rows as $row ) {
             $checkable = self::resolve_checkable_url( $row->link_url );
             if ( $checkable === null ) {
@@ -95,6 +96,8 @@ class BLS_Link_Checker {
             if ( self::is_ignored( $row->link_url ) ) {
                 continue;
             }
+
+            $keep[ md5( $row->link_url ) ] = true;
 
             $item = [
                 'url'         => $row->link_url,
@@ -121,6 +124,14 @@ class BLS_Link_Checker {
             }
         }
 
+        // Drop health rows for anything this run is not going to check.
+        // Skipping a URL when the queue is built means check_one_link() never
+        // runs for it, so the cleanup inside that function can never fire — an
+        // email or phone link flagged by an older version stayed flagged
+        // forever, and a link deleted from the site kept being reported. This
+        // is the only place that knows the full set of URLs still in play.
+        self::purge_stale_health_rows( array_keys( $keep ) );
+
         update_option( self::QUEUE_OPTION, $queue, false );
         update_option( 'bls_link_check_newly_broken', [], false );
 
@@ -132,6 +143,91 @@ class BLS_Link_Checker {
         // Process the first batch immediately, then let run_tick's own
         // self-rescheduling take over for the rest.
         self::run_tick();
+    }
+
+    /**
+     * Delete every health row whose URL is not in the set about to be
+     * checked. Covers all three ways a row goes stale at once: the URL is
+     * no longer fetchable (mailto:, tel:, in-page anchor), it is on the
+     * ignore list, or the button holding it was edited or deleted and the
+     * URL is simply gone from the site.
+     *
+     * Diffed in PHP and deleted in chunks rather than as one
+     * "NOT IN (...)" — a site with a few thousand links would otherwise
+     * build a single enormous query.
+     *
+     * @param string[] $keep_hashes md5() of each link_url still in play.
+     */
+    private static function purge_stale_health_rows( array $keep_hashes ): void {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+
+        $existing = $wpdb->get_col( "SELECT url_hash FROM {$table}" );
+        if ( empty( $existing ) ) {
+            return;
+        }
+
+        $keep  = array_fill_keys( $keep_hashes, true );
+        $stale = [];
+        foreach ( $existing as $hash ) {
+            if ( ! isset( $keep[ $hash ] ) ) {
+                $stale[] = $hash;
+            }
+        }
+
+        if ( empty( $stale ) ) {
+            return;
+        }
+
+        foreach ( array_chunk( $stale, 200 ) as $chunk ) {
+            $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%s' ) );
+            $wpdb->query( $wpdb->prepare(
+                "DELETE FROM {$table} WHERE url_hash IN ({$placeholders})",
+                $chunk
+            ) );
+        }
+    }
+
+    /**
+     * Drop health rows for URLs that should never have been reported in the
+     * first place: nothing fetchable (mailto:, tel:, in-page anchor) or on
+     * the ignore list.
+     *
+     * Works off the health table alone, so it can run the moment the ignore
+     * list is edited instead of making someone sit through a full re-check to
+     * see the rows they just excluded disappear.
+     *
+     * @return int Rows removed.
+     */
+    public static function purge_unreportable_rows(): int {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+
+        $rows = $wpdb->get_results( "SELECT url_hash, link_url FROM {$table}" );
+        if ( empty( $rows ) ) {
+            return 0;
+        }
+
+        $stale = [];
+        foreach ( $rows as $row ) {
+            if ( self::resolve_checkable_url( $row->link_url ) === null || self::is_ignored( $row->link_url ) ) {
+                $stale[] = $row->url_hash;
+            }
+        }
+
+        if ( empty( $stale ) ) {
+            return 0;
+        }
+
+        foreach ( array_chunk( $stale, 200 ) as $chunk ) {
+            $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%s' ) );
+            $wpdb->query( $wpdb->prepare(
+                "DELETE FROM {$table} WHERE url_hash IN ({$placeholders})",
+                $chunk
+            ) );
+        }
+
+        return count( $stale );
     }
 
     /**

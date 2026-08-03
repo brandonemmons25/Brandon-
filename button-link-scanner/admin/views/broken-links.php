@@ -70,7 +70,17 @@
     <?php endif; ?>
 
     <?php if ( isset( $_GET['bls_ignore_saved'] ) ) : ?>
-        <div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Ignore list saved. It applies immediately — no re-check needed.', 'button-link-scanner' ); ?></p></div>
+        <?php $ignore_removed = isset( $_GET['bls_ignore_removed'] ) ? (int) $_GET['bls_ignore_removed'] : 0; ?>
+        <div class="notice notice-success is-dismissible"><p>
+            <?php esc_html_e( 'Ignore list saved. It applies immediately — no re-check needed.', 'button-link-scanner' ); ?>
+            <?php if ( $ignore_removed > 0 ) : ?>
+                <?php printf(
+                    /* translators: %d: number of rows removed from the report */
+                    esc_html( _n( 'Removed %d link from this report.', 'Removed %d links from this report.', $ignore_removed, 'button-link-scanner' ) ),
+                    $ignore_removed
+                ); ?>
+            <?php endif; ?>
+        </p></div>
     <?php endif; ?>
 
     <details style="margin-top:22px;">

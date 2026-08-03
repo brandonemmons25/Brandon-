@@ -567,7 +567,17 @@ class BLS_Admin {
 
         update_option( BLS_Link_Checker::IGNORE_OPTION, implode( "\n", $clean ), false );
 
-        wp_safe_redirect( add_query_arg( 'bls_ignore_saved', '1', admin_url( 'admin.php?page=' . self::MENU_SLUG . '-broken-links' ) ) );
+        // Clear anything the new list now excludes straight away, rather than
+        // leaving it flagged until the next full check runs.
+        $removed = BLS_Link_Checker::purge_unreportable_rows();
+
+        wp_safe_redirect( add_query_arg(
+            [
+                'bls_ignore_saved'   => '1',
+                'bls_ignore_removed' => $removed,
+            ],
+            admin_url( 'admin.php?page=' . self::MENU_SLUG . '-broken-links' )
+        ) );
         exit;
     }
 
