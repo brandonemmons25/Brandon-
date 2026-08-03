@@ -91,6 +91,11 @@ class BLS_Link_Checker {
                 continue;
             }
 
+            // Assumed working — see DEFAULT_IGNORE_PATTERNS.
+            if ( self::is_ignored( $row->link_url ) ) {
+                continue;
+            }
+
             $item = [
                 'url'         => $row->link_url,
                 'button_text' => $row->button_text,
@@ -236,11 +241,11 @@ class BLS_Link_Checker {
         $check_url = self::resolve_checkable_url( $url );
 
         // Nothing fetchable here — an in-page anchor, or a mailto:/tel:-style
-        // scheme. Skip rather than recording a false failure, and delete any
-        // row an earlier version recorded for it, so links wrongly marked
-        // broken before this fix clear on the next check instead of staying
-        // flagged forever.
-        if ( $check_url === null ) {
+        // scheme — or a URL on the ignore list, which is assumed to work.
+        // Skip rather than recording a false failure, and delete any row an
+        // earlier check left behind so it clears from the report rather than
+        // staying flagged forever.
+        if ( $check_url === null || self::is_ignored( $url ) ) {
             $wpdb->delete( $table, [ 'url_hash' => $hash ] );
             return;
         }
@@ -248,6 +253,17 @@ class BLS_Link_Checker {
         $existing = $wpdb->get_row( $wpdb->prepare(
             "SELECT * FROM {$table} WHERE url_hash = %s", $hash
         ) );
+
+        // Internal links resolve against the database — no request, so no
+        // self-inflicted rate limiting. See verify_internal().
+        $internal = self::verify_internal( $check_url );
+        if ( $internal !== null ) {
+            self::record_result( $item, $url, $hash, $existing, $internal === 'broken', 0, '' );
+            return;
+        }
+
+        // Space out repeat requests to the same host before touching it.
+        self::pace_request( strtolower( (string) wp_parse_url( $check_url, PHP_URL_HOST ) ) );
 
         // HEAD first (cheap); some servers reject HEAD, so fall back to GET.
         $response = wp_remote_head( $check_url, [
@@ -285,8 +301,20 @@ class BLS_Link_Checker {
         // Only a conclusive failure counts as broken. See classify().
         $is_broken = self::classify( $response, $code ) === 'broken';
 
-        $was_broken     = $existing ? (int) $existing->is_broken === 1 : false;
-        $first_broken   = $existing && $existing->first_broken_at ? $existing->first_broken_at : null;
+        self::record_result( $item, $url, $hash, $existing, $is_broken, $code, $error_message );
+    }
+
+    /**
+     * Write one link's health to the table, queueing a notification if it has
+     * just gone bad. Shared by the HTTP path and the database-resolved internal
+     * path so both record identically.
+     */
+    private static function record_result( array $item, string $url, string $hash, $existing, bool $is_broken, int $code, string $error_message ): void {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+
+        $was_broken   = $existing ? (int) $existing->is_broken === 1 : false;
+        $first_broken = $existing && $existing->first_broken_at ? $existing->first_broken_at : null;
 
         if ( $is_broken && ! $was_broken ) {
             // Just went bad — queue it for notification.
@@ -400,6 +428,124 @@ class BLS_Link_Checker {
         ) );
     }
 
+
+    /**
+     * Verify a link on this site against the database instead of fetching it.
+     *
+     * Most links on a content site are internal, and firing them back at the
+     * server over HTTP is both wasteful and actively counterproductive: the
+     * host's own rate limiting sees a burst of requests from itself and answers
+     * 429. On collegestationhomes.com that produced HTTP 429 against the site's
+     * own /blog/ and /community-resources/ pages — reported as broken links
+     * when nothing was wrong with them at all.
+     *
+     * url_to_postid() resolves a permalink to its post without any request. A
+     * published post means the link is good. A post that exists but is no longer
+     * public (draft, pending, private, trashed) is genuinely broken for a
+     * visitor, and worth reporting.
+     *
+     * Returns 'ok', 'broken', or null when the URL cannot be resolved this way —
+     * archives, term pages, paginated URLs and custom routes all land there and
+     * still need a real request.
+     */
+    private static function verify_internal( string $url ): ?string {
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        $home = strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+
+        if ( $host === '' || preg_replace( '/^www\./', '', $host ) !== preg_replace( '/^www\./', '', $home ) ) {
+            return null; // Not ours — has to be fetched.
+        }
+
+        $post_id = url_to_postid( $url );
+        if ( $post_id < 1 ) {
+            return null; // Could be an archive or a custom route; fall back to HTTP.
+        }
+
+        $status = get_post_status( $post_id );
+
+        return in_array( $status, [ 'publish', 'inherit' ], true ) ? 'ok' : 'broken';
+    }
+
+    /**
+     * Pause briefly before hitting a host we just requested.
+     *
+     * A batch is processed in a tight loop, so without this the server sees ten
+     * near-simultaneous requests and rate limits them — the 429s above. Only
+     * applies to repeat hits on the same host within a batch, so a run spread
+     * across many domains is not slowed down.
+     */
+    private static function pace_request( string $host ): void {
+        static $last = [];
+
+        $now = microtime( true );
+        if ( isset( $last[ $host ] ) ) {
+            $elapsed = $now - $last[ $host ];
+            $min     = (float) apply_filters( 'bls_link_check_host_delay', 0.5 );
+            if ( $elapsed < $min ) {
+                usleep( (int) ( ( $min - $elapsed ) * 1000000 ) );
+            }
+        }
+        $last[ $host ] = microtime( true );
+    }
+
+    /** Option holding the user-editable ignore patterns, one per line. */
+    const IGNORE_OPTION = 'bls_link_check_ignore';
+
+    /**
+     * Hosts and URL patterns not worth checking, used when the option has
+     * never been saved.
+     *
+     * These block non-browser requests as a matter of policy, so the checker
+     * can never get a useful answer from them — it only ever sees 403. A
+     * visitor clicking the link is fine. Reporting them forever, even as
+     * "could not verify", trains people to stop reading the report, so they
+     * are treated as working and left out of it entirely.
+     *
+     * Matched as a plain case-insensitive substring of the URL, so both a bare
+     * host ("facebook.com") and a path pattern ("google.com/search") work.
+     */
+    const DEFAULT_IGNORE_PATTERNS = [
+        'google.com/search',
+        'google.com/maps',
+        'facebook.com',
+        'instagram.com',
+        'linkedin.com',
+        'x.com/',
+        'twitter.com',
+        'pinterest.com',
+        'tiktok.com',
+        'yelp.com',
+        'zillow.com',
+        'realtor.com',
+    ];
+
+    /** The active ignore patterns — saved option if present, defaults if not. */
+    public static function get_ignore_patterns(): array {
+        $saved = get_option( self::IGNORE_OPTION, null );
+
+        if ( $saved === null ) {
+            $patterns = self::DEFAULT_IGNORE_PATTERNS;
+        } else {
+            $patterns = preg_split( '/\r\n|\r|\n/', (string) $saved, -1, PREG_SPLIT_NO_EMPTY );
+        }
+
+        $patterns = array_filter( array_map( 'trim', (array) $patterns ) );
+
+        return (array) apply_filters( 'bls_link_check_ignore_patterns', $patterns );
+    }
+
+    /** True if this URL matches an ignore pattern and should be treated as working. */
+    public static function is_ignored( string $url ): bool {
+        if ( $url === '' ) {
+            return false;
+        }
+        foreach ( self::get_ignore_patterns() as $pattern ) {
+            if ( $pattern !== '' && stripos( $url, $pattern ) !== false ) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Statuses that mean "the server answered, but not with the page" —

@@ -29,6 +29,7 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_save_link_schedule',  [ __CLASS__, 'ajax_save_link_schedule' ] );
         add_action( 'wp_ajax_bls_dismiss_broken_link', [ __CLASS__, 'ajax_dismiss_broken_link' ] );
         add_action( 'admin_post_bls_export_links_csv',  [ __CLASS__, 'export_links_csv' ] );
+        add_action( 'admin_post_bls_save_link_ignore',  [ __CLASS__, 'save_link_ignore' ] );
     }
 
     /**
@@ -199,9 +200,16 @@ class BLS_Admin {
     // -------------------------------------------------------------------------
 
     public static function page_broken_links() {
-        $broken_links     = BLS_Link_Checker::get_broken_links( 500 );
-        $unverified_links = BLS_Link_Checker::get_unverified_links( 500 );
+        $ignored = static function ( array $rows ): array {
+            return array_values( array_filter( $rows, static function ( $row ) {
+                return ! BLS_Link_Checker::is_ignored( (string) $row->link_url );
+            } ) );
+        };
+
+        $broken_links     = $ignored( BLS_Link_Checker::get_broken_links( 500 ) );
+        $unverified_links = $ignored( BLS_Link_Checker::get_unverified_links( 500 ) );
         $last_run         = BLS_Link_Checker::get_last_run();
+        $ignore_patterns  = BLS_Link_Checker::get_ignore_patterns();
         include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 
@@ -533,6 +541,37 @@ class BLS_Admin {
     }
 
     /**
+     * Save the ignore list — URL patterns treated as working and left out of
+     * the report entirely. Stored raw (one per line) and parsed on read, so the
+     * textarea round-trips exactly what was typed.
+     */
+    public static function save_link_ignore() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'button-link-scanner' ) );
+        }
+        check_admin_referer( 'bls_save_link_ignore' );
+
+        $raw = isset( $_POST['bls_ignore'] ) ? (string) wp_unslash( $_POST['bls_ignore'] ) : '';
+
+        // Line-by-line sanitize rather than sanitize_textarea_field on the
+        // whole blob, so blank lines are dropped and nothing is silently
+        // reformatted.
+        $lines = preg_split( '/\r\n|\r|\n/', $raw, -1, PREG_SPLIT_NO_EMPTY );
+        $clean = [];
+        foreach ( (array) $lines as $line ) {
+            $line = trim( sanitize_text_field( $line ) );
+            if ( $line !== '' ) {
+                $clean[] = $line;
+            }
+        }
+
+        update_option( BLS_Link_Checker::IGNORE_OPTION, implode( "\n", $clean ), false );
+
+        wp_safe_redirect( add_query_arg( 'bls_ignore_saved', '1', admin_url( 'admin.php?page=' . self::MENU_SLUG . '-broken-links' ) ) );
+        exit;
+    }
+
+    /**
      * Stream the complete link-health report as CSV.
      *
      * The on-screen table is capped (500 rows) and paging through hundreds of
@@ -578,8 +617,17 @@ class BLS_Admin {
         };
 
         // No row cap here — the whole point is to see everything.
-        $write( BLS_Link_Checker::get_broken_links( 100000 ), 'broken' );
-        $write( BLS_Link_Checker::get_unverified_links( 100000 ), 'could not verify' );
+        // Ignored URLs are filtered here as well as at check time, so a
+        // pattern added after the last check takes effect immediately rather
+        // than only after re-checking.
+        $filter = static function ( array $rows ): array {
+            return array_values( array_filter( $rows, static function ( $row ) {
+                return ! BLS_Link_Checker::is_ignored( (string) $row->link_url );
+            } ) );
+        };
+
+        $write( $filter( BLS_Link_Checker::get_broken_links( 100000 ) ), 'broken' );
+        $write( $filter( BLS_Link_Checker::get_unverified_links( 100000 ) ), 'could not verify' );
 
         fclose( $out );
         exit;

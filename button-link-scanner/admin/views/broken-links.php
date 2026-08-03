@@ -69,6 +69,34 @@
         </table>
     <?php endif; ?>
 
+    <?php if ( isset( $_GET['bls_ignore_saved'] ) ) : ?>
+        <div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Ignore list saved. It applies immediately — no re-check needed.', 'button-link-scanner' ); ?></p></div>
+    <?php endif; ?>
+
+    <details style="margin-top:22px;">
+        <summary style="cursor:pointer; font-weight:600;">
+            <?php printf(
+                /* translators: %d: number of patterns */
+                esc_html__( 'Ignored links (%d pattern(s)) — assumed to work', 'button-link-scanner' ),
+                count( $ignore_patterns )
+            ); ?>
+        </summary>
+        <p style="margin-top:8px; max-width:760px;">
+            <?php esc_html_e( 'One pattern per line. Any link whose URL contains one of these is treated as working and kept out of this report entirely — not checked, not counted, not emailed. Matching is a plain case-insensitive substring, so a bare host ("facebook.com") or a path ("google.com/search") both work.', 'button-link-scanner' ); ?>
+        </p>
+        <p style="margin:0 0 8px; max-width:760px;" class="bls-meta">
+            <?php esc_html_e( 'These sites block automated requests by policy, so a check can only ever come back 403 no matter how healthy the link is. Clearing this box entirely turns the behaviour off and everything gets checked again.', 'button-link-scanner' ); ?>
+        </p>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="bls_save_link_ignore">
+            <?php wp_nonce_field( 'bls_save_link_ignore' ); ?>
+            <textarea name="bls_ignore" rows="10" style="width:100%; max-width:760px; font-family:monospace;"><?php
+                echo esc_textarea( implode( "\n", $ignore_patterns ) );
+            ?></textarea>
+            <p><button type="submit" class="button button-primary"><?php esc_html_e( 'Save ignore list', 'button-link-scanner' ); ?></button></p>
+        </form>
+    </details>
+
     <p style="margin-top:18px;">
         <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_export_links_csv' ), 'bls_export_links_csv' ) ); ?>"
            class="button button-secondary">
