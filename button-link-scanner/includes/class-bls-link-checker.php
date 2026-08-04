@@ -658,16 +658,33 @@ class BLS_Link_Checker {
      * which trains people to ignore the alert entirely. They are now tracked
      * separately as "couldn't verify" — visible, but not alarming and never
      * emailed.
+     *
+     * 444 and 460 are non-standard "we hung up on you" codes — nginx closing
+     * without a response, and an AWS load balancer reporting the connection
+     * was dropped. Both are anti-bot behaviour: tripsavvy.com, investopedia.com,
+     * allrecipes.com and treehugger.com all answered 460 while working
+     * perfectly in a browser.
      */
-    const INCONCLUSIVE_STATUSES = [ 401, 403, 408, 429 ];
+    const INCONCLUSIVE_STATUSES = [ 401, 403, 408, 429, 444, 460 ];
 
     /**
      * Classify a response: 'broken', 'unverified', or 'ok'.
      *
-     * Broken means conclusive: 404/410/5xx, or a transport error that proves
-     * there is nothing at the other end (DNS failure, connection refused) —
-     * which is where a malformed href like
-     * "http://TEA Accountability for Bryan/..." correctly lands.
+     * Broken means conclusive — the address itself is wrong or the page is
+     * gone: a 4xx answer, or a transport error proving there is nothing at
+     * the other end (DNS failure, connection refused), which is where a
+     * malformed href like "http://TEA Accountability for Bryan/..."
+     * correctly lands.
+     *
+     * A 5xx is deliberately NOT broken. The address resolved and a server
+     * answered; that server is just having a bad moment. Cloudflare's 520-527
+     * range is the clearest case — 522 is "origin didn't answer in time" and
+     * 525 is "SSL handshake with the origin failed", both of which come and go
+     * and neither of which a visitor would necessarily hit. 502/503/504 are
+     * the same story. Calling these broken put third-party outages in the same
+     * list as genuinely dead URLs: three of the top four rows on
+     * collegestationhomes.com were 525/502/522 against sites that were
+     * perfectly fine, which is exactly what makes a report unreadable.
      */
     private static function classify( $response, int $code ): string {
         if ( is_wp_error( $response ) ) {
@@ -679,6 +696,9 @@ class BLS_Link_Checker {
         }
         if ( in_array( $code, self::INCONCLUSIVE_STATUSES, true ) ) {
             return 'unverified';
+        }
+        if ( $code >= 500 ) {
+            return 'unverified'; // Server-side trouble, not a bad link.
         }
         if ( $code >= 400 ) {
             return 'broken';

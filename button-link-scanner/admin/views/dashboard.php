@@ -437,7 +437,7 @@
             <p class="bls-meta">
                 <?php printf(
                     /* translators: %d: number of links */
-                    esc_html__( '%d link(s) could not be verified — the server answered with a login wall, bot protection, or a rate limit (401/403/408/429), or timed out. That does not mean they are dead, so they are not counted as broken and are never emailed.', 'button-link-scanner' ),
+                    esc_html__( '%d link(s) could not be verified — the request was refused (login wall, bot protection, or rate limit), the destination answered with a server error (5xx), or it timed out. That does not mean they are dead, so they are not counted as broken and are never emailed.', 'button-link-scanner' ),
                     $unverified
                 ); ?>
                 <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-broken-links' ) ); ?>"><?php esc_html_e( 'See the list', 'button-link-scanner' ); ?></a>

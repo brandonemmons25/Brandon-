@@ -3,11 +3,24 @@
     <h1><?php esc_html_e( 'Broken Links', 'button-link-scanner' ); ?> <span class="bls-version-badge">v<?php echo esc_html( BLS_VERSION ); ?></span></h1>
     <p><?php esc_html_e( 'Every button link that failed its last health check (404, server error, or unreachable). A link is checked in the background on whatever schedule is set on the Dashboard, or on demand below.', 'button-link-scanner' ); ?></p>
 
+    <?php
+    // Both actions live above the table on purpose. The CSV link used to sit
+    // underneath it, which is fine at ten rows and useless at several hundred —
+    // on a report with 366 rows it was several screens down, past the ignore
+    // list, and read as missing entirely.
+    ?>
     <p>
         <button id="bls-check-links-now" class="button button-primary">
             <?php esc_html_e( 'Check Links Now', 'button-link-scanner' ); ?>
         </button>
+        <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_export_links_csv' ), 'bls_export_links_csv' ) ); ?>"
+           class="button button-secondary">
+            <?php esc_html_e( 'Download full link report (CSV)', 'button-link-scanner' ); ?>
+        </a>
         <span id="bls-link-check-status" class="bls-status"></span>
+    </p>
+    <p class="bls-meta" style="margin-top:-6px;">
+        <?php esc_html_e( 'The CSV has every row — broken and unverified — with no cap. Easier to sort and scan than the table below.', 'button-link-scanner' ); ?>
     </p>
 
     <?php if ( $last_run ) : ?>
@@ -107,18 +120,10 @@
         </form>
     </details>
 
-    <p style="margin-top:18px;">
-        <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_export_links_csv' ), 'bls_export_links_csv' ) ); ?>"
-           class="button button-secondary">
-            <?php esc_html_e( 'Download full link report (CSV)', 'button-link-scanner' ); ?>
-        </a>
-        <span class="bls-meta" style="margin-left:6px;"><?php esc_html_e( 'Every row, broken and unverified, with no cap.', 'button-link-scanner' ); ?></span>
-    </p>
-
     <?php if ( ! empty( $unverified_links ) ) : ?>
         <h2 style="margin-top:28px;"><?php esc_html_e( 'Could Not Verify', 'button-link-scanner' ); ?></h2>
         <p>
-            <?php esc_html_e( 'These answered with a login wall, bot protection, or a rate limit (401/403/408/429), or timed out even after a retry. That is not proof the link is dead — plenty of sites refuse anything that is not a real browser, and checking many links against one domain provokes rate limiting. They are listed for review but are not counted as broken and are never emailed.', 'button-link-scanner' ); ?>
+            <?php esc_html_e( 'These either refused the request (a login wall, bot protection, or a rate limit — 401/403/408/429/444/460), answered with a server error (5xx, including Cloudflare 520-527), or timed out even after a retry. None of that proves the link is dead: plenty of sites refuse anything that is not a real browser, and a server error means the destination was having a bad moment, not that the address is wrong. They are listed for review but are not counted as broken and are never emailed.', 'button-link-scanner' ); ?>
         </p>
         <table class="widefat striped">
             <thead>
