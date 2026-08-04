@@ -515,6 +515,31 @@ class BLS_Link_Checker {
     // Reads (for the admin UI)
     // -------------------------------------------------------------------------
 
+    /** Fetch specific health rows by id — the selection the unlink tool acts on. */
+    public static function get_links_by_ids( array $ids ): array {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+
+        $ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+        if ( empty( $ids ) ) {
+            return [];
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+
+        return (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT * FROM {$table} WHERE id IN ({$placeholders})",
+            $ids
+        ) );
+    }
+
+    /** Remove a health row once its link no longer exists in content. */
+    public static function forget_link( string $url ): void {
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
+        $wpdb->delete( $table, [ 'url_hash' => md5( $url ) ] );
+    }
+
     public static function get_broken_links( int $limit = 200 ): array {
         global $wpdb;
         $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
@@ -668,6 +693,50 @@ class BLS_Link_Checker {
     const INCONCLUSIVE_STATUSES = [ 401, 403, 408, 429, 444, 460 ];
 
     /**
+     * Check one URL right now and say what it is: 'broken', 'unverified',
+     * 'ok', or 'uncheckable'.
+     *
+     * Exists for destructive operations — the bulk unlink tool in particular.
+     * The health table is a snapshot from whenever the last check ran, and
+     * acting on a stale row means potentially stripping a link that works
+     * perfectly. Editing content is not something to do on stale evidence, so
+     * the unlinker re-confirms every URL at the moment it acts and only
+     * proceeds on a fresh 'broken'.
+     */
+    public static function verify_url_now( string $url ): string {
+        $check_url = self::resolve_checkable_url( $url );
+
+        if ( $check_url === null || self::is_ignored( $url ) ) {
+            return 'uncheckable';
+        }
+
+        $internal = self::verify_internal( $check_url );
+        if ( $internal !== null ) {
+            return $internal;
+        }
+
+        self::pace_request( strtolower( (string) wp_parse_url( $check_url, PHP_URL_HOST ) ) );
+
+        $response = wp_remote_get( $check_url, [
+            'timeout'     => 12,
+            'redirection' => 5,
+            'user-agent'  => 'WordPress/BLS-LinkChecker',
+        ] );
+        $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+
+        if ( self::is_timeout( $response ) ) {
+            $response = wp_remote_get( $check_url, [
+                'timeout'     => 20,
+                'redirection' => 5,
+                'user-agent'  => 'WordPress/BLS-LinkChecker',
+            ] );
+            $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+        }
+
+        return self::classify( $response, $code );
+    }
+
+    /**
      * Classify a response: 'broken', 'unverified', or 'ok'.
      *
      * Broken means conclusive — the address itself is wrong or the page is
@@ -748,22 +817,38 @@ class BLS_Link_Checker {
     public static function get_unverified_links( int $limit = 500 ): array {
         global $wpdb;
         $table  = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
-        $codes  = implode( ',', array_map( 'intval', self::INCONCLUSIVE_STATUSES ) );
         return (array) $wpdb->get_results( $wpdb->prepare(
             "SELECT * FROM {$table}
-             WHERE is_broken = 0 AND ( http_status IN ({$codes}) OR ( http_status = 0 AND error_message != '' ) )
+             WHERE is_broken = 0 AND ( " . self::unverified_where() . " )
              ORDER BY last_checked DESC LIMIT %d",
             $limit
         ) );
     }
 
+    /**
+     * The SQL fragment identifying an unverified row, shared by the list and
+     * the count so the two can never disagree.
+     *
+     * Derived from the stored status rather than a dedicated column, so no
+     * schema migration is needed. The `>= 500` clause is essential: 5xx rows
+     * are recorded with is_broken = 0 and a status that is not in
+     * INCONCLUSIVE_STATUSES, so without it they match neither list and vanish
+     * from the report entirely rather than moving between buckets.
+     */
+    private static function unverified_where(): string {
+        $codes = implode( ',', array_map( 'intval', self::INCONCLUSIVE_STATUSES ) );
+
+        return "http_status IN ({$codes})"
+            . " OR http_status >= 500"
+            . " OR ( http_status = 0 AND error_message != '' )";
+    }
+
     public static function get_unverified_count(): int {
         global $wpdb;
         $table = $wpdb->prefix . BLS_Database::LINK_HEALTH_TABLE;
-        $codes = implode( ',', array_map( 'intval', self::INCONCLUSIVE_STATUSES ) );
         return (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM {$table}
-             WHERE is_broken = 0 AND ( http_status IN ({$codes}) OR ( http_status = 0 AND error_message != '' ) )"
+             WHERE is_broken = 0 AND ( " . self::unverified_where() . " )"
         );
     }
 

@@ -23,6 +23,8 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_auto_fill_batch', [ __CLASS__, 'ajax_auto_fill_batch' ] );
         add_action( 'wp_ajax_bls_wipe_titles_start', [ __CLASS__, 'ajax_wipe_titles_start' ] );
         add_action( 'wp_ajax_bls_wipe_titles_batch', [ __CLASS__, 'ajax_wipe_titles_batch' ] );
+        add_action( 'wp_ajax_bls_unlink_start',      [ __CLASS__, 'ajax_unlink_start' ] );
+        add_action( 'wp_ajax_bls_unlink_batch',      [ __CLASS__, 'ajax_unlink_batch' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
@@ -210,6 +212,8 @@ class BLS_Admin {
         $unverified_links = $ignored( BLS_Link_Checker::get_unverified_links( 500 ) );
         $last_run         = BLS_Link_Checker::get_last_run();
         $ignore_patterns  = BLS_Link_Checker::get_ignore_patterns();
+        $last_unlink      = get_option( 'bls_last_unlink_result', [] );
+        $unlink_abandoned = get_option( BLS_Updater::UNLINK_QUEUE_OPTION, null ) !== null;
         include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 
@@ -537,6 +541,63 @@ class BLS_Admin {
                 'time'  => current_time( 'mysql' ),
             ], false );
             wp_send_json_error( 'Title wipe batch failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Kick off a batched bulk unlink of selected dead links. Browser then
+     * calls ajax_unlink_batch repeatedly until done.
+     */
+    public static function ajax_unlink_start() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $ids = isset( $_POST['ids'] ) ? (array) $_POST['ids'] : [];
+        $ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+
+        if ( empty( $ids ) ) {
+            wp_send_json_error( 'No links selected.' );
+        }
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->start_unlink( $ids );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Unlink start failed: ' . $e->getMessage() );
+        }
+    }
+
+    public static function ajax_unlink_batch() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $batch_size = isset( $_POST['batch_size'] ) ? max( 1, (int) $_POST['batch_size'] ) : BLS_Updater::UNLINK_DEFAULT_BATCH_SIZE;
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->run_unlink_batch( $batch_size );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            update_option( 'bls_last_unlink_result', [
+                'error' => 'Unlink failed: ' . $e->getMessage(),
+                'time'  => current_time( 'mysql' ),
+            ], false );
+            wp_send_json_error( 'Unlink batch failed: ' . $e->getMessage() );
         }
     }
 

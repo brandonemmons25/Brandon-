@@ -568,6 +568,90 @@
     }
 
     // -------------------------------------------------------------------------
+    // Broken Links: bulk unlink dead destinations
+    // -------------------------------------------------------------------------
+
+    function unlinkSelection() {
+        return $('.bls-unlink-pick:checked').map(function () {
+            return parseInt(this.value, 10);
+        }).get();
+    }
+
+    function refreshUnlinkCount() {
+        var n = unlinkSelection().length;
+        $('#bls-unlink-selected').prop('disabled', n < 1);
+        $('#bls-unlink-count').text(
+            n < 1 ? 'Nothing selected' : n + ' link' + (n === 1 ? '' : 's') + ' selected'
+        );
+    }
+
+    $(document).on('change', '.bls-unlink-pick', refreshUnlinkCount);
+
+    $('#bls-unlink-check-all').on('change', function () {
+        $('.bls-unlink-pick').prop('checked', this.checked);
+        refreshUnlinkCount();
+    });
+
+    $('#bls-unlink-selected').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-unlink-status');
+        var ids     = unlinkSelection();
+
+        if (ids.length < 1) {
+            return;
+        }
+
+        if (!confirm(
+            'Remove ' + ids.length + ' link' + (ids.length === 1 ? '' : 's') + ' from your pages?\n\n'
+            + 'The words stay exactly where they are — they just stop being clickable.\n\n'
+            + 'Each link is re-checked first, and any that now work are skipped. '
+            + 'This edits page content and cannot be undone automatically. Continue?'
+        )) {
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Starting...' + spinner(), '');
+
+        ajax('bls_unlink_start', { ids: ids }, function () {
+            runUnlinkBatchLoop($btn, $status);
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    function runUnlinkBatchLoop($btn, $status) {
+        ajax('bls_unlink_batch', {}, function (data) {
+            var pct = data.total_items > 0
+                ? Math.round((data.processed / data.total_items) * 100)
+                : 100;
+            setStatus(
+                $status,
+                'Re-checking and unlinking... (' + data.processed + '/' + data.total_items + ' — ' + pct + '%)' + spinner(),
+                ''
+            );
+
+            if (data.done) {
+                var msg = data.unlinked + ' link(s) removed across ' + data.pages_changed + ' page(s).';
+                if (data.skipped_alive > 0) {
+                    msg += ' ' + data.skipped_alive + ' skipped — working again on re-check.';
+                }
+                if (data.skipped_not_found > 0) {
+                    msg += ' ' + data.skipped_not_found + ' not found in editable content.';
+                }
+                setStatus($status, msg, 'ok');
+                setTimeout(function () { location.reload(); }, 2000);
+            } else {
+                setTimeout(function () { runUnlinkBatchLoop($btn, $status); }, 400);
+            }
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    }
+
+    // -------------------------------------------------------------------------
     // Auto-resume interrupted batch jobs on page load
     // -------------------------------------------------------------------------
     // Both Site Scan and Auto-Fill run as a client-side loop tied to one
@@ -600,6 +684,13 @@
         $fillBtn.prop('disabled', true);
         setStatus($fillStatus, 'Resuming interrupted run...' + spinner(), '');
         runAutoFillBatchLoop($fillBtn, $fillStatus);
+    }
+    if ($('#bls-unlink-abandoned-notice').length) {
+        var $unlinkBtn = $('#bls-unlink-selected');
+        var $unlinkStatus = $('#bls-unlink-status');
+        $unlinkBtn.prop('disabled', true);
+        setStatus($unlinkStatus, 'Resuming interrupted removal...' + spinner(), '');
+        runUnlinkBatchLoop($unlinkBtn, $unlinkStatus);
     }
     if ($('#bls-wipe-abandoned-notice').length) {
         var $wipeBtn = $('#bls-wipe-titles');

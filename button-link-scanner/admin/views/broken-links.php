@@ -32,6 +32,64 @@
         </p>
     <?php endif; ?>
 
+    <?php if ( ! empty( $last_unlink ) ) : ?>
+        <div class="bls-card bls-card--notice">
+            <?php if ( ! empty( $last_unlink['error'] ) ) : ?>
+                <p><strong><?php esc_html_e( 'Last link removal failed:', 'button-link-scanner' ); ?></strong>
+                    <?php echo esc_html( $last_unlink['error'] ); ?></p>
+            <?php else : ?>
+                <p style="margin:0 0 6px;"><strong><?php printf(
+                    esc_html__( 'Last link removal: %s', 'button-link-scanner' ),
+                    esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (string) ( $last_unlink['time'] ?? '' ) ) )
+                ); ?></strong></p>
+                <ul style="margin:0 0 6px 18px; list-style:disc;">
+                    <li><?php printf(
+                        esc_html__( 'Links removed: %1$d across %2$d page(s)', 'button-link-scanner' ),
+                        (int) ( $last_unlink['unlinked'] ?? 0 ),
+                        (int) ( $last_unlink['pages_changed'] ?? 0 )
+                    ); ?></li>
+                    <?php if ( ! empty( $last_unlink['skipped_alive'] ) ) : ?>
+                        <li><?php printf(
+                            esc_html__( 'Left alone because they worked on re-check: %d', 'button-link-scanner' ),
+                            (int) $last_unlink['skipped_alive']
+                        ); ?></li>
+                    <?php endif; ?>
+                    <?php if ( ! empty( $last_unlink['skipped_not_found'] ) ) : ?>
+                        <li><?php printf(
+                            esc_html__( 'Could not be found in editable content: %d', 'button-link-scanner' ),
+                            (int) $last_unlink['skipped_not_found']
+                        ); ?></li>
+                    <?php endif; ?>
+                </ul>
+                <?php if ( ! empty( $last_unlink['skipped_alive_urls'] ) ) : ?>
+                    <details style="margin:0 0 8px;">
+                        <summary style="cursor:pointer;"><?php esc_html_e( 'Which ones were left alone', 'button-link-scanner' ); ?></summary>
+                        <ul style="margin:6px 0 0 18px; list-style:disc;">
+                            <?php foreach ( (array) $last_unlink['skipped_alive_urls'] as $skipped ) : ?>
+                                <li><code><?php echo esc_html( (string) ( $skipped['url'] ?? '' ) ); ?></code>
+                                    — <?php echo esc_html( (string) ( $skipped['state'] ?? '' ) ); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </details>
+                <?php endif; ?>
+                <?php if ( ! empty( $last_unlink['log_url'] ) ) : ?>
+                    <p style="margin:0;">
+                        <a href="<?php echo esc_url( (string) $last_unlink['log_url'] ); ?>" class="button button-secondary">
+                            <?php esc_html_e( 'Download removal log (CSV)', 'button-link-scanner' ); ?>
+                        </a>
+                        <span class="bls-meta" style="margin-left:6px;"><?php esc_html_e( 'Every link removed, and the page it came off.', 'button-link-scanner' ); ?></span>
+                    </p>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ( $unlink_abandoned ) : ?>
+        <div id="bls-unlink-abandoned-notice" class="notice notice-warning">
+            <p><?php esc_html_e( 'A link removal was interrupted before it finished. Picking it back up automatically...', 'button-link-scanner' ); ?></p>
+        </div>
+    <?php endif; ?>
+
     <?php if ( empty( $broken_links ) && ! $last_run ) : ?>
         <div class="bls-card bls-card--notice">
             <p><strong><?php esc_html_e( "This site hasn't been checked yet.", 'button-link-scanner' ); ?></strong>
@@ -42,9 +100,34 @@
             <p><?php esc_html_e( 'No broken links on file as of the last check. Nice.', 'button-link-scanner' ); ?></p>
         </div>
     <?php else : ?>
-        <table class="wp-list-table widefat fixed striped">
+        <?php
+        // Bulk unlink. Kept deliberately explicit — nothing is preselected and
+        // the count is echoed back before anything runs, because this edits
+        // page content and there is no single-click undo.
+        ?>
+        <div class="bls-card" style="margin:18px 0; padding:14px 16px;">
+            <p style="margin:0 0 8px;"><strong><?php esc_html_e( 'Remove dead links', 'button-link-scanner' ); ?></strong></p>
+            <p style="margin:0 0 10px; max-width:820px;">
+                <?php esc_html_e( 'Tick any links below whose destination is gone for good — a business that closed, a site that no longer exists — and this removes the link while leaving the words exactly where they are. Nothing is deleted from the page; the text simply stops being clickable.', 'button-link-scanner' ); ?>
+            </p>
+            <p style="margin:0 0 10px; max-width:820px;" class="bls-meta">
+                <?php esc_html_e( 'Every link is re-checked at the moment it is processed, so anything that has come back online since the last check is skipped and left alone. Use this for dead destinations; if a page has simply moved, edit the URL on the page instead. There is no undo, and a full log of every change is saved.', 'button-link-scanner' ); ?>
+            </p>
+            <p style="margin:0;">
+                <button id="bls-unlink-selected" class="button button-primary" disabled>
+                    <?php esc_html_e( 'Unlink selected', 'button-link-scanner' ); ?>
+                </button>
+                <span id="bls-unlink-count" class="bls-meta" style="margin-left:8px;"><?php esc_html_e( 'Nothing selected', 'button-link-scanner' ); ?></span>
+                <span id="bls-unlink-status" class="bls-status" style="margin-left:8px;"></span>
+            </p>
+        </div>
+
+        <table class="wp-list-table widefat striped">
             <thead>
                 <tr>
+                    <td class="check-column" style="width:2.2em;">
+                        <input type="checkbox" id="bls-unlink-check-all" title="<?php esc_attr_e( 'Select all', 'button-link-scanner' ); ?>">
+                    </td>
                     <th><?php esc_html_e( 'Button', 'button-link-scanner' ); ?></th>
                     <th><?php esc_html_e( 'Broken Link', 'button-link-scanner' ); ?></th>
                     <th><?php esc_html_e( 'Found On', 'button-link-scanner' ); ?></th>
@@ -56,6 +139,9 @@
             <tbody>
             <?php foreach ( $broken_links as $row ) : ?>
                 <tr data-id="<?php echo (int) $row->id; ?>">
+                    <td class="check-column">
+                        <input type="checkbox" class="bls-unlink-pick" value="<?php echo (int) $row->id; ?>">
+                    </td>
                     <td><strong><?php echo esc_html( $row->button_text ); ?></strong></td>
                     <td><a href="<?php echo esc_url( $row->link_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $row->link_url ); ?></a></td>
                     <td>

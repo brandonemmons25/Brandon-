@@ -239,6 +239,17 @@ class BLS_Updater {
     /** Default number of posts processed per wipe batch. */
     const WIPE_DEFAULT_BATCH_SIZE = 5;
 
+    /** Queue/progress options for the batched bulk unlink (see start_unlink()). */
+    const UNLINK_QUEUE_OPTION    = 'bls_unlink_queue';
+    const UNLINK_PROGRESS_OPTION = 'bls_unlink_progress';
+
+    /**
+     * Default URLs processed per unlink batch — deliberately smaller than the
+     * others. Each item re-verifies over HTTP before touching anything, so a
+     * batch is bounded by network time, not database time.
+     */
+    const UNLINK_DEFAULT_BATCH_SIZE = 3;
+
     /**
      * Build the work queue: every distinct button/link pair (buttons AND
      * plain content hyperlinks alike — this was never scoped to buttons
@@ -1304,6 +1315,348 @@ class BLS_Updater {
         // Older format: "<text> – <destination>". Normalization has already
         // reduced the separator to a space, so this is a prefix test.
         return str_starts_with( $t, $l . ' ' );
+    }
+
+    // -------------------------------------------------------------------------
+    // Bulk unlink — turn dead links back into plain text
+    // -------------------------------------------------------------------------
+
+    /**
+     * Queue up a set of broken links to be unlinked.
+     *
+     * Why unlink rather than replace: on collegestationhomes.com the 366
+     * broken links were 366 *distinct* URLs across 134 pages — not one
+     * repeated twice. A find-and-replace tool fixes those one at a time,
+     * which is no faster than editing the page by hand. But 110 of them are
+     * domains that no longer resolve at all: the business closed, the site is
+     * gone, and there is nothing to point at. For those the only correct fix
+     * is to stop linking — keep the text, drop the anchor — and that *does*
+     * bulk cleanly.
+     *
+     * @param  int[] $ids Row ids from the link-health table.
+     * @return array { total_items: int }
+     */
+    public function start_unlink( array $ids ): array {
+        $rows = BLS_Link_Checker::get_links_by_ids( $ids );
+
+        $queue = [];
+        foreach ( $rows as $row ) {
+            $queue[] = [
+                'url'         => (string) $row->link_url,
+                'button_text' => (string) $row->button_text,
+            ];
+        }
+
+        $log = $this->create_log_file( 'unlink', [
+            'Link removed', 'Link text', 'Page', 'Page ID', 'Page URL', 'Removed from',
+        ] );
+
+        update_option( self::UNLINK_QUEUE_OPTION, $queue, false );
+        update_option( self::UNLINK_PROGRESS_OPTION, [
+            'total_items'       => count( $queue ),
+            'processed'         => 0,
+            'unlinked'          => 0,
+            'pages_changed'     => 0,
+            'skipped_alive'     => 0,
+            'skipped_not_found' => 0,
+            'skipped_alive_urls' => [],
+            'changes'           => [],
+            'changes_truncated' => 0,
+            'log_path'          => $log['path'] ?? '',
+            'log_url'           => $log['url'] ?? '',
+        ], false );
+
+        return [ 'total_items' => count( $queue ) ];
+    }
+
+    /**
+     * Process the next batch of queued URLs.
+     *
+     * @param  int $batch_size How many URLs to handle this call.
+     * @return array { done: bool, ...running totals }
+     */
+    public function run_unlink_batch( int $batch_size = self::UNLINK_DEFAULT_BATCH_SIZE ): array {
+        $queue    = get_option( self::UNLINK_QUEUE_OPTION, null );
+        $progress = get_option( self::UNLINK_PROGRESS_OPTION, null );
+
+        if ( $queue === null || $progress === null ) {
+            return [ 'done' => true, 'error' => 'No unlink run in progress.' ];
+        }
+
+        $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
+
+        foreach ( $batch as $item ) {
+            $progress['processed']++;
+            $url = (string) $item['url'];
+
+            // Re-confirm before editing anything. The health row could be
+            // hours old, the destination could have come back up, and
+            // stripping a working link is not something to do on a stale
+            // reading. Only a fresh 'broken' authorises a change.
+            $state = BLS_Link_Checker::verify_url_now( $url );
+            if ( $state !== 'broken' ) {
+                $progress['skipped_alive']++;
+                if ( count( $progress['skipped_alive_urls'] ) < 50 ) {
+                    $progress['skipped_alive_urls'][] = [ 'url' => $url, 'state' => $state ];
+                }
+                continue;
+            }
+
+            $result = $this->unlink_url_everywhere( $url, $progress );
+
+            if ( $result['count'] < 1 ) {
+                $progress['skipped_not_found']++;
+                continue;
+            }
+
+            $progress['unlinked']      += $result['count'];
+            $progress['pages_changed'] += $result['pages'];
+
+            // The anchors are gone from the pages that were actually rewritten,
+            // so those scan rows no longer describe anything. Rows for pages
+            // where the anchor could not be reached (a page builder's own
+            // storage, a theme template) are deliberately left in place — the
+            // link is still live there, and clearing them would hide it.
+            $this->forget_link_rows( $url, $result['post_ids'] );
+
+            // Only stop reporting the URL once nothing references it anymore.
+            if ( ! $this->link_still_used( $url ) ) {
+                BLS_Link_Checker::forget_link( $url );
+            }
+        }
+
+        $done = empty( $queue );
+
+        if ( $done ) {
+            update_option( 'bls_last_unlink_result', array_merge( $progress, [ 'time' => current_time( 'mysql' ) ] ), false );
+            delete_option( self::UNLINK_QUEUE_OPTION );
+            delete_option( self::UNLINK_PROGRESS_OPTION );
+        } else {
+            update_option( self::UNLINK_QUEUE_OPTION, $queue, false );
+            update_option( self::UNLINK_PROGRESS_OPTION, $progress, false );
+        }
+
+        return array_merge( $progress, [ 'done' => $done ] );
+    }
+
+    /**
+     * Strip one dead URL's anchors from every page that uses it.
+     *
+     * The health table keeps a single representative page per URL, but the
+     * same link can appear on several, so the pages come from the results
+     * table instead — otherwise a bulk unlink would silently leave copies
+     * behind and they would reappear on the next scan.
+     *
+     * @return array { count: int, pages: int, post_ids: int[] }
+     */
+    private function unlink_url_everywhere( string $url, array &$progress ): array {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        $post_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT post_id FROM {$res_table} WHERE link_url = %s AND post_id > 0",
+            $url
+        ) );
+
+        $count   = 0;
+        $changed = [];
+
+        foreach ( array_map( 'intval', (array) $post_ids ) as $post_id ) {
+            $post = get_post( $post_id );
+            if ( ! $post ) {
+                continue;
+            }
+
+            $removed = $this->unlink_url_in_post( $post, $url, $progress );
+            if ( $removed > 0 ) {
+                $count    += $removed;
+                $changed[] = $post_id;
+            }
+        }
+
+        return [ 'count' => $count, 'pages' => count( $changed ), 'post_ids' => $changed ];
+    }
+
+    /**
+     * Remove one URL's anchors from every writable source for a single post —
+     * the same four places Auto-Fill writes to and the wipe tool cleans.
+     *
+     * @return int Anchors unlinked.
+     */
+    private function unlink_url_in_post( WP_Post $post, string $url, array &$progress ): int {
+        $removed = 0;
+
+        $result = $this->unlink_url_in_html( $post->post_content, $url );
+        if ( $result['changed'] ) {
+            wp_update_post( [ 'ID' => $post->ID, 'post_content' => $result['html'] ] );
+            $removed += $result['count'];
+            $this->log_unlink( $progress, $post, $url, $result['removed'], 'content' );
+        }
+
+        if ( trim( (string) $post->post_excerpt ) !== '' ) {
+            $result = $this->unlink_url_in_html( $post->post_excerpt, $url );
+            if ( $result['changed'] ) {
+                wp_update_post( [ 'ID' => $post->ID, 'post_excerpt' => $result['html'] ] );
+                $removed += $result['count'];
+                $this->log_unlink( $progress, $post, $url, $result['removed'], 'excerpt' );
+            }
+        }
+
+        $template_slug = get_page_template_slug( $post->ID );
+        if ( ! empty( $template_slug ) ) {
+            $slug = preg_replace( '/\.html$/', '', basename( $template_slug ) );
+            if ( ! empty( $slug ) && $slug !== 'default' ) {
+                $template_post = get_page_by_path( $slug, OBJECT, 'wp_template' );
+                if ( $template_post && trim( (string) $template_post->post_content ) !== '' ) {
+                    $result = $this->unlink_url_in_html( $template_post->post_content, $url );
+                    if ( $result['changed'] ) {
+                        wp_update_post( [ 'ID' => $template_post->ID, 'post_content' => $result['html'] ] );
+                        $removed += $result['count'];
+                        $this->log_unlink( $progress, $post, $url, $result['removed'], 'template' );
+                    }
+                }
+            }
+        }
+
+        foreach ( (array) get_post_meta( $post->ID ) as $key => $values ) {
+            if ( strpos( $key, '_' ) === 0 ) {
+                continue;
+            }
+            foreach ( (array) $values as $value ) {
+                if ( ! is_string( $value ) || $value === '' || stripos( $value, '<a' ) === false ) {
+                    continue;
+                }
+                $result = $this->unlink_url_in_html( $value, $url );
+                if ( $result['changed'] ) {
+                    update_post_meta( $post->ID, $key, $result['html'], $value );
+                    $removed += $result['count'];
+                    $this->log_unlink( $progress, $post, $url, $result['removed'], 'custom field: ' . $key );
+                }
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Replace every anchor pointing at $url with its own contents, leaving the
+     * text and any inline markup (a <strong>, an icon <span>) exactly where it
+     * was and only the link itself gone.
+     *
+     * href comparison goes through hrefs_match(), so a stored
+     * "http://example.com/a b" still matches a rendered
+     * "http://example.com/a%20b" — the percent-encoding difference that
+     * needed fixing in 1.27.
+     *
+     * @return array { html: string, changed: bool, count: int, removed: array }
+     */
+    private function unlink_url_in_html( string $html, string $url ): array {
+        $unchanged = [ 'html' => $html, 'changed' => false, 'count' => 0, 'removed' => [] ];
+
+        if ( trim( $html ) === '' || stripos( $html, '<a' ) === false ) {
+            return $unchanged;
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+        libxml_clear_errors();
+
+        $count   = 0;
+        $removed = [];
+
+        foreach ( iterator_to_array( $dom->getElementsByTagName( 'a' ) ) as $node ) {
+            if ( ! $node->hasAttribute( 'href' ) ) {
+                continue;
+            }
+            if ( ! $this->hrefs_match( $node->getAttribute( 'href' ), $url ) ) {
+                continue;
+            }
+
+            $text = trim( $node->textContent );
+
+            // Move the anchor's children up into its place, then drop the
+            // anchor. An empty anchor (an icon-only link with nothing inside)
+            // would otherwise leave nothing at all behind, so it keeps its
+            // text if there is any and simply disappears if there isn't.
+            $parent = $node->parentNode;
+            if ( ! $parent ) {
+                continue;
+            }
+            while ( $node->firstChild ) {
+                $parent->insertBefore( $node->firstChild, $node );
+            }
+            $parent->removeChild( $node );
+
+            $count++;
+            $removed[] = [ 'text' => $text ];
+        }
+
+        if ( $count < 1 ) {
+            return $unchanged;
+        }
+
+        return [
+            'html'    => $this->strip_dom_wrapper( (string) $dom->saveHTML(), $html ),
+            'changed' => true,
+            'count'   => $count,
+            'removed' => $removed,
+        ];
+    }
+
+    /**
+     * Drop the scan rows for a URL that has just been unlinked, on the pages
+     * where the rewrite actually landed. The element is no longer a link at
+     * all, so leaving the rows would keep it in the "missing SEO title" and
+     * broken-link counts until the next full scan.
+     *
+     * @param int[] $post_ids Pages that were genuinely rewritten.
+     */
+    private function forget_link_rows( string $url, array $post_ids ): void {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        foreach ( array_map( 'intval', $post_ids ) as $post_id ) {
+            $wpdb->delete( $res_table, [ 'link_url' => $url, 'post_id' => $post_id ] );
+        }
+    }
+
+    /** True while any scan row still points at this URL. */
+    private function link_still_used( string $url ): bool {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        return (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$res_table} WHERE link_url = %s",
+            $url
+        ) ) > 0;
+    }
+
+    /** Audit trail for the unlink direction — same shape as log_wipe(). */
+    private function log_unlink( array &$progress, WP_Post $post, string $url, array $removed, string $source ): void {
+        foreach ( $removed as $entry ) {
+            $this->append_log_row( (string) ( $progress['log_path'] ?? '' ), [
+                $url,
+                $entry['text'],
+                $post->post_title,
+                $post->ID,
+                get_permalink( $post->ID ),
+                $source,
+            ] );
+
+            if ( count( $progress['changes'] ) >= self::AUDIT_LOG_LIMIT ) {
+                $progress['changes_truncated']++;
+                continue;
+            }
+            $progress['changes'][] = [
+                'post_id'     => $post->ID,
+                'post_title'  => $post->post_title,
+                'post_url'    => get_permalink( $post->ID ),
+                'link_url'    => $url,
+                'button_text' => $entry['text'],
+                'source'      => $source,
+            ];
+        }
     }
 
     /**
