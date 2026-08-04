@@ -260,51 +260,6 @@ class MDG_Scanner {
         return $missing;
     }
 
-    /**
-     * Return IDs of all published posts/pages missing a focus keyphrase or
-     * meta description. SEO title is left to Yoast's own title template.
-     */
-    public static function get_incomplete_post_ids(): array {
-        global $wpdb;
-
-        $post_types   = self::get_scannable_types();
-        $excluded_ids = self::get_excluded_ids();
-
-        if ( empty( $post_types ) ) return [];
-
-        $type_placeholders = implode( ',', array_fill( 0, count( $post_types ), '%s' ) );
-        $id_exclusion      = '';
-        $params            = $post_types;
-
-        if ( ! empty( $excluded_ids ) ) {
-            $id_placeholders = implode( ',', array_fill( 0, count( $excluded_ids ), '%d' ) );
-            $id_exclusion    = "AND p.ID NOT IN ({$id_placeholders})";
-            $params          = array_merge( $params, $excluded_ids );
-        }
-
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $sql = "
-            SELECT DISTINCT p.ID
-            FROM {$wpdb->posts} p
-            LEFT JOIN {$wpdb->postmeta} pm_kw
-                   ON pm_kw.post_id = p.ID AND pm_kw.meta_key = '_yoast_wpseo_focuskw'
-            LEFT JOIN {$wpdb->postmeta} pm_desc
-                   ON pm_desc.post_id = p.ID AND pm_desc.meta_key = '_yoast_wpseo_metadesc'
-            WHERE p.post_status = 'publish'
-              AND p.post_type IN ({$type_placeholders})
-              {$id_exclusion}
-              AND (
-                  pm_kw.meta_value    IS NULL OR pm_kw.meta_value    = ''
-               OR pm_desc.meta_value  IS NULL OR pm_desc.meta_value  = ''
-              )
-            ORDER BY p.post_title ASC
-        ";
-        // phpcs:enable
-
-        $rows = $wpdb->get_col( $wpdb->prepare( $sql, $params ) );
-        return array_map( 'intval', $rows );
-    }
-
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

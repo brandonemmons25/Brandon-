@@ -537,46 +537,6 @@
     });
 
     // -------------------------------------------------------------------------
-    // Auto-fill queue processor (runs on every admin page load while active)
-    // -------------------------------------------------------------------------
-
-    if (MDG.auto_run) {
-        runAutoFill();
-    }
-
-    function runAutoFill() {
-        var total    = MDG.auto_total;
-        var $notice  = $('#mdg-auto-notice');
-        var $bar     = $('#mdg-auto-bar');
-        var $text    = $('#mdg-auto-progress-text');
-
-        function processNext() {
-            ajax('mdg_auto_fill_next', {}, function (data) {
-                var pct = total ? Math.round(data.processed / total * 100) : 100;
-                $bar.css('width', pct + '%');
-                if ($text.length) $text.text(data.processed + ' of ' + total);
-
-                if (data.done) {
-                    if ($notice.length) {
-                        $notice.removeClass('notice-info').addClass('notice-success');
-                        $notice.find('p').html('<strong>' + MDG.strings.auto_done + '</strong> ' + data.processed + ' posts/pages processed.');
-                        $notice.find('div').hide();
-                    }
-                } else {
-                    // Pace calls to stay under the Claude API rate limit.
-                    setTimeout(processNext, API_PACE_MS);
-                }
-            }, function () {
-                // On error (often a rate limit), back off longer than the
-                // normal pace before retrying.
-                setTimeout(processNext, API_PACE_MS * 2);
-            });
-        }
-
-        processNext();
-    }
-
-    // -------------------------------------------------------------------------
     // Check-all checkbox
     // -------------------------------------------------------------------------
 
