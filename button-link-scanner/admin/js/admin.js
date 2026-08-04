@@ -592,6 +592,20 @@
         refreshUnlinkCount();
     });
 
+    // Select every row of one failure kind at once. Adds to whatever is
+    // already ticked rather than replacing it, so several categories can be
+    // combined in one pass.
+    $('.bls-select-kind').on('click', function () {
+        var kind = $(this).data('kind');
+        $('tr[data-kind="' + kind + '"]').find('.bls-unlink-pick').prop('checked', true);
+        refreshUnlinkCount();
+    });
+
+    $('#bls-unlink-clear').on('click', function () {
+        $('.bls-unlink-pick, #bls-unlink-check-all').prop('checked', false);
+        refreshUnlinkCount();
+    });
+
     $('#bls-unlink-selected').on('click', function () {
         var $btn    = $(this);
         var $status = $('#bls-unlink-status');

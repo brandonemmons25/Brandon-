@@ -515,6 +515,81 @@ class BLS_Link_Checker {
     // Reads (for the admin UI)
     // -------------------------------------------------------------------------
 
+    /**
+     * Sort a broken row into a failure kind, so the report can be worked
+     * through a category at a time instead of row by row.
+     *
+     * This is the difference between the unlink tool being usable and not.
+     * The two kinds need opposite treatment and only the machine can tell
+     * them apart at a glance: 'gone' means the domain itself no longer
+     * resolves, so there is nothing to link to and unlinking is the only
+     * fix; 'missing' means the server is alive and answered 404, which
+     * usually means the page moved and wants a corrected URL instead.
+     * Selecting 110 checkboxes by hand to keep those apart is not a
+     * workflow anyone would use twice.
+     */
+    public static function failure_kind( $row ): string {
+        $status  = (int) ( $row->http_status ?? 0 );
+        $message = strtolower( (string) ( $row->error_message ?? '' ) );
+
+        if ( $status === 404 || $status === 410 ) {
+            return 'missing';
+        }
+        if ( $status >= 400 ) {
+            return 'refused';
+        }
+        if ( str_contains( $message, 'could not resolve host' ) ) {
+            return 'gone';
+        }
+        if ( str_contains( $message, 'too many redirects' ) ) {
+            return 'redirect-loop';
+        }
+        if ( str_contains( $message, 'bad hostname' ) || str_contains( $message, 'valid url was not provided' ) ) {
+            return 'malformed';
+        }
+        if ( str_contains( $message, 'failed to connect' ) || str_contains( $message, 'connection reset' ) ) {
+            return 'refused';
+        }
+
+        return 'other';
+    }
+
+    /** Human-readable labels and guidance for each failure kind. */
+    public static function failure_kind_labels(): array {
+        return [
+            'gone' => [
+                'label'  => __( 'Domain no longer exists', 'button-link-scanner' ),
+                'advice' => __( 'The whole site is gone — usually a business that closed. There is nothing to link to, so unlinking is the right fix.', 'button-link-scanner' ),
+                'unlink' => true,
+            ],
+            'missing' => [
+                'label'  => __( 'Page not found (404/410)', 'button-link-scanner' ),
+                'advice' => __( 'The site is alive but this page is not. It has often just moved — check for a new URL before unlinking.', 'button-link-scanner' ),
+                'unlink' => false,
+            ],
+            'malformed' => [
+                'label'  => __( 'Not a valid web address', 'button-link-scanner' ),
+                'advice' => __( 'Text pasted into a link field by mistake — a phone number, a description, a stray tag. Fix or unlink.', 'button-link-scanner' ),
+                'unlink' => true,
+            ],
+            'redirect-loop' => [
+                'label'  => __( 'Redirect loop', 'button-link-scanner' ),
+                'advice' => __( 'The destination redirects endlessly. Worth investigating before removing.', 'button-link-scanner' ),
+                'unlink' => false,
+            ],
+            'refused' => [
+                'label'  => __( 'Connection refused or rejected', 'button-link-scanner' ),
+                'advice' => __( 'Nothing answered on the expected port. Some of these are old http:// links to sites that are now https-only, so check a few by hand.', 'button-link-scanner' ),
+                'unlink' => false,
+            ],
+            'other' => [
+                'label'  => __( 'Other failure', 'button-link-scanner' ),
+                'advice' => __( 'Review these individually.', 'button-link-scanner' ),
+                'unlink' => false,
+            ],
+        ];
+    }
+
     /** Fetch specific health rows by id — the selection the unlink tool acts on. */
     public static function get_links_by_ids( array $ids ): array {
         global $wpdb;

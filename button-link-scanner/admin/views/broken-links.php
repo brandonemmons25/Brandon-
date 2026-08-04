@@ -113,10 +113,46 @@
             <p style="margin:0 0 10px; max-width:820px;" class="bls-meta">
                 <?php esc_html_e( 'Every link is re-checked at the moment it is processed, so anything that has come back online since the last check is skipped and left alone. Use this for dead destinations; if a page has simply moved, edit the URL on the page instead. There is no undo, and a full log of every change is saved.', 'button-link-scanner' ); ?>
             </p>
+            <?php
+            $kind_labels = BLS_Link_Checker::failure_kind_labels();
+            $kind_counts = [];
+            foreach ( $broken_links as $row ) {
+                $kind = BLS_Link_Checker::failure_kind( $row );
+                $kind_counts[ $kind ] = ( $kind_counts[ $kind ] ?? 0 ) + 1;
+            }
+            ?>
+            <?php if ( ! empty( $kind_counts ) ) : ?>
+                <table class="widefat striped" style="margin:0 0 12px; max-width:820px;">
+                    <tbody>
+                    <?php foreach ( $kind_labels as $kind => $meta ) : ?>
+                        <?php if ( empty( $kind_counts[ $kind ] ) ) { continue; } ?>
+                        <tr>
+                            <td style="width:70px; vertical-align:top;"><strong><?php echo (int) $kind_counts[ $kind ]; ?></strong></td>
+                            <td style="vertical-align:top;">
+                                <strong><?php echo esc_html( $meta['label'] ); ?></strong>
+                                <?php if ( ! empty( $meta['unlink'] ) ) : ?>
+                                    <span class="bls-badge" style="background:#d5e7d5; color:#255625;"><?php esc_html_e( 'safe to unlink', 'button-link-scanner' ); ?></span>
+                                <?php else : ?>
+                                    <span class="bls-badge" style="background:#f5e6c8; color:#6b4e00;"><?php esc_html_e( 'check first', 'button-link-scanner' ); ?></span>
+                                <?php endif; ?>
+                                <br><span class="bls-meta"><?php echo esc_html( $meta['advice'] ); ?></span>
+                            </td>
+                            <td style="width:130px; vertical-align:top;">
+                                <button type="button" class="button button-small bls-select-kind" data-kind="<?php echo esc_attr( $kind ); ?>">
+                                    <?php esc_html_e( 'Select these', 'button-link-scanner' ); ?>
+                                </button>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+
             <p style="margin:0;">
                 <button id="bls-unlink-selected" class="button button-primary" disabled>
                     <?php esc_html_e( 'Unlink selected', 'button-link-scanner' ); ?>
                 </button>
+                <button type="button" id="bls-unlink-clear" class="button button-small"><?php esc_html_e( 'Clear selection', 'button-link-scanner' ); ?></button>
                 <span id="bls-unlink-count" class="bls-meta" style="margin-left:8px;"><?php esc_html_e( 'Nothing selected', 'button-link-scanner' ); ?></span>
                 <span id="bls-unlink-status" class="bls-status" style="margin-left:8px;"></span>
             </p>
@@ -138,7 +174,8 @@
             </thead>
             <tbody>
             <?php foreach ( $broken_links as $row ) : ?>
-                <tr data-id="<?php echo (int) $row->id; ?>">
+                <?php $row_kind = BLS_Link_Checker::failure_kind( $row ); ?>
+                <tr data-id="<?php echo (int) $row->id; ?>" data-kind="<?php echo esc_attr( $row_kind ); ?>">
                     <td class="check-column">
                         <input type="checkbox" class="bls-unlink-pick" value="<?php echo (int) $row->id; ?>">
                     </td>
@@ -155,6 +192,7 @@
                         <span class="bls-badge bls-badge--danger">
                             <?php echo $row->http_status > 0 ? 'HTTP ' . (int) $row->http_status : esc_html( $row->error_message ?: __( 'unreachable', 'button-link-scanner' ) ); ?>
                         </span>
+                        <br><span class="bls-meta"><?php echo esc_html( $kind_labels[ $row_kind ]['label'] ?? '' ); ?></span>
                     </td>
                     <td><?php echo $row->first_broken_at ? esc_html( mysql2date( get_option( 'date_format' ), $row->first_broken_at ) ) : '—'; ?></td>
                     <td>
