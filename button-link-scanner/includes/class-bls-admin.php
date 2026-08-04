@@ -25,6 +25,7 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_wipe_titles_batch', [ __CLASS__, 'ajax_wipe_titles_batch' ] );
         add_action( 'wp_ajax_bls_unlink_start',      [ __CLASS__, 'ajax_unlink_start' ] );
         add_action( 'wp_ajax_bls_unlink_batch',      [ __CLASS__, 'ajax_unlink_batch' ] );
+        add_action( 'wp_ajax_bls_fix_link_url',      [ __CLASS__, 'ajax_fix_link_url' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
@@ -214,6 +215,7 @@ class BLS_Admin {
         $ignore_patterns  = BLS_Link_Checker::get_ignore_patterns();
         $last_unlink      = get_option( 'bls_last_unlink_result', [] );
         $unlink_abandoned = get_option( BLS_Updater::UNLINK_QUEUE_OPTION, null ) !== null;
+        $url_fixes        = (array) get_option( 'bls_url_fix_history', [] );
         include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 
@@ -541,6 +543,41 @@ class BLS_Admin {
                 'time'  => current_time( 'mysql' ),
             ], false );
             wp_send_json_error( 'Title wipe batch failed: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Point a broken link at a corrected address, across every page using it.
+     * Synchronous — one URL touches a handful of pages, so there is nothing
+     * here that needs batching.
+     */
+    public static function ajax_fix_link_url() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $old = isset( $_POST['old_url'] ) ? (string) wp_unslash( $_POST['old_url'] ) : '';
+        $new = isset( $_POST['new_url'] ) ? (string) wp_unslash( $_POST['new_url'] ) : '';
+
+        // esc_url_raw, not sanitize_text_field: this is going into an href.
+        $new = esc_url_raw( trim( $new ) );
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->replace_link_url( $old, $new );
+            self::discard_stray_output();
+
+            if ( empty( $result['ok'] ) ) {
+                wp_send_json_error( $result['message'] );
+            }
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Could not update the link: ' . $e->getMessage() );
         }
     }
 

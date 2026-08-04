@@ -568,6 +568,43 @@
     }
 
     // -------------------------------------------------------------------------
+    // Broken Links: correct one link's address
+    // -------------------------------------------------------------------------
+
+    $(document).on('click', '.bls-fix-url', function () {
+        var $row = $(this).closest('tr').next('.bls-fix-row');
+        $row.show().find('.bls-fix-url-input').val('').focus();
+    });
+
+    $(document).on('click', '.bls-fix-url-cancel', function () {
+        $(this).closest('.bls-fix-row').hide();
+    });
+
+    $(document).on('click', '.bls-fix-url-save', function () {
+        var $btn     = $(this);
+        var $fixRow  = $btn.closest('.bls-fix-row');
+        var $status  = $fixRow.find('.bls-fix-url-status');
+        var oldUrl   = $fixRow.prev('tr').find('.bls-fix-url').data('url');
+        var newUrl   = $.trim($fixRow.find('.bls-fix-url-input').val());
+
+        if (!newUrl) {
+            setStatus($status, 'Enter the new address first.', 'error');
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Checking the new address...' + spinner(), '');
+
+        ajax('bls_fix_link_url', { old_url: oldUrl, new_url: newUrl }, function (data) {
+            setStatus($status, data.message, 'ok');
+            setTimeout(function () { location.reload(); }, 1500);
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // Broken Links: bulk unlink dead destinations
     // -------------------------------------------------------------------------
 

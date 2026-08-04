@@ -84,6 +84,43 @@
         </div>
     <?php endif; ?>
 
+    <?php if ( ! empty( $url_fixes ) ) : ?>
+        <details style="margin:0 0 16px;">
+            <summary style="cursor:pointer; font-weight:600;">
+                <?php printf(
+                    /* translators: %d: number of corrections */
+                    esc_html__( 'Addresses you corrected (%d)', 'button-link-scanner' ),
+                    count( $url_fixes )
+                ); ?>
+            </summary>
+            <table class="widefat striped" style="margin-top:8px;">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Old address', 'button-link-scanner' ); ?></th>
+                        <th><?php esc_html_e( 'Changed to', 'button-link-scanner' ); ?></th>
+                        <th><?php esc_html_e( 'Links', 'button-link-scanner' ); ?></th>
+                        <th><?php esc_html_e( 'When', 'button-link-scanner' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ( $url_fixes as $fix ) : ?>
+                    <tr>
+                        <td><code><?php echo esc_html( (string) ( $fix['old'] ?? '' ) ); ?></code></td>
+                        <td><a href="<?php echo esc_url( (string) ( $fix['new'] ?? '' ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( (string) ( $fix['new'] ?? '' ) ); ?></a></td>
+                        <td><?php printf(
+                            /* translators: 1: links changed, 2: pages affected */
+                            esc_html__( '%1$d on %2$d page(s)', 'button-link-scanner' ),
+                            (int) ( $fix['count'] ?? 0 ),
+                            (int) ( $fix['pages'] ?? 0 )
+                        ); ?></td>
+                        <td><?php echo esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (string) ( $fix['time'] ?? '' ) ) ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </details>
+    <?php endif; ?>
+
     <?php if ( $unlink_abandoned ) : ?>
         <div id="bls-unlink-abandoned-notice" class="notice notice-warning">
             <p><?php esc_html_e( 'A link removal was interrupted before it finished. Picking it back up automatically...', 'button-link-scanner' ); ?></p>
@@ -111,7 +148,7 @@
                 <?php esc_html_e( 'Tick any links below whose destination is gone for good — a business that closed, a site that no longer exists — and this removes the link while leaving the words exactly where they are. Nothing is deleted from the page; the text simply stops being clickable.', 'button-link-scanner' ); ?>
             </p>
             <p style="margin:0 0 10px; max-width:820px;" class="bls-meta">
-                <?php esc_html_e( 'Every link is re-checked at the moment it is processed, so anything that has come back online since the last check is skipped and left alone. Use this for dead destinations; if a page has simply moved, edit the URL on the page instead. There is no undo, and a full log of every change is saved.', 'button-link-scanner' ); ?>
+                <?php esc_html_e( 'Every link is re-checked at the moment it is processed, so anything that has come back online since the last check is skipped and left alone. Use this only for destinations that are gone for good — if a page has simply moved, use "Fix URL" on its row to point it at the new address instead. There is no undo, and a full log of every change is saved.', 'button-link-scanner' ); ?>
             </p>
             <?php
             $kind_labels = BLS_Link_Checker::failure_kind_labels();
@@ -196,9 +233,30 @@
                     </td>
                     <td><?php echo $row->first_broken_at ? esc_html( mysql2date( get_option( 'date_format' ), $row->first_broken_at ) ) : '—'; ?></td>
                     <td>
-                        <button class="button button-small bls-dismiss-broken-link" data-id="<?php echo (int) $row->id; ?>">
-                            <?php esc_html_e( 'Mark Fixed', 'button-link-scanner' ); ?>
+                        <button class="button button-small bls-fix-url" data-url="<?php echo esc_attr( $row->link_url ); ?>">
+                            <?php esc_html_e( 'Fix URL', 'button-link-scanner' ); ?>
                         </button>
+                        <button class="button button-small bls-dismiss-broken-link" data-id="<?php echo (int) $row->id; ?>">
+                            <?php esc_html_e( 'Dismiss', 'button-link-scanner' ); ?>
+                        </button>
+                    </td>
+                </tr>
+                <tr class="bls-fix-row" style="display:none;">
+                    <td></td>
+                    <td colspan="6">
+                        <p style="margin:6px 0;">
+                            <label>
+                                <strong><?php esc_html_e( 'New address for this link:', 'button-link-scanner' ); ?></strong><br>
+                                <input type="url" class="bls-fix-url-input regular-text" style="width:70%;"
+                                       placeholder="https://example.com/the-new-page/">
+                            </label>
+                            <button class="button button-primary button-small bls-fix-url-save"><?php esc_html_e( 'Update link', 'button-link-scanner' ); ?></button>
+                            <button class="button button-small bls-fix-url-cancel"><?php esc_html_e( 'Cancel', 'button-link-scanner' ); ?></button>
+                        </p>
+                        <p class="bls-meta" style="margin:0 0 6px;">
+                            <?php esc_html_e( 'Every page using the old address is updated at once. The new address is checked first — if it is broken too, nothing is changed.', 'button-link-scanner' ); ?>
+                        </p>
+                        <span class="bls-fix-url-status bls-status"></span>
                     </td>
                 </tr>
             <?php endforeach; ?>

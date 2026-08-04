@@ -1440,6 +1440,246 @@ class BLS_Updater {
     }
 
     /**
+     * Point every anchor using one URL at a different one.
+     *
+     * The other half of fixing a broken link. Unlinking is right when the
+     * destination is gone for good, but most 404s are a page that moved
+     * rather than a page that died — 40 of the 200 on collegestationhomes.com
+     * are cstx.gov and bryantx.gov pages from site redesigns, and the
+     * retired county judicial-records and TDHCA links all still exist at new
+     * addresses. Those want a corrected URL, and unlinking them would throw
+     * away a working destination.
+     *
+     * Not a bulk operation, because the data says bulk would not help: the
+     * broken URLs are essentially all distinct, so there is no
+     * one-fix-clears-many to exploit. What it does do is update every page
+     * using that URL in one action, which is the part that is tedious by hand.
+     *
+     * The replacement is checked before anything is written. A typo'd fix
+     * would otherwise silently swap one broken link for another, and the
+     * report would look like it improved.
+     *
+     * @return array { ok: bool, message: string, count: int, pages: int }
+     */
+    public function replace_link_url( string $old_url, string $new_url ): array {
+        $old_url = trim( $old_url );
+        $new_url = trim( $new_url );
+
+        if ( $old_url === '' || $new_url === '' ) {
+            return [ 'ok' => false, 'message' => __( 'Both the old and new address are required.', 'button-link-scanner' ), 'count' => 0, 'pages' => 0 ];
+        }
+
+        // Strict comparison, deliberately not hrefs_match(): that treats
+        // http/https and a leading www. as equivalent for *finding* anchors,
+        // which is right there and wrong here. Upgrading
+        // "http://www.uhaul.com" to "https://www.uhaul.com" is a real fix —
+        // several links in the report are http:// URLs on hosts that stopped
+        // answering on port 80 — and hrefs_match() would call that no change
+        // at all and refuse it.
+        if ( $old_url === $new_url ) {
+            return [ 'ok' => false, 'message' => __( 'The new address is identical to the old one.', 'button-link-scanner' ), 'count' => 0, 'pages' => 0 ];
+        }
+
+        // Relative paths are legitimate hrefs, so only reject something that
+        // is not a usable address at all.
+        if ( preg_match( '#^[a-z][a-z0-9+.\-]*:#i', $new_url ) && ! preg_match( '#^https?://#i', $new_url ) ) {
+            return [ 'ok' => false, 'message' => __( 'Enter a web address (http:// or https://) or a path beginning with /.', 'button-link-scanner' ), 'count' => 0, 'pages' => 0 ];
+        }
+
+        $state = BLS_Link_Checker::verify_url_now( $new_url );
+        if ( $state === 'broken' ) {
+            return [
+                'ok'      => false,
+                'message' => __( 'That address is broken too — nothing was changed. Check it in a browser first.', 'button-link-scanner' ),
+                'count'   => 0,
+                'pages'   => 0,
+            ];
+        }
+
+        $result = $this->rewrite_url_everywhere( $old_url, $new_url );
+
+        if ( $result['count'] < 1 ) {
+            return [
+                'ok'      => false,
+                'message' => __( 'The old link could not be found in any editable content, so nothing was changed.', 'button-link-scanner' ),
+                'count'   => 0,
+                'pages'   => 0,
+            ];
+        }
+
+        // Move the scan rows onto the new address and stop reporting the old
+        // one. The new URL will be picked up by the next link check.
+        $this->repoint_link_rows( $old_url, $new_url, $result['post_ids'] );
+        if ( ! $this->link_still_used( $old_url ) ) {
+            BLS_Link_Checker::forget_link( $old_url );
+        }
+
+        $this->record_url_fix( $old_url, $new_url, $result );
+
+        $message = sprintf(
+            /* translators: 1: number of links, 2: number of pages */
+            _n( 'Updated %1$d link across %2$d page(s).', 'Updated %1$d links across %2$d page(s).', $result['count'], 'button-link-scanner' ),
+            $result['count'],
+            $result['pages']
+        );
+
+        if ( $state !== 'ok' ) {
+            $message .= ' ' . __( 'Note: the new address could not be confirmed working — it may be behind bot protection. Worth opening it once to be sure.', 'button-link-scanner' );
+        }
+
+        return [ 'ok' => true, 'message' => $message, 'count' => $result['count'], 'pages' => $result['pages'] ];
+    }
+
+    /**
+     * Rewrite one URL to another everywhere it appears.
+     *
+     * @return array { count: int, pages: int, post_ids: int[] }
+     */
+    private function rewrite_url_everywhere( string $old_url, string $new_url ): array {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        $post_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT post_id FROM {$res_table} WHERE link_url = %s AND post_id > 0",
+            $old_url
+        ) );
+
+        $count   = 0;
+        $changed = [];
+
+        foreach ( array_map( 'intval', (array) $post_ids ) as $post_id ) {
+            $post = get_post( $post_id );
+            if ( ! $post ) {
+                continue;
+            }
+
+            $written = 0;
+
+            $result = $this->replace_url_in_html( $post->post_content, $old_url, $new_url );
+            if ( $result['changed'] ) {
+                wp_update_post( [ 'ID' => $post->ID, 'post_content' => $result['html'] ] );
+                $written += $result['count'];
+            }
+
+            if ( trim( (string) $post->post_excerpt ) !== '' ) {
+                $result = $this->replace_url_in_html( $post->post_excerpt, $old_url, $new_url );
+                if ( $result['changed'] ) {
+                    wp_update_post( [ 'ID' => $post->ID, 'post_excerpt' => $result['html'] ] );
+                    $written += $result['count'];
+                }
+            }
+
+            foreach ( (array) get_post_meta( $post->ID ) as $key => $values ) {
+                if ( strpos( $key, '_' ) === 0 ) {
+                    continue;
+                }
+                foreach ( (array) $values as $value ) {
+                    if ( ! is_string( $value ) || $value === '' || stripos( $value, '<a' ) === false ) {
+                        continue;
+                    }
+                    $result = $this->replace_url_in_html( $value, $old_url, $new_url );
+                    if ( $result['changed'] ) {
+                        update_post_meta( $post->ID, $key, $result['html'], $value );
+                        $written += $result['count'];
+                    }
+                }
+            }
+
+            if ( $written > 0 ) {
+                $count    += $written;
+                $changed[] = $post_id;
+            }
+        }
+
+        return [ 'count' => $count, 'pages' => count( $changed ), 'post_ids' => $changed ];
+    }
+
+    /**
+     * Swap the href on every anchor pointing at $old_url, leaving the element
+     * and everything inside it untouched. Matching goes through hrefs_match()
+     * for the same percent-encoding reasons as the unlinker.
+     *
+     * @return array { html: string, changed: bool, count: int }
+     */
+    private function replace_url_in_html( string $html, string $old_url, string $new_url ): array {
+        $unchanged = [ 'html' => $html, 'changed' => false, 'count' => 0 ];
+
+        if ( trim( $html ) === '' || stripos( $html, '<a' ) === false ) {
+            return $unchanged;
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+        libxml_clear_errors();
+
+        $count = 0;
+
+        foreach ( iterator_to_array( $dom->getElementsByTagName( 'a' ) ) as $node ) {
+            if ( ! $node->hasAttribute( 'href' ) ) {
+                continue;
+            }
+            if ( ! $this->hrefs_match( $node->getAttribute( 'href' ), $old_url ) ) {
+                continue;
+            }
+            $node->setAttribute( 'href', $new_url );
+            $count++;
+        }
+
+        if ( $count < 1 ) {
+            return $unchanged;
+        }
+
+        return [
+            'html'    => $this->strip_dom_wrapper( (string) $dom->saveHTML(), $html ),
+            'changed' => true,
+            'count'   => $count,
+        ];
+    }
+
+    /**
+     * Move scan rows onto the corrected address for the pages that were
+     * actually rewritten, so the report reflects the change without waiting
+     * on a full rescan.
+     *
+     * @param int[] $post_ids Pages the rewrite reached.
+     */
+    private function repoint_link_rows( string $old_url, string $new_url, array $post_ids ): void {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        foreach ( array_map( 'intval', $post_ids ) as $post_id ) {
+            $wpdb->update(
+                $res_table,
+                [ 'link_url' => $new_url ],
+                [ 'link_url' => $old_url, 'post_id' => $post_id ]
+            );
+        }
+    }
+
+    /**
+     * Keep a short history of URL corrections. Single fixes are too small to
+     * warrant a CSV each, but "what did I change and to what" is exactly the
+     * question asked an hour later.
+     */
+    private function record_url_fix( string $old_url, string $new_url, array $result ): void {
+        $history = get_option( 'bls_url_fix_history', [] );
+        if ( ! is_array( $history ) ) {
+            $history = [];
+        }
+
+        array_unshift( $history, [
+            'old'   => $old_url,
+            'new'   => $new_url,
+            'count' => (int) $result['count'],
+            'pages' => (int) $result['pages'],
+            'time'  => current_time( 'mysql' ),
+        ] );
+
+        update_option( 'bls_url_fix_history', array_slice( $history, 0, 50 ), false );
+    }
+
+    /**
      * Strip one dead URL's anchors from every page that uses it.
      *
      * The health table keeps a single representative page per URL, but the
