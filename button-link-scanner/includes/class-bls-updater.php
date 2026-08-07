@@ -1357,6 +1357,11 @@ class BLS_Updater {
             'processed'         => 0,
             'unlinked'          => 0,
             'pages_changed'     => 0,
+            // Distinct page ids touched by the whole run. pages_changed used
+            // to be a running sum of each URL's page count, so a page holding
+            // five dead links was counted five times — a 58-page run reported
+            // as 114.
+            'pages_touched'     => [],
             'skipped_alive'     => 0,
             'skipped_not_found' => 0,
             'skipped_alive_urls' => [],
@@ -1409,8 +1414,12 @@ class BLS_Updater {
                 continue;
             }
 
-            $progress['unlinked']      += $result['count'];
-            $progress['pages_changed'] += $result['pages'];
+            $progress['unlinked'] += $result['count'];
+
+            foreach ( $result['post_ids'] as $touched_id ) {
+                $progress['pages_touched'][ $touched_id ] = true;
+            }
+            $progress['pages_changed'] = count( $progress['pages_touched'] );
 
             // The anchors are gone from the pages that were actually rewritten,
             // so those scan rows no longer describe anything. Rows for pages

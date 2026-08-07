@@ -535,6 +535,14 @@ class BLS_Link_Checker {
         if ( $status === 404 || $status === 410 ) {
             return 'missing';
         }
+        // 5xx before the generic 4xx catch-all. As of 1.35 a fresh check never
+        // records these as broken, but rows stored by an earlier version still
+        // carry is_broken = 1 until something re-checks them — and without this
+        // they land under "connection refused" alongside advice about https
+        // that has nothing to do with a server error.
+        if ( $status >= 500 ) {
+            return 'server-error';
+        }
         if ( $status >= 400 ) {
             return 'refused';
         }
@@ -571,6 +579,11 @@ class BLS_Link_Checker {
                 'label'  => __( 'Not a valid web address', 'button-link-scanner' ),
                 'advice' => __( 'Text pasted into a link field by mistake — a phone number, a description, a stray tag. Fix or unlink.', 'button-link-scanner' ),
                 'unlink' => true,
+            ],
+            'server-error' => [
+                'label'  => __( 'Destination server error (5xx)', 'button-link-scanner' ),
+                'advice' => __( 'The address is fine — the other site was having trouble when it was checked. Usually temporary. Run "Check Links Now" to re-test these; anything that has recovered will drop off the list.', 'button-link-scanner' ),
+                'unlink' => false,
             ],
             'redirect-loop' => [
                 'label'  => __( 'Redirect loop', 'button-link-scanner' ),
