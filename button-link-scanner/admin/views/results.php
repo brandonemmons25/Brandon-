@@ -83,7 +83,33 @@
                     <span class="bls-meta">ID: <?php echo (int) $row->post_id; ?></span>
                 </td>
                 <td><?php echo esc_html( $row->post_type ); ?></td>
-                <td><?php echo esc_html( $row->button_text ); ?></td>
+                <td>
+                    <?php
+                    $label = trim( (string) $row->button_text );
+                    if ( $label === '' ) :
+                        ?>
+                        <em class="bls-meta"><?php esc_html_e( '(no text)', 'button-link-scanner' ); ?></em>
+                    <?php else : ?>
+                        <?php echo esc_html( $label ); ?>
+                    <?php endif; ?>
+
+                    <?php
+                    // The captured markup, on demand. A row whose label reads
+                    // "0" or is blank is almost never a real button — it is
+                    // usually a counter, a slider control or a toggle picked
+                    // up from somewhere that is not the page body. Guessing
+                    // what those are from the label alone wasted real time;
+                    // the element itself was in the database the whole while.
+                    if ( ! empty( $row->button_html ) ) :
+                        ?>
+                        <details class="bls-markup">
+                            <summary class="bls-meta" style="cursor:pointer;"><?php esc_html_e( 'markup', 'button-link-scanner' ); ?></summary>
+                            <pre style="white-space:pre-wrap; word-break:break-all; max-width:420px; margin:6px 0 0; padding:6px; background:#f6f7f7; border:1px solid #dcdcde; font-size:11px;"><?php
+                                echo esc_html( mb_strimwidth( (string) $row->button_html, 0, 600, '…' ) );
+                            ?></pre>
+                        </details>
+                    <?php endif; ?>
+                </td>
                 <td class="bls-url-cell">
                     <?php if ( $has_link ) : ?>
                         <a href="<?php echo esc_url( $row->link_url ); ?>" target="_blank" rel="noopener">

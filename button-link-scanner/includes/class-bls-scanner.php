@@ -583,7 +583,15 @@ class BLS_Scanner {
             return '';
         }
 
-        return (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $template_post->post_content ) );
+        $rendered = (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $template_post->post_content ) );
+
+        // Chrome-strip this one, unlike the page's own post_content. A block
+        // theme's template is the WHOLE page — header, navigation, footer and
+        // all — not just the body, and it is shared across every page
+        // assigned to it. Without this, one nav or cart control in the
+        // template gets recorded against each of those pages as if the author
+        // had put it there, which is neither true nor fixable from the page.
+        return $this->strip_site_chrome( $rendered );
     }
 
     /**
