@@ -1141,6 +1141,7 @@ class BLS_Scanner {
         // 2. Bare <button> elements.
         foreach ( $xpath->query( '//button' ) as $node ) {
             if ( $this->node_should_skip( $node ) ) continue;
+            if ( $this->is_script_control( $node ) ) continue;
             $entry = $this->describe_button_element( $node );
             $key   = md5( $entry['html'] );
             if ( ! isset( $seen[ $key ] ) ) {
@@ -1361,6 +1362,33 @@ class BLS_Scanner {
         ];
     }
 
+    /**
+     * True for a <button> that exists to drive JavaScript rather than to go
+     * anywhere — an accordion toggle, a tab switcher, a quantity control, a
+     * modal opener, a menu hamburger.
+     *
+     * `type="button"` means precisely "does not submit"; that is the whole
+     * reason the attribute exists. Such an element has no destination and
+     * never can have one, so reporting it as a button with a missing link or
+     * a missing SEO title is a false positive by definition. On a WooCommerce
+     * product page this produced rows for the "NUTRITION FACTS" and
+     * "INGREDIENTS" accordion toggles, and elsewhere for controls whose only
+     * label was "0" — a counter.
+     *
+     * A <button> wrapped in an <a> is excluded from this: that one genuinely
+     * navigates, and the anchor is where its destination lives.
+     */
+    private function is_script_control( DOMElement $node ): bool {
+        $parent = $node->parentNode;
+        if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
+            return false;
+        }
+
+        $type = strtolower( trim( $node->getAttribute( 'type' ) ) );
+
+        return $type === 'button' || $type === 'reset';
+    }
+
     private function describe_button_element( DOMElement $node ): array {
         $parent   = $node->parentNode;
         $href     = '';
@@ -1374,10 +1402,18 @@ class BLS_Scanner {
             $title    = trim( $parent->getAttribute( 'title' ) );
             $has_link = ! empty( $href ) && $href !== '#';
             $new_tab  = $parent->getAttribute( 'target' ) === '_blank';
-        } elseif ( in_array( $type, [ 'submit', 'button' ], true ) ) {
+        } elseif ( $type === 'submit' ) {
             // Same PayPal-style case as describe_input(): a <button> with
             // no <a> wrapper submits its enclosing <form> — that form's
             // action attribute is the real, checkable destination.
+            //
+            // Only for type="submit" (which is also the default when the
+            // attribute is absent). type="button" was included here and
+            // should never have been: it explicitly does NOT submit, so the
+            // form's action is not its destination. On a WooCommerce product
+            // page every control inside the add-to-cart form inherited that
+            // form's action — the product's own URL — and was reported as a
+            // button pointing at the page it was already on.
             $form = $node->parentNode;
             while ( $form && ! ( $form instanceof DOMElement && strtolower( $form->nodeName ) === 'form' ) ) {
                 $form = $form->parentNode;
