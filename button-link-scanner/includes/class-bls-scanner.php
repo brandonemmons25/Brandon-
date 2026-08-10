@@ -338,6 +338,7 @@ class BLS_Scanner {
                         'id'    => $post->ID,
                         'title' => $post->post_title,
                         'url'   => get_permalink( $post->ID ),
+                        'type'  => $post->post_type,
                     ];
                 }
             } else {
@@ -771,6 +772,22 @@ class BLS_Scanner {
                 $still_skipped[] = $entry;
                 continue;
             }
+            // A WooCommerce product is never worth fetching live. Everything a
+            // person writes on a product — the description and the short
+            // description — is already read straight from the database, so if
+            // both are empty there is nothing authored left to find. What the
+            // live page would add is all template output: related products,
+            // up-sells and cross-sells, breadcrumbs, category and tag links,
+            // the tabs. strip_site_chrome() cannot help, because all of that
+            // sits INSIDE the main content region rather than in a header or
+            // footer. On a store with any number of thin products that turns
+            // into hundreds of rows nobody can act on, each one attributed to
+            // a product whose author never put it there.
+            if ( ( $entry['type'] ?? '' ) === 'product' ) {
+                $confirmed_empty++;
+                continue;
+            }
+
             $checked++;
 
             $fetched = $this->fetch_live_page_html( $entry['url'] );
