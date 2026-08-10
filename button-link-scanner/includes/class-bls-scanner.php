@@ -517,7 +517,20 @@ class BLS_Scanner {
             }
         }
 
-        return implode( "\n", $parts );
+        // Strip header, footer, navigation and widget areas from everything
+        // assembled above, not just from live-fetched HTML.
+        //
+        // A page's own post_content does not normally contain any of that, so
+        // on a classic theme this is a no-op. On a block theme it is not: the
+        // page's template renders the whole document, and any plugin can
+        // append markup on the_content. Left unfiltered, one site credited
+        // every single page with the header navigation, the social icons, the
+        // footer's Privacy Policy and My Account links, and the "Made with by
+        // imFORZA" credit — none authored on the page, none fixable from it,
+        // and every one of them repeated site-wide.
+        //
+        // Removal only, no narrowing to the main region — see strip_site_chrome().
+        return $this->strip_site_chrome( implode( "\n", $parts ), false );
     }
 
     /**
@@ -993,7 +1006,7 @@ class BLS_Scanner {
      * nav toggles, WooCommerce UI, and Gravity Forms controls in
      * node_should_skip(), just at the region level instead of per-node.
      */
-    private function strip_site_chrome( string $html ): string {
+    private function strip_site_chrome( string $html, bool $narrow_to_main = true ): string {
         if ( trim( $html ) === '' ) {
             return '';
         }
@@ -1069,7 +1082,14 @@ class BLS_Scanner {
         // With chrome gone, prefer returning just the main region when one
         // was identified — anything left outside it is site furniture the
         // patterns above didn't happen to name.
-        if ( $main !== null ) {
+        //
+        // Skipped for content assembled from the database. There, narrowing
+        // is a liability rather than a help: a page whose own content happens
+        // to contain a <div id="content"> would have everything outside that
+        // div discarded, which for a page's own body is real content loss.
+        // Removing the chrome regions is wanted in both cases; keeping only
+        // the main region only makes sense for a whole fetched document.
+        if ( $narrow_to_main && $main !== null ) {
             $inner = '';
             foreach ( $main->childNodes as $child ) {
                 $inner .= (string) $dom->saveHTML( $child );
