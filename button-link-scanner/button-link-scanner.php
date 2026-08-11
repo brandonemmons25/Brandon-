@@ -3,7 +3,7 @@
  * Plugin Name: Button Link Scanner
  * Plugin URI:  https://github.com/brandonemmons25/brandon-
  * Description: Scans all WordPress pages, posts, and custom post types for buttons. Checks for missing hyperlinks and SEO title attributes, tracks link usage trends, allows bulk link assignment via a Button Map, verifies Gravity Forms confirmations redirect to child thank-you pages, and monitors linked URLs in the background — emailing and posting a dashboard notice the moment a link actually breaks (404/error/timeout).
- * Version:     1.51
+ * Version:     1.52
  * Author:      Brandon Emmons
  * License:     GPL-2.0+
  * Text Domain: button-link-scanner
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BLS_VERSION',     '1.51' );
+define( 'BLS_VERSION',     '1.52' );
 define( 'BLS_PLUGIN_FILE', __FILE__ );
 define( 'BLS_PLUGIN_DIR',  plugin_dir_path( __FILE__ ) );
 define( 'BLS_PLUGIN_URL',  plugin_dir_url( __FILE__ ) );
@@ -38,6 +38,16 @@ register_deactivation_hook( __FILE__, function () {
 
 add_action( 'plugins_loaded', function () {
     BLS_Admin::init();
+
+    // Keep the schema current on upgrade, not only on activation.
+    // Replacing the plugin folder or updating in place does not always fire
+    // the activation hook, so a release that adds a column would otherwise
+    // write to a table that has not got it yet. dbDelta is safe to re-run and
+    // this only does anything when the stored version differs.
+    if ( get_option( 'bls_db_version' ) !== BLS_VERSION ) {
+        BLS_Database::install();
+        BLS_GF_Database::install();
+    }
 } );
 
 // Broken-link monitoring: cron hooks + keep the schedule in sync with

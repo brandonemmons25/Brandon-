@@ -93,6 +93,19 @@
                         <?php echo esc_html( $label ); ?>
                     <?php endif; ?>
 
+                    <?php if ( ! empty( $row->source ) && $row->source !== 'content' ) : ?>
+                        <?php
+                        // Anything other than the page's own content is worth
+                        // saying out loud. A block template is shared by every
+                        // page using it, a custom field may never be rendered
+                        // anywhere, and a live-page read is the whole document
+                        // rather than the editor's content. Rows reported for
+                        // buttons nobody could find on the page came from these,
+                        // and without the label the only way to tell was guesswork.
+                        ?>
+                        <br><span class="bls-badge bls-badge--info"><?php echo esc_html( $row->source ); ?></span>
+                    <?php endif; ?>
+
                     <?php
                     // The captured markup, on demand. A row whose label reads
                     // "0" or is blank is almost never a real button — it is

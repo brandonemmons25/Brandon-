@@ -465,13 +465,28 @@ class BLS_Scanner {
      *                   content was empty (should be flagged for manual review).
      */
     public function scan_post( WP_Post $post ): ?int {
-        $content = $this->get_post_content( $post );
+        $parts = $this->get_post_content_parts( $post );
 
-        if ( empty( trim( $content ) ) ) {
+        if ( empty( $parts ) ) {
             return null;
         }
 
-        $buttons = $this->extract_buttons( $content );
+        // Extracted per source so each row can name where it was read from,
+        // and deduplicated across sources by markup — the same button reached
+        // through two sources is still one button.
+        $buttons = [];
+        $seen    = [];
+        foreach ( $parts as $part ) {
+            foreach ( $this->extract_buttons( $part['html'] ) as $btn ) {
+                $key = md5( $btn['html'] );
+                if ( isset( $seen[ $key ] ) ) {
+                    continue;
+                }
+                $seen[ $key ]   = true;
+                $btn['source']  = $part['source'];
+                $buttons[]      = $btn;
+            }
+        }
 
         // On a WooCommerce product, no <button> or <input> is ever authored.
         // Every one belongs to the store or a payment provider: the quantity
@@ -506,6 +521,7 @@ class BLS_Scanner {
                 'title_text'    => $btn['title_text'],
                 'opens_new_tab' => (int) $btn['opens_new_tab'],
                 'button_type'   => $btn['button_type'],
+                'source'        => (string) ( $btn['source'] ?? 'content' ),
             ] );
             $count++;
         }
@@ -554,6 +570,30 @@ class BLS_Scanner {
 
         try {
             return $this->gather_post_content( $post );
+        } finally {
+            BLS_Render_Injector::clear_context();
+        }
+    }
+
+    /**
+     * The same content, but kept in labelled pieces so every recorded row can
+     * say which source it came from.
+     *
+     * Worth the extra plumbing: three separate times now, a row has been
+     * reported for a button nobody could find on the page, and answering
+     * "where did this come from" meant reasoning about which of four sources
+     * it might have been. The sources are not equivalent — page content is
+     * what a visitor sees, a block template is shared across every page using
+     * it, and the custom-field fallback reads postmeta that may never be
+     * rendered anywhere. A row that names its own origin ends that guessing.
+     *
+     * @return array<int, array{source: string, html: string}>
+     */
+    private function get_post_content_parts( WP_Post $post ): array {
+        BLS_Render_Injector::set_context( $post->ID );
+
+        try {
+            return $this->gather_post_content_parts( $post );
         } finally {
             BLS_Render_Injector::clear_context();
         }
@@ -617,6 +657,48 @@ class BLS_Scanner {
         //
         // Removal only, no narrowing to the main region — see strip_site_chrome().
         return $this->strip_site_chrome( implode( "\n", $parts ), false );
+    }
+
+    /**
+     * Same sources as gather_post_content(), kept apart and labelled.
+     *
+     * @return array<int, array{source: string, html: string}>
+     */
+    private function gather_post_content_parts( WP_Post $post ): array {
+        $parts = [];
+
+        $main = trim( (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $post->post_content ) ) );
+        if ( $main !== '' ) {
+            $parts[] = [ 'source' => 'content', 'html' => $main ];
+        }
+
+        if ( $post->post_type === 'product' && trim( (string) $post->post_excerpt ) !== '' ) {
+            $parts[] = [
+                'source' => 'short description',
+                'html'   => (string) apply_filters( 'the_content', $this->strip_vendor_shortcodes( $post->post_excerpt ) ),
+            ];
+        }
+
+        $template_content = $this->get_block_theme_template_content( $post->ID );
+        if ( ! empty( $template_content ) ) {
+            $parts[] = [ 'source' => 'block template', 'html' => $template_content ];
+        }
+
+        // Only when nothing else produced content — see gather_post_content().
+        if ( empty( $parts ) ) {
+            $meta_content = $this->get_custom_field_content( $post->ID );
+            if ( ! empty( $meta_content ) ) {
+                $parts[] = [ 'source' => 'custom field', 'html' => $meta_content ];
+            }
+        }
+
+        foreach ( $parts as $index => $part ) {
+            $parts[ $index ]['html'] = $this->strip_site_chrome( $part['html'], false );
+        }
+
+        return array_values( array_filter( $parts, static function ( array $part ): bool {
+            return trim( $part['html'] ) !== '';
+        } ) );
     }
 
     /**
@@ -802,6 +884,7 @@ class BLS_Scanner {
                     'title_text'    => $btn['title_text'],
                     'opens_new_tab' => (int) $btn['opens_new_tab'],
                     'button_type'   => $btn['button_type'],
+                    'source'        => 'live page (theme template)',
                 ] );
                 $found_count++;
             }
@@ -948,6 +1031,7 @@ class BLS_Scanner {
                     'title_text'    => $btn['title_text'],
                     'opens_new_tab' => (int) $btn['opens_new_tab'],
                     'button_type'   => $btn['button_type'],
+                    'source'        => 'live page',
                 ] );
                 $buttons_found++;
             }
