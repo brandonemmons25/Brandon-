@@ -40,6 +40,18 @@
                 <?php esc_html_e( 'Last scan error:', 'button-link-scanner' ); ?> <?php echo esc_html( $last_error ); ?>
             </p>
         <?php endif; ?>
+        <?php
+        // Stray output from another plugin is a notice, not a failure — shown
+        // quietly and collapsed. In red as an "error" it read like the scan had
+        // broken, when catching that output is exactly what the buffer is for.
+        $last_notice = get_option( 'bls_last_scan_notice', '' );
+        ?>
+        <?php if ( ! empty( $last_notice ) ) : ?>
+            <details class="bls-meta" style="margin-top:4px;">
+                <summary style="cursor:pointer;"><?php esc_html_e( 'One harmless notice from the last scan', 'button-link-scanner' ); ?></summary>
+                <p style="margin:6px 0 0;"><?php echo esc_html( $last_notice ); ?></p>
+            </details>
+        <?php endif; ?>
     </div>
 
     <?php if ( ! empty( $skipped_pages ) || $confirmed_empty > 0 || $idx_vendor_pages > 0 || $offsite_redirects > 0 ) : ?>

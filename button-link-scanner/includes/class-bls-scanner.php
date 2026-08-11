@@ -763,15 +763,6 @@ class BLS_Scanner {
         $max_rechecks     = 20;
 
         foreach ( $skipped as $entry ) {
-            if ( $checked >= $max_rechecks ) {
-                // Safety cap — if there are more than this many flagged
-                // pages, something bigger is going on than a handful of
-                // edge cases, and re-fetching dozens of pages live starts
-                // to reintroduce the exact timeout risk this is meant to
-                // avoid. Leave the rest flagged for manual review as-is.
-                $still_skipped[] = $entry;
-                continue;
-            }
             // A WooCommerce product is never worth fetching live. Everything a
             // person writes on a product — the description and the short
             // description — is already read straight from the database, so if
@@ -783,8 +774,24 @@ class BLS_Scanner {
             // footer. On a store with any number of thin products that turns
             // into hundreds of rows nobody can act on, each one attributed to
             // a product whose author never put it there.
+            //
+            // Tested before the recheck cap below, deliberately. A product
+            // costs no request to resolve, so letting products consume the
+            // budget meant a store's products could exhaust it and push real
+            // pages into "needs manual check" — which is where four ciders
+            // ended up on the first WooCommerce site this ran against.
             if ( ( $entry['type'] ?? '' ) === 'product' ) {
                 $confirmed_empty++;
+                continue;
+            }
+
+            if ( $checked >= $max_rechecks ) {
+                // Safety cap — if there are more than this many flagged
+                // pages, something bigger is going on than a handful of
+                // edge cases, and re-fetching dozens of pages live starts
+                // to reintroduce the exact timeout risk this is meant to
+                // avoid. Leave the rest flagged for manual review as-is.
+                $still_skipped[] = $entry;
                 continue;
             }
 

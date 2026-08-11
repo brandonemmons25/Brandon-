@@ -317,7 +317,12 @@ class BLS_Admin {
                 $snippet = $stripped !== ''
                     ? substr( $stripped, 0, 300 )
                     : 'raw bytes: ' . substr( wp_json_encode( $stray ), 0, 300 );
-                update_option( 'bls_last_scan_error', 'Suppressed unexpected output from another plugin/theme during scan: ' . $snippet, false );
+                // A notice, not a failure. Another plugin printing during our
+                // AJAX request is ordinary on a busy site, and catching it is
+                // the entire point of the buffer — the scan completed fine.
+                // Recorded separately from real errors so it stops being
+                // presented in red as though something broke.
+                update_option( 'bls_last_scan_notice', 'Ignored some stray output from another plugin or theme during the scan. The scan itself completed normally — no action needed. Output was: ' . $snippet, false );
             }
         }
     }
@@ -334,6 +339,7 @@ class BLS_Admin {
         }
 
         delete_option( 'bls_last_scan_error' );
+        delete_option( 'bls_last_scan_notice' );
         ob_start();
         try {
             $scanner = new BLS_Scanner();
