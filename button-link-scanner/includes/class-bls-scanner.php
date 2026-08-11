@@ -1301,9 +1301,51 @@ class BLS_Scanner {
      * Return true if this node is a UI/system button that should never
      * appear in scan results (GF submit buttons, nav toggles, etc.).
      */
+    /**
+     * Widget containers whose entire contents are plugin UI.
+     *
+     * Kept separate from SKIP_CLASS_PATTERNS, and matched against ancestors,
+     * because some controls are a container plus its children rather than one
+     * element. The Events Calendar's "Subscribe to calendar" is the case that
+     * prompted this: the toggle is recognised on its own as a control, but the
+     * six links it reveals — Google Calendar, iCalendar, Outlook 365, Outlook
+     * Live, Export .ics, Export Outlook .ics — are ordinary anchors, and each
+     * was being reported as a link missing an SEO title.
+     *
+     * Deliberately a short, specific list of container names rather than
+     * reusing the element-level patterns. Walking ancestors multiplies the
+     * reach of anything loose, and an over-broad match here would silently
+     * delete real content — which is precisely how 1.4.16 removed most of a
+     * page by matching "sidebar" inside "content-sidebar-wrap".
+     */
+    const NOISE_CONTAINER_PATTERNS = [
+        'tribe-events-c-subscribe-dropdown',
+        'tribe-events-c-nav',
+        'woocommerce-tabs',
+        'wc-tabs',
+        'related products',
+        'up-sells',
+        'cross-sells',
+    ];
+
+    /** How far up to look for a noise container. Bounded so one match cannot reach the whole document. */
+    const NOISE_ANCESTOR_DEPTH = 6;
+
     private function node_should_skip( DOMElement $node ): bool {
         $class = strtolower( $node->getAttribute( 'class' ) );
         $id    = strtolower( $node->getAttribute( 'id' ) );
+
+        // Inside a plugin widget whose whole contents are its own UI.
+        $ancestor = $node->parentNode;
+        for ( $depth = 0; $depth < self::NOISE_ANCESTOR_DEPTH && $ancestor instanceof DOMElement; $depth++ ) {
+            $ancestor_class = strtolower( $ancestor->getAttribute( 'class' ) . ' ' . $ancestor->getAttribute( 'id' ) );
+            foreach ( self::NOISE_CONTAINER_PATTERNS as $pattern ) {
+                if ( $ancestor_class !== ' ' && str_contains( $ancestor_class, $pattern ) ) {
+                    return true;
+                }
+            }
+            $ancestor = $ancestor->parentNode;
+        }
         foreach ( self::SKIP_CLASS_PATTERNS as $pattern ) {
             if ( str_contains( $class, $pattern ) ) {
                 return true;
