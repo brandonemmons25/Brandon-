@@ -403,6 +403,22 @@ class BLS_Scanner {
         }
 
         $buttons = $this->extract_buttons( $content );
+
+        // On a WooCommerce product, no <button> or <input> is ever authored.
+        // Every one belongs to the store or a payment provider: the quantity
+        // stepper, Add To Cart, Apple Pay, Google Pay, Stripe Link, and the
+        // payment sheets those open — which is where a run of "Close dialog"
+        // controls came from. All of them work, none is editable from the
+        // product, and none can be a broken link.
+        //
+        // Anchors are deliberately still collected. A link written into a
+        // product description is real content and can rot like any other.
+        if ( $post->post_type === 'product' ) {
+            $buttons = array_values( array_filter( $buttons, static function ( array $btn ): bool {
+                return ! in_array( $btn['button_type'], [ 'button_element', 'input_element', 'role_button' ], true );
+            } ) );
+        }
+
         $count   = 0;
         $url     = get_permalink( $post->ID );
 
@@ -1425,12 +1441,52 @@ class BLS_Scanner {
     private function is_script_control( DOMElement $node ): bool {
         $parent = $node->parentNode;
         if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
-            return false;
+            return false; // Genuinely navigates — the anchor holds its destination.
         }
 
         $type = strtolower( trim( $node->getAttribute( 'type' ) ) );
+        if ( $type === 'button' || $type === 'reset' ) {
+            return true;
+        }
 
-        return $type === 'button' || $type === 'reset';
+        // Everything below exists because testing type="button" alone was not
+        // enough. A bare <button> with no type attribute defaults to submit
+        // per the HTML spec, and dialog-close buttons routinely omit it — so a
+        // pile of "Close dialog" controls were still being reported as buttons
+        // missing a link. These tests describe what the element *is*, which it
+        // cannot opt out of, rather than an attribute it is free to leave off.
+
+        // Drives other UI rather than going anywhere. A thing that expands a
+        // panel, opens a menu or controls another element by id is a control by
+        // its own declaration.
+        foreach ( [ 'aria-expanded', 'aria-haspopup', 'aria-controls', 'data-toggle', 'data-bs-toggle' ] as $attr ) {
+            if ( $node->hasAttribute( $attr ) ) {
+                return true;
+            }
+        }
+
+        // Named by its aria-label as a control. Only matched when the element
+        // has no visible text of its own, so a real CTA that happens to be
+        // labelled "Close out your order" is unaffected.
+        if ( trim( $node->textContent ) === '' ) {
+            $aria = strtolower( trim( $node->getAttribute( 'aria-label' ) ) );
+            foreach ( [ 'close', 'dismiss', 'toggle', 'menu', 'expand', 'collapse', 'open', 'previous', 'next', 'play', 'pause', 'search' ] as $word ) {
+                if ( $aria !== '' && str_contains( $aria, $word ) ) {
+                    return true;
+                }
+            }
+        }
+
+        // No readable label at all. An authored call to action always has
+        // words; an icon-only control or a bare counter does not. This is what
+        // catches the ones whose entire label was "0" — a quantity counter —
+        // and the icon-only toggles that reach here with nothing to show.
+        $visible = trim( $node->textContent );
+        if ( $visible === '' || ! preg_match( '/\p{L}/u', $visible ) ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function describe_button_element( DOMElement $node ): array {
