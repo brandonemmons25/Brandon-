@@ -1404,6 +1404,22 @@ class BLS_Scanner {
         $class = strtolower( $node->getAttribute( 'class' ) );
         $id    = strtolower( $node->getAttribute( 'id' ) );
 
+        // Inside markup the browser never renders as-is.
+        //
+        // <template> holds a blueprint that only becomes content when script
+        // clones it — a modal, a popup, a repeater row. <noscript> renders only
+        // when scripting is off. Neither is on the page, but DOMDocument parses
+        // their children as ordinary nodes, so a button sitting in a modal
+        // template was reported against the page as though it were visible.
+        // Walked to the root rather than depth-capped: unlike a class-name
+        // match this cannot over-reach, because content inside these elements
+        // is never rendered in place, at any nesting depth.
+        for ( $up = $node->parentNode; $up instanceof DOMElement; $up = $up->parentNode ) {
+            if ( in_array( strtolower( $up->nodeName ), [ 'template', 'noscript', 'script' ], true ) ) {
+                return true;
+            }
+        }
+
         // Inside a plugin widget whose whole contents are its own UI.
         $ancestor = $node->parentNode;
         for ( $depth = 0; $depth < self::NOISE_ANCESTOR_DEPTH && $ancestor instanceof DOMElement; $depth++ ) {
@@ -1614,6 +1630,29 @@ class BLS_Scanner {
             return true;
         }
 
+        // Submits, but to nowhere in particular: a form with no action posts
+        // back to whatever URL the visitor is already on. There is no
+        // destination to record, nothing that can 404, and nothing to fix — so
+        // reporting it as a button missing its link is wrong.
+        //
+        // This is the age-verification gate on highlimbcider.com:
+        //   <button type="submit" name="age_gate[confirm]" value="1">Yes</button>
+        // inside an action-less form. Yes and No were both reported as buttons
+        // with no URL set. The same shape covers consent banners, filter and
+        // sort controls, login and comment forms.
+        //
+        // A form that DOES carry an action keeps its destination — that is the
+        // PayPal case describe_button_element() handles, and it is a real,
+        // checkable URL.
+        $form = $node->parentNode;
+        while ( $form instanceof DOMElement && strtolower( $form->nodeName ) !== 'form' ) {
+            $form = $form->parentNode;
+        }
+        $form_action = $form instanceof DOMElement ? trim( $form->getAttribute( 'action' ) ) : '';
+        if ( $form_action === '' ) {
+            return true;
+        }
+
         return false;
     }
 
@@ -1768,6 +1807,19 @@ class BLS_Scanner {
                 'shop_webhook',
             ] );
         }
+
+        // The Events Calendar's venues and organizers are records, not pages:
+        // an address, a phone number, a website field. They are registered
+        // public so they have permalinks, which is why they were being scanned
+        // — but nobody authors buttons on them, and their post_content is
+        // normally empty, so each one got fetched live and credited with
+        // whatever site-wide furniture the page happened to render. On
+        // highlimbcider.com that meant the age-verification modal's "Yes" and
+        // "No" were recorded against a venue.
+        //
+        // Events themselves stay in scope. An event description is authored
+        // content and can hold real links.
+        $exclude = array_merge( $exclude, [ 'tribe_venue', 'tribe_organizer' ] );
 
         $exclude = apply_filters( 'bls_exclude_post_types', $exclude );
         return array_values( array_diff( $all, $exclude ) );
