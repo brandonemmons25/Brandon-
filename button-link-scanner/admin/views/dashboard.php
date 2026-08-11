@@ -34,7 +34,17 @@
                 ); ?>
             </p>
         <?php endif; ?>
-        <?php $last_error = get_option( 'bls_last_scan_error', '' ); ?>
+        <?php
+        $last_error = get_option( 'bls_last_scan_error', '' );
+
+        // Stray plugin output used to be stored here and shown in red as an
+        // error. It is neither, and 1.44 moved it to its own notice — but a
+        // site upgrading carries the old value until its next scan, so the
+        // red banner would persist and read as though the fix had not worked.
+        if ( str_contains( $last_error, 'Suppressed unexpected output' ) ) {
+            $last_error = '';
+        }
+        ?>
         <?php if ( ! empty( $last_error ) ) : ?>
             <p class="bls-meta" style="color:#b32d2e; font-weight:600;">
                 <?php esc_html_e( 'Last scan error:', 'button-link-scanner' ); ?> <?php echo esc_html( $last_error ); ?>
