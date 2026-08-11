@@ -300,13 +300,36 @@ class BLS_Scanner {
         $queue    = get_option( self::QUEUE_OPTION, null );
         $progress = get_option( self::PROGRESS_OPTION, null );
 
-        // Defensive: if state is missing (e.g. batch called without a prior
-        // start_scan(), such as after an unexpected reset), initialise fresh
-        // rather than fatal-erroring.
+        // No state means there is nothing in progress — most often because a
+        // scan just finished and deleted it. Report done and stop.
+        //
+        // This used to call start_scan() instead, which turned a single
+        // trailing batch request into an entire fresh scan. Combined with the
+        // auto-resume on page load, that is a scan that restarts itself
+        // indefinitely: finish, reload, resume, restart, finish. Starting work
+        // nobody asked for is never the right response to missing state.
         if ( $queue === null || $progress === null ) {
-            $this->start_scan();
-            $queue    = get_option( self::QUEUE_OPTION, [] );
-            $progress = get_option( self::PROGRESS_OPTION );
+            return [
+                'done'          => true,
+                'processed'     => 0,
+                'total_items'   => 0,
+                'buttons_found' => (int) get_option( 'bls_last_scan_total', 0 ),
+            ];
+        }
+
+        // The live-recheck phase, once the main queue is done. Kept as its own
+        // batched phase rather than a step tacked onto the final content batch.
+        //
+        // It used to run inline the moment the queue emptied, which meant one
+        // request had to finish the last posts AND fetch up to twenty pages
+        // over HTTP at ten seconds apiece. On a site with seventeen flagged
+        // pages that request exceeded the time limit and died — and because the
+        // options are only deleted after it returns, the queue survived, the
+        // dashboard reported an interrupted scan, auto-resume fired, and the
+        // scan failed at exactly the same point every time. A scan that could
+        // never finish, forever.
+        if ( empty( $queue ) ) {
+            return $this->run_recheck_phase( $progress );
         }
 
         $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
@@ -348,41 +371,87 @@ class BLS_Scanner {
         }
 
         $progress['processed'] += count( $batch );
-        $done = empty( $queue );
 
-        if ( $done ) {
-            // One extra step before finalizing: for the (typically small)
-            // set of pages that came back with no scannable content,
-            // actually fetch the live rendered page and check again. This
-            // is different from the site-wide HTTP fallback removed
-            // earlier — that one fired on every empty page during a
-            // large batched loop and risked timeouts/firewall flags at
-            // scale. This one only runs once per full scan, against a
-            // short, already-identified list (usually under ~20 pages),
-            // the same bounded-risk logic already used for the homepage
-            // exception. If a page turns out to have real content when
-            // actually rendered, it's scanned for real and dropped from
-            // the "needs manual check" list; if it's still empty, that's
-            // now a *confirmed* empty page, not just an unexamined one.
-            $recheck = $this->recheck_skipped_pages( $progress['skipped'] );
-            $progress['buttons_found'] += $recheck['buttons_found'];
-            $progress['skipped']        = $recheck['still_skipped'];
-
-            update_option( 'bls_last_scan_total',   $progress['buttons_found'] );
-            update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
-            update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
-            update_option( 'bls_last_scan_confirmed_empty', (int) ( $recheck['confirmed_empty'] ?? 0 ), false );
-            update_option( 'bls_last_scan_idx_vendor_pages', (int) ( $recheck['idx_vendor_pages'] ?? 0 ), false );
-            update_option( 'bls_last_scan_offsite_redirects', (int) ( $recheck['offsite_redirects'] ?? 0 ), false );
-            delete_option( self::QUEUE_OPTION );
-            delete_option( self::PROGRESS_OPTION );
-        } else {
-            update_option( self::QUEUE_OPTION, $queue, false );
-            update_option( self::PROGRESS_OPTION, $progress, false );
-        }
+        // Never finalize here. Even when this emptied the queue, the recheck
+        // phase still has to run, and it gets its own requests to do it in.
+        update_option( self::QUEUE_OPTION, $queue, false );
+        update_option( self::PROGRESS_OPTION, $progress, false );
 
         return [
-            'done'          => $done,
+            'done'          => false,
+            'processed'     => $progress['processed'],
+            'total_items'   => $progress['total_items'],
+            'buttons_found' => $progress['buttons_found'],
+        ];
+    }
+
+    /** How many flagged pages to re-fetch per request. Each is a live HTTP call. */
+    const RECHECK_BATCH_SIZE = 3;
+
+    /**
+     * Re-fetch flagged pages a few at a time, then finalize the scan.
+     *
+     * Entered once the content queue is empty, and called repeatedly until the
+     * recheck list is exhausted. Splitting it this way is what makes a scan
+     * able to finish on a site with more than a couple of flagged pages — see
+     * the note in run_batch().
+     */
+    private function run_recheck_phase( array $progress ): array {
+        // First entry: seed the recheck list and fold it into the total so the
+        // progress reading keeps moving instead of appearing stuck at 100%.
+        if ( ! isset( $progress['recheck_queue'] ) || ! is_array( $progress['recheck_queue'] ) ) {
+            $progress['recheck_queue'] = array_values( (array) ( $progress['skipped'] ?? [] ) );
+            $progress['still_skipped'] = [];
+            $progress['recheck_totals'] = [
+                'confirmed_empty'   => 0,
+                'idx_vendor_pages'  => 0,
+                'offsite_redirects' => 0,
+            ];
+            $progress['total_items'] += count( $progress['recheck_queue'] );
+        }
+
+        $slice = array_splice( $progress['recheck_queue'], 0, self::RECHECK_BATCH_SIZE );
+
+        if ( ! empty( $slice ) ) {
+            $recheck = $this->recheck_skipped_pages( $slice );
+
+            $progress['buttons_found'] += (int) $recheck['buttons_found'];
+            $progress['still_skipped']  = array_merge(
+                (array) $progress['still_skipped'],
+                (array) $recheck['still_skipped']
+            );
+            foreach ( [ 'confirmed_empty', 'idx_vendor_pages', 'offsite_redirects' ] as $key ) {
+                $progress['recheck_totals'][ $key ] += (int) ( $recheck[ $key ] ?? 0 );
+            }
+            $progress['processed'] += count( $slice );
+        }
+
+        if ( ! empty( $progress['recheck_queue'] ) ) {
+            update_option( self::PROGRESS_OPTION, $progress, false );
+            return [
+                'done'          => false,
+                'processed'     => $progress['processed'],
+                'total_items'   => $progress['total_items'],
+                'buttons_found' => $progress['buttons_found'],
+            ];
+        }
+
+        // Recheck list exhausted — this is the only place a scan completes.
+        $progress['skipped'] = $progress['still_skipped'];
+        $recheck             = $progress['recheck_totals'];
+
+        update_option( 'bls_last_scan_total',   $progress['buttons_found'] );
+        update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
+        update_option( 'bls_last_scan_skipped', $progress['skipped'], false );
+        update_option( 'bls_last_scan_confirmed_empty', (int) ( $recheck['confirmed_empty'] ?? 0 ), false );
+        update_option( 'bls_last_scan_idx_vendor_pages', (int) ( $recheck['idx_vendor_pages'] ?? 0 ), false );
+        update_option( 'bls_last_scan_offsite_redirects', (int) ( $recheck['offsite_redirects'] ?? 0 ), false );
+
+        delete_option( self::QUEUE_OPTION );
+        delete_option( self::PROGRESS_OPTION );
+
+        return [
+            'done'          => true,
             'processed'     => $progress['processed'],
             'total_items'   => $progress['total_items'],
             'buttons_found' => $progress['buttons_found'],
