@@ -1357,6 +1357,23 @@ class BLS_Scanner {
             }
         }
 
+        // WooCommerce add-to-cart, identified by data rather than by class.
+        //
+        // The class names differ between classic Woo (add_to_cart_button,
+        // ajax_add_to_cart) and Woo Blocks (wc-block-components-product-button),
+        // and a theme can restyle either, so matching names means chasing every
+        // variation and missing the next one — 1.4.14 was exactly that mistake.
+        // These two signals are structural instead: Woo stamps the product id
+        // onto every add-to-cart control, and the non-ajax form of the link
+        // always carries add-to-cart in its query string. Neither is a
+        // navigational link and neither is editable from the page.
+        if ( $node->hasAttribute( 'data-product_id' ) || $node->hasAttribute( 'data-product_sku' ) ) {
+            return true;
+        }
+        if ( str_contains( strtolower( $node->getAttribute( 'href' ) ), 'add-to-cart=' ) ) {
+            return true;
+        }
+
         $aria  = strtolower( $node->getAttribute( 'aria-label' ) );
         $title = strtolower( $node->getAttribute( 'title' ) );
 
