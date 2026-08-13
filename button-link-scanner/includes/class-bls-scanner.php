@@ -522,6 +522,8 @@ class BLS_Scanner {
                 'opens_new_tab' => (int) $btn['opens_new_tab'],
                 'button_type'   => $btn['button_type'],
                 'source'        => (string) ( $btn['source'] ?? 'content' ),
+                'context'       => (string) ( $btn['context'] ?? '' ),
+                'never_linked'  => (int) ( $btn['never_linked'] ?? 0 ),
             ] );
             $count++;
         }
@@ -1647,6 +1649,11 @@ class BLS_Scanner {
     }
 
     private function describe_anchor( DOMElement $node, string $type ): array {
+        // An <a> with no href attribute at all is a different thing from one
+        // whose href was emptied: it is a button block that was placed and
+        // never linked. Worth distinguishing, because "missing link" reads as
+        // "this used to work" when the truth is "this was never finished".
+        $never_linked = ! $node->hasAttribute( 'href' );
         $href     = trim( $node->getAttribute( 'href' ) );
         $title    = trim( $node->getAttribute( 'title' ) );
         $target   = $node->getAttribute( 'target' );
@@ -1660,6 +1667,8 @@ class BLS_Scanner {
             'has_title'     => ! empty( $title ),
             'title_text'    => $title,
             'opens_new_tab' => $target === '_blank',
+            'never_linked'  => $never_linked,
+            'context'       => $this->get_node_context( $node ),
             'button_type'   => $this->detect_button_type( $node ),
         ];
     }
@@ -1801,6 +1810,7 @@ class BLS_Scanner {
             'has_title'     => ! empty( $title ),
             'title_text'    => $title,
             'opens_new_tab' => $new_tab,
+            'context'       => $this->get_node_context( $node ),
             'button_type'   => 'button_element',
         ];
     }
@@ -1880,6 +1890,52 @@ class BLS_Scanner {
             return 'page_builder';
         }
         return 'classic';
+    }
+
+    /**
+     * The words immediately before this element on the page.
+     *
+     * A row can say what an element is, where it was read from, and what its
+     * markup looks like, and still leave someone unable to find the thing —
+     * which is where two unlinked Gutenberg buttons on highlimbcider.com left
+     * us, reported four times as not existing. Nearby text is searchable: paste
+     * it into the page or the editor and the button is either right there or it
+     * genuinely is not.
+     *
+     * Walks up until an ancestor carries some text besides the element's own,
+     * so a button wrapped in three layers of block divs still reports the
+     * paragraph or heading above it rather than nothing.
+     */
+    private function get_node_context( DOMElement $node ): string {
+        $own = trim( preg_replace( '/\s+/u', ' ', $node->textContent ) );
+
+        for ( $up = $node->parentNode, $depth = 0; $up instanceof DOMElement && $depth < 5; $up = $up->parentNode, $depth++ ) {
+            // Via markup rather than textContent, replacing tags with spaces.
+            // textContent concatenates block text with no separator, so a
+            // heading followed by a paragraph comes out as "Our CidersMade in
+            // small batches" — harder to search for than the thing it describes.
+            $markup = '';
+            foreach ( $up->childNodes as $child ) {
+                $markup .= (string) $up->ownerDocument->saveHTML( $child );
+            }
+            $text = trim( preg_replace( '/\s+/u', ' ', preg_replace( '/<[^>]*>/', ' ', $markup ) ) );
+
+            if ( $own !== '' ) {
+                $text = trim( str_replace( $own, ' ', $text ) );
+                $text = trim( preg_replace( '/\s+/u', ' ', $text ) );
+            }
+
+            if ( $text !== '' ) {
+                // Tail end, not the start: the words nearest the element are
+                // the ones that place it.
+                if ( mb_strlen( $text ) > 160 ) {
+                    $text = '…' . mb_substr( $text, -160 );
+                }
+                return $text;
+            }
+        }
+
+        return '';
     }
 
     private function outer_html( DOMElement $node ): string {

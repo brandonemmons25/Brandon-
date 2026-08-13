@@ -34,6 +34,8 @@ class BLS_Database {
             opens_new_tab TINYINT(1)   NOT NULL DEFAULT 0,
             button_type   VARCHAR(30)  NOT NULL DEFAULT 'classic',
             source        VARCHAR(60)  NOT NULL DEFAULT '',
+            context       TEXT         NOT NULL DEFAULT '',
+            never_linked  TINYINT(1)   NOT NULL DEFAULT 0,
             scan_date     DATETIME     NOT NULL,
             PRIMARY KEY (id),
             KEY post_id   (post_id),

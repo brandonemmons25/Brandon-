@@ -106,6 +106,22 @@
                         <br><span class="bls-badge bls-badge--info"><?php echo esc_html( $row->source ); ?></span>
                     <?php endif; ?>
 
+                    <?php if ( ! empty( $row->context ) ) : ?>
+                        <?php
+                        // The words next to it on the page. Knowing what an
+                        // element is and where it was read from still does not
+                        // help anyone FIND it; nearby text is searchable, in the
+                        // page or in the editor.
+                        ?>
+                        <br><span class="bls-meta" style="font-style:italic;">
+                            <?php printf(
+                                /* translators: %s: nearby page text */
+                                esc_html__( 'near: %s', 'button-link-scanner' ),
+                                esc_html( $row->context )
+                            ); ?>
+                        </span>
+                    <?php endif; ?>
+
                     <?php
                     // The captured markup, on demand. A row whose label reads
                     // "0" or is blank is almost never a real button — it is
@@ -131,6 +147,14 @@
                         <?php if ( $row->opens_new_tab ) : ?>
                             <span class="bls-badge bls-badge--info"><?php esc_html_e( 'new tab', 'button-link-scanner' ); ?></span>
                         <?php endif; ?>
+                    <?php elseif ( ! empty( $row->never_linked ) ) : ?>
+                        <?php
+                        // No href attribute at all, as opposed to one that was
+                        // emptied. "Missing link" reads as "this used to work";
+                        // the truth is nobody ever set it.
+                        ?>
+                        <span class="bls-badge bls-badge--danger"><?php esc_html_e( 'never linked', 'button-link-scanner' ); ?></span>
+                        <br><span class="bls-meta"><?php esc_html_e( 'Button block placed but no URL set — link it or delete it.', 'button-link-scanner' ); ?></span>
                     <?php else : ?>
                         <span class="bls-badge bls-badge--danger"><?php esc_html_e( 'none', 'button-link-scanner' ); ?></span>
                     <?php endif; ?>
