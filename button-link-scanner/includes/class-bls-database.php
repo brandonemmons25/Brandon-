@@ -36,6 +36,7 @@ class BLS_Database {
             source        VARCHAR(60)  NOT NULL DEFAULT '',
             context       TEXT         NOT NULL DEFAULT '',
             never_linked  TINYINT(1)   NOT NULL DEFAULT 0,
+            verified      TINYINT(1)   NOT NULL DEFAULT 0,
             scan_date     DATETIME     NOT NULL,
             PRIMARY KEY (id),
             KEY post_id   (post_id),

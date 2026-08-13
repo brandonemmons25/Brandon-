@@ -93,7 +93,18 @@
                         <?php echo esc_html( $label ); ?>
                     <?php endif; ?>
 
-                    <?php if ( ! empty( $row->source ) && $row->source !== 'content' ) : ?>
+                    <?php if ( isset( $row->verified ) && (int) $row->verified !== 1 ) : ?>
+                        <?php
+                        // The live page could not be fetched, so this row came
+                        // from the database instead. Say so — a report that
+                        // cannot tell confirmed rows from inferred ones is how
+                        // buttons that are not on the page got listed as though
+                        // they were.
+                        ?>
+                        <br><span class="bls-badge bls-badge--warning"><?php esc_html_e( 'not confirmed on live page', 'button-link-scanner' ); ?></span>
+                    <?php endif; ?>
+
+                    <?php if ( ! empty( $row->source ) && $row->source !== 'content' && $row->source !== 'live page' ) : ?>
                         <?php
                         // Anything other than the page's own content is worth
                         // saying out loud. A block template is shared by every

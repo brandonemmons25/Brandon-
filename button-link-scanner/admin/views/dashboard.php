@@ -6,6 +6,9 @@
     <div class="bls-card bls-card--scan">
         <h2><?php esc_html_e( 'Site Scan', 'button-link-scanner' ); ?></h2>
         <p><?php esc_html_e( 'Scans all published pages, posts, and custom post types for buttons and links. Results replace any previous scan.', 'button-link-scanner' ); ?></p>
+        <p class="bls-meta" style="max-width:820px;">
+            <?php esc_html_e( 'Each page is loaded the way a visitor sees it — signed out — and only what actually appears there is reported. That means a scan takes a little while, and it is why anything hidden from visitors by a visibility rule, a membership, or a schedule is correctly left out.', 'button-link-scanner' ); ?>
+        </p>
         <button id="bls-run-scan" class="button button-primary button-hero">
             <?php esc_html_e( 'Run Full Scan Now', 'button-link-scanner' ); ?>
         </button>

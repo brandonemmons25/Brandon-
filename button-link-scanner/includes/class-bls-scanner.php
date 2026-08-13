@@ -235,6 +235,13 @@ class BLS_Scanner {
     /** Buttons the owner has marked as not present on the page — see get_dismissed_buttons(). */
     const DISMISSED_OPTION = 'bls_dismissed_buttons';
 
+    /**
+     * Set by scan_post() when the live page was fetched successfully and simply
+     * had no buttons on it. That is a confirmed empty page, not an unknown one,
+     * so it does not need re-fetching later — see run_recheck_phase().
+     */
+    private $live_confirmed_empty = false;
+
     /** Option name used to persist the remaining-work queue between AJAX batch calls. */
     const QUEUE_OPTION = 'bls_scan_queue';
 
@@ -242,7 +249,9 @@ class BLS_Scanner {
     const PROGRESS_OPTION = 'bls_scan_progress';
 
     /** Default number of posts processed per batch. */
-    const DEFAULT_BATCH_SIZE = 10;
+    // Smaller than it was, because each page is now fetched over HTTP rather
+    // than read from the database. See scan_post().
+    const DEFAULT_BATCH_SIZE = 4;
 
     // -------------------------------------------------------------------------
     // Public API — batched scan (used by the admin UI)
@@ -359,7 +368,10 @@ class BLS_Scanner {
                 // its own body content. Flagging that as "needs manual
                 // check" is a false positive, so it's excluded here.
                 $posts_page_id = (int) get_option( 'page_for_posts', 0 );
-                if ( $post->ID !== $posts_page_id ) {
+                if ( $this->live_confirmed_empty ) {
+                    // Already confirmed against the live page.
+                    $progress['confirmed_empty_direct'] = (int) ( $progress['confirmed_empty_direct'] ?? 0 ) + 1;
+                } elseif ( $post->ID !== $posts_page_id ) {
                     $progress['skipped'][] = [
                         'id'    => $post->ID,
                         'title' => $post->post_title,
@@ -442,6 +454,8 @@ class BLS_Scanner {
         // Recheck list exhausted — this is the only place a scan completes.
         $progress['skipped'] = $progress['still_skipped'];
         $recheck             = $progress['recheck_totals'];
+        $recheck['confirmed_empty'] = (int) ( $recheck['confirmed_empty'] ?? 0 )
+            + (int) ( $progress['confirmed_empty_direct'] ?? 0 );
 
         update_option( 'bls_last_scan_total',   $progress['buttons_found'] );
         update_option( 'bls_last_scan_time',    current_time( 'mysql' ) );
@@ -468,27 +482,78 @@ class BLS_Scanner {
      *                   content was empty (should be flagged for manual review).
      */
     public function scan_post( WP_Post $post ): ?int {
-        $parts = $this->get_post_content_parts( $post );
+        // The live page is the authority on what is on the page.
+        //
+        // Reading content from the database and rendering it here cannot match
+        // what a visitor gets, and no amount of filtering fixes that. This runs
+        // in an admin-AJAX request as a logged-in administrator, so every rule
+        // that hides a block conditionally — block-visibility plugins,
+        // membership and content gating, device or schedule targeting —
+        // evaluates the wrong way. Blocks present in post_content rendered for
+        // the scanner and were reported as buttons that are genuinely not on
+        // the page.
+        //
+        // wp_remote_get() sends no cookies, so this fetch is anonymous and
+        // those rules resolve exactly as they do for a visitor. What comes back
+        // is what the public sees, which is the only defensible basis for a
+        // report that says "this button is on your page".
+        //
+        // Costs one request per page and makes a scan considerably slower. That
+        // is the right trade: a fast report that lists things which are not
+        // there is worse than a slow one that does not.
+        $buttons  = null;
+        $verified = false;
+        $this->live_confirmed_empty = false;
 
-        if ( empty( $parts ) ) {
-            return null;
+        if ( (bool) apply_filters( 'bls_scan_use_live_pages', true ) ) {
+            $fetched = $this->fetch_live_page_html( (string) get_permalink( $post->ID ) );
+
+            if ( ! empty( $fetched['offsite_redirect'] ) ) {
+                return null; // No content of its own — handled as a skipped page.
+            }
+
+            if ( ! empty( $fetched['html'] ) ) {
+                $buttons = $this->extract_buttons( $this->strip_site_chrome( $fetched['html'] ) );
+                foreach ( $buttons as $index => $btn ) {
+                    $buttons[ $index ]['source'] = 'live page';
+                }
+                $verified = true;
+            }
         }
 
-        // Extracted per source so each row can name where it was read from,
-        // and deduplicated across sources by markup — the same button reached
-        // through two sources is still one button.
-        $buttons = [];
-        $seen    = [];
-        foreach ( $parts as $part ) {
-            foreach ( $this->extract_buttons( $part['html'] ) as $btn ) {
-                $key = md5( $btn['html'] );
-                if ( isset( $seen[ $key ] ) ) {
-                    continue;
-                }
-                $seen[ $key ]   = true;
-                $btn['source']  = $part['source'];
-                $buttons[]      = $btn;
+        // Fetch failed or live scanning turned off — fall back to reading the
+        // database, and record that these rows were NOT confirmed against the
+        // live page so the report can say so rather than implying they were.
+        if ( $buttons === null ) {
+            $parts = $this->get_post_content_parts( $post );
+
+            if ( empty( $parts ) ) {
+                return null;
             }
+
+            // Extracted per source so each row can name where it was read from,
+            // and deduplicated across sources by markup — the same button
+            // reached through two sources is still one button.
+            $buttons = [];
+            $seen    = [];
+            foreach ( $parts as $part ) {
+                foreach ( $this->extract_buttons( $part['html'] ) as $btn ) {
+                    $key = md5( $btn['html'] );
+                    if ( isset( $seen[ $key ] ) ) {
+                        continue;
+                    }
+                    $seen[ $key ]   = true;
+                    $btn['source']  = $part['source'];
+                    $buttons[]      = $btn;
+                }
+            }
+        }
+
+        if ( empty( $buttons ) ) {
+            // A live page that fetched cleanly and holds no buttons is settled;
+            // nothing is gained by fetching it again in the recheck phase.
+            $this->live_confirmed_empty = $verified;
+            return null;
         }
 
         // On a WooCommerce product, no <button> or <input> is ever authored.
@@ -535,6 +600,7 @@ class BLS_Scanner {
                 'source'        => (string) ( $btn['source'] ?? 'content' ),
                 'context'       => (string) ( $btn['context'] ?? '' ),
                 'never_linked'  => (int) ( $btn['never_linked'] ?? 0 ),
+                'verified'      => $verified ? 1 : 0,
             ] );
             $count++;
         }
@@ -1101,6 +1167,18 @@ class BLS_Scanner {
         if ( empty( $url ) ) {
             return [ 'html' => '', 'offsite_redirect' => false ];
         }
+
+        // Space the requests out. A scan now fetches every page, and firing
+        // those back to back is what earns a 429 or a firewall block from the
+        // host — self-inflicted, and indistinguishable in the results from a
+        // genuine problem. The link checker learned this the same way in 1.33.
+        static $last_fetch = 0.0;
+        $gap = (float) apply_filters( 'bls_scan_fetch_gap', 0.3 );
+        $since = microtime( true ) - $last_fetch;
+        if ( $last_fetch > 0.0 && $since < $gap ) {
+            usleep( (int) ( ( $gap - $since ) * 1000000 ) );
+        }
+        $last_fetch = microtime( true );
 
         // Probe first WITHOUT following redirects.
         //
