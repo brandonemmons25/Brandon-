@@ -423,6 +423,26 @@ class BLS_Updater {
                     $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, $result['count'] );
                     $this->log_change( $progress, $post, $pair, $generated_title, $result['count'], 'render' );
                     $progress['titles_injected']++;
+                } elseif ( empty( $result['candidates'] ) && $this->link_seen_on_live_page( $pair['button_text'], $pair['link_url'] ) ) {
+                    // Not found in anything reachable from the database — but
+                    // the scanner read this link off the live page itself, so
+                    // it demonstrably exists there.
+                    //
+                    // That combination is not a dead end, it is the definition
+                    // of render-time content. The Blog page's READ MORE links
+                    // are the case in point: a Query Loop produces them when
+                    // WordPress runs the loop on a real request, and
+                    // re-rendering the page's stored content outside the main
+                    // query does not reproduce them. Declaring "no anchor
+                    // exists" on that basis was wrong — it only meant this
+                    // context could not recreate one.
+                    //
+                    // The injector runs on the real request, where the anchor
+                    // does exist, so the title lands.
+                    BLS_Render_Injector::queue( (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title );
+                    $this->mark_titles_applied( $res_table, (int) $post_id, $pair['button_text'], $pair['link_url'], $generated_title, 1 );
+                    $this->log_change( $progress, $post, $pair, $generated_title, 1, 'render' );
+                    $progress['titles_injected']++;
                 } else {
                     $progress['could_not_apply']++;
 
@@ -574,6 +594,28 @@ class BLS_Updater {
      * each page load, nothing changed in the database) — a meaningful
      * difference when auditing or undoing.
      */
+    /**
+     * True when this button/link was recorded from a live page fetch.
+     *
+     * Since 1.56 the scanner loads each page over HTTP as a signed-out visitor
+     * and reads what comes back, marking those rows verified. So a verified row
+     * is direct evidence the anchor exists on the rendered page, whatever the
+     * database can or cannot reproduce — which is exactly what distinguishes
+     * "render-time content Auto-Fill should inject into" from "no anchor
+     * anywhere, give up".
+     */
+    private function link_seen_on_live_page( string $button_text, string $link_url ): bool {
+        global $wpdb;
+        $res_table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        return (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$res_table}
+             WHERE button_text = %s AND link_url = %s AND verified = 1",
+            $button_text,
+            $link_url
+        ) ) > 0;
+    }
+
     private function log_change( array &$progress, WP_Post $post, array $pair, string $title, int $count, string $method ): void {
         // CSV gets every row, regardless of the on-page cap below.
         $this->append_log_row( (string) ( $progress['log_path'] ?? '' ), [
