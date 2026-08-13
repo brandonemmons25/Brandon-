@@ -930,6 +930,29 @@ class BLS_Updater {
                     return [ 'applied' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
                 }
             }
+
+            // Nothing stored to write to, which is the normal case rather than
+            // the exception. A block theme keeps its social links and
+            // navigation in post_content as block comments — the anchors only
+            // exist once those dynamic blocks render — and a classic theme
+            // keeps its footer in PHP files. Either way there is no <a> in the
+            // database to attach a title to.
+            //
+            // The scanner read these links off the rendered page, so they
+            // certainly exist there. Hand them to the render injector, which
+            // now filters block output as well as the_content, and the title
+            // appears on every page the chrome is on.
+            return [
+                'applied'     => false,
+                'render_only' => true,
+                // One, not zero: mark_titles_applied() passes this straight
+                // into a LIMIT, so a count of zero would update no rows and the
+                // link would keep reporting as untitled after every run. One
+                // row per distinct anchor, which is what the chrome scan
+                // records after collapsing duplicate markup.
+                'count'       => 1,
+                'candidates'  => $all_candidates,
+            ];
         }
 
         // 3. Block-theme (FSE) custom page template — a separate

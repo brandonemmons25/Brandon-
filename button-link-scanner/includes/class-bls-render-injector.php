@@ -45,8 +45,54 @@ class BLS_Render_Injector {
         self::$context_post_id = 0;
     }
 
+    /**
+     * Rules stored under this key apply site-wide rather than to one post.
+     *
+     * The header and footer are not in the_content, so nothing keyed to a post
+     * can reach them. On a block theme they are not plain stored anchors
+     * either: social links and navigation live in post_content as block
+     * comments, and the <a> tags only exist once those dynamic blocks render.
+     * So there is nothing in the database to write a title into, and the only
+     * place to add one is at render time — which for blocks means render_block.
+     */
+    const SITE_WIDE = 0;
+
     public static function init(): void {
         add_filter( 'the_content', [ __CLASS__, 'inject' ], 999 );
+
+        // Every block's rendered output, which is the only point where a
+        // navigation or social link exists as an anchor at all.
+        add_filter( 'render_block', [ __CLASS__, 'inject_block' ], 999, 1 );
+    }
+
+    /**
+     * Apply the site-wide rules to one block's rendered HTML.
+     *
+     * Runs for every block on every page, so the href substring gate matters
+     * here more than anywhere: without it this would parse a DOM per block.
+     */
+    public static function inject_block( $block_content ) {
+        if ( ! is_string( $block_content ) || $block_content === '' ) {
+            return $block_content;
+        }
+
+        $rules = get_option( self::OPTION, [] );
+        if ( empty( $rules[ self::SITE_WIDE ] ) || ! is_array( $rules[ self::SITE_WIDE ] ) ) {
+            return $block_content;
+        }
+
+        if ( stripos( $block_content, '<a' ) === false ) {
+            return $block_content;
+        }
+
+        foreach ( $rules[ self::SITE_WIDE ] as $rule ) {
+            if ( $rule['link'] === '' || ! str_contains( $block_content, $rule['link'] ) ) {
+                continue;
+            }
+            $block_content = self::apply_title( $block_content, $rule['link'], $rule['title'] );
+        }
+
+        return $block_content;
     }
 
     /**
@@ -88,6 +134,8 @@ class BLS_Render_Injector {
         if ( $post_id < 1 ) {
             $post_id = self::$context_post_id; // Scanning, not serving a request.
         }
+        // Site-wide rules are applied by inject_block(), not here — the
+        // chrome they target is not part of any post's content.
         if ( $post_id < 1 || empty( $rules[ $post_id ] ) ) {
             return $content;
         }
