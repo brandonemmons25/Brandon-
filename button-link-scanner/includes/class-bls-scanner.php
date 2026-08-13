@@ -290,6 +290,10 @@ class BLS_Scanner {
         // above and just skipped again) or a "Latest Posts" HTTP fetch.
         $queue[] = 0;
 
+        // Site chrome marker: -1 = "scan the header, footer, navigation and
+        // widget areas once". Not per page — see extract_site_chrome().
+        $queue[] = -1;
+
         update_option( self::QUEUE_OPTION, $queue, false );
         update_option( self::PROGRESS_OPTION, [
             'total_items'   => count( $queue ),
@@ -350,6 +354,12 @@ class BLS_Scanner {
             if ( (int) $item === 0 ) {
                 // Homepage marker.
                 $progress['buttons_found'] += $this->scan_homepage( $progress );
+                continue;
+            }
+
+            if ( (int) $item === -1 ) {
+                // Site chrome marker.
+                $progress['buttons_found'] += $this->scan_site_chrome();
                 continue;
             }
 
@@ -914,6 +924,68 @@ class BLS_Scanner {
      * @param array $progress Progress state (read for scanned_ids, not mutated here).
      * @return int Number of additional buttons found (0 if nothing to do).
      */
+    /**
+     * Scan the site's header, footer, navigation and widget areas — once.
+     *
+     * Recorded against post_id 0 with its own post type so it reads as one
+     * shared thing rather than as belonging to any page, the same approach the
+     * homepage theme-template pass already uses. Fetched from the front page
+     * because every page carries the same furniture, so one request covers it.
+     *
+     * @return int Buttons/links found.
+     */
+    private function scan_site_chrome(): int {
+        $fetched = $this->fetch_live_page_html( home_url( '/' ) );
+
+        if ( ! empty( $fetched['offsite_redirect'] ) || empty( $fetched['html'] ) ) {
+            return 0;
+        }
+
+        $chrome = $this->extract_site_chrome( $fetched['html'] );
+        if ( trim( $chrome ) === '' ) {
+            return 0;
+        }
+
+        $dismissed = $this->get_dismissed_buttons();
+        $count     = 0;
+        $seen      = [];
+
+        foreach ( $this->extract_buttons( $chrome ) as $btn ) {
+            $key = md5( $btn['html'] );
+            if ( isset( $seen[ $key ] ) ) {
+                continue; // A nav link repeated in a mobile menu is still one link.
+            }
+            $seen[ $key ] = true;
+
+            if ( isset( $dismissed[ self::dismissal_key( 0, (string) $btn['html'] ) ] ) ) {
+                continue;
+            }
+
+            BLS_Database::insert_result( [
+                'post_id'       => 0,
+                'post_title'    => __( 'Site header & footer (every page)', 'button-link-scanner' ),
+                'post_type'     => 'site_chrome',
+                'post_status'   => 'publish',
+                'post_url'      => home_url( '/' ),
+                'button_text'   => $btn['text'],
+                'button_html'   => $btn['html'],
+                'has_link'      => (int) $btn['has_link'],
+                'link_url'      => $btn['link_url'],
+                'has_title'     => (int) $btn['has_title'],
+                'title_text'    => $btn['title_text'],
+                'opens_new_tab' => (int) $btn['opens_new_tab'],
+                'button_type'   => $btn['button_type'],
+                'source'        => 'site chrome',
+                'context'       => (string) ( $btn['context'] ?? '' ),
+                'never_linked'  => (int) ( $btn['never_linked'] ?? 0 ),
+                'verified'      => 1,
+            ] );
+            $count++;
+        }
+
+        return $count;
+    }
+
     private function scan_homepage( array $progress ): int {
         $show_on_front = get_option( 'show_on_front', 'posts' );
         $page_on_front = (int) get_option( 'page_on_front', 0 );
@@ -1290,6 +1362,51 @@ class BLS_Scanner {
      * nav toggles, WooCommerce UI, and Gravity Forms controls in
      * node_should_skip(), just at the region level instead of per-node.
      */
+    /**
+     * The opposite of strip_site_chrome(): keep only the header, footer,
+     * navigation and widget areas, discarding the page's own content.
+     *
+     * Chrome was excluded from page scans in 1.42 for a good reason — it was
+     * being credited to every single page, so one footer produced a row per
+     * page across the whole site. But excluding it entirely meant the footer's
+     * links were never scanned at all, and so never got titles when Auto-Fill
+     * ran. Both complaints are right, and the resolution is the one already
+     * asked for about the footer phone number: read it ONCE, fix it once.
+     *
+     * So the chrome is scanned as its own single entity rather than per page.
+     */
+    private function extract_site_chrome( string $html ): string {
+        if ( trim( $html ) === '' ) {
+            return '';
+        }
+
+        $dom = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+        libxml_clear_errors();
+
+        $xpath = new DOMXPath( $dom );
+
+        // Remove the main content region, leaving the furniture around it.
+        foreach ( [ '//main', '//*[@role="main"]', '//*[@id="content"]', '//*[@id="primary"]', '//*[@id="main"]' ] as $query ) {
+            $found = $xpath->query( $query );
+            if ( $found && $found->length > 0 ) {
+                $node = $found->item( 0 );
+                if ( $node->parentNode ) {
+                    $node->parentNode->removeChild( $node );
+                }
+                break;
+            }
+        }
+
+        $out = (string) $dom->saveHTML();
+        $out = preg_replace( '/^.*<body>/s', '', $out );
+        $out = preg_replace( '/<\/body>.*$/s', '', $out );
+        $out = preg_replace( '/^<\?xml[^>]+>\n?/', '', $out );
+
+        return trim( (string) $out );
+    }
+
     private function strip_site_chrome( string $html, bool $narrow_to_main = true ): string {
         if ( trim( $html ) === '' ) {
             return '';

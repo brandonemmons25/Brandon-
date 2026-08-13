@@ -356,7 +356,24 @@ class BLS_Updater {
             ) );
 
             foreach ( $post_ids as $post_id ) {
-                $post = get_post( (int) $post_id );
+                $post = (int) $post_id === 0
+                    // Site chrome is recorded against post_id 0 because it
+                    // belongs to no single page. get_post(0) is null, so
+                    // without a stand-in every header, footer and navigation
+                    // link was silently skipped here — which is exactly why
+                    // Auto-Fill left the footer untouched. The stand-in exists
+                    // only to carry a post_type into rewrite_missing_title(),
+                    // which uses it to search the theme's template parts.
+                    ? new WP_Post( (object) [
+                        'ID'           => 0,
+                        'post_type'    => 'site_chrome',
+                        'post_title'   => __( 'Site header & footer', 'button-link-scanner' ),
+                        'post_status'  => 'publish',
+                        'post_content' => '',
+                        'post_excerpt' => '',
+                    ] )
+                    : get_post( (int) $post_id );
+
                 if ( ! $post ) {
                     continue;
                 }
@@ -880,6 +897,38 @@ class BLS_Updater {
             if ( $result['changed'] ) {
                 wp_update_post( [ 'ID' => $post->ID, 'post_excerpt' => $result['html'] ] );
                 return [ 'applied' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
+            }
+        }
+
+        // 2b. Block-theme header/footer template parts.
+        //
+        // Where a block theme keeps its chrome: wp_template_part posts, one per
+        // region. They are ordinary editable posts, which is what makes titles
+        // on footer and navigation links possible at all — the scanner reads
+        // those links from the rendered page, so there is no anchor in any
+        // page's own content to write to, and before this the only outcome was
+        // "could not be applied".
+        //
+        // Tried before the page template because a link found in the chrome
+        // belongs to a part, and searching every page template first would
+        // waste passes on markup that cannot contain it.
+        if ( $post->post_type === 'site_chrome' || (int) $post->ID === 0 ) {
+            $parts = get_posts( [
+                'post_type'      => 'wp_template_part',
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+            ] );
+
+            foreach ( (array) $parts as $part ) {
+                if ( trim( (string) $part->post_content ) === '' ) {
+                    continue;
+                }
+                $result         = $this->apply_title_to_html( $part->post_content, $button_text, $link_url, $title );
+                $all_candidates = array_merge( $all_candidates, $result['candidates'] );
+                if ( $result['changed'] ) {
+                    wp_update_post( [ 'ID' => $part->ID, 'post_content' => $result['html'] ] );
+                    return [ 'applied' => true, 'count' => $result['count'], 'candidates' => $all_candidates ];
+                }
             }
         }
 
@@ -1919,7 +1968,9 @@ class BLS_Updater {
             $this->append_log_row( (string) ( $progress['log_path'] ?? '' ), [
                 $post->post_title,
                 $post->ID,
-                get_permalink( $post->ID ),
+                // Site chrome has no permalink of its own — get_permalink(0)
+                // returns something misleading, so record the site root.
+                (int) $post->ID === 0 ? home_url( '/' ) : get_permalink( $post->ID ),
                 $entry['text'],
                 $entry['title'],
                 $source,
