@@ -184,6 +184,11 @@
                             data-url="<?php echo esc_attr( $row->link_url ); ?>">
                         <?php esc_html_e( '+ Map', 'button-link-scanner' ); ?>
                     </button>
+                    <button class="button button-small bls-dismiss-button"
+                            data-id="<?php echo (int) $row->id; ?>"
+                            title="<?php esc_attr_e( 'Remove this row and keep it out of future scans', 'button-link-scanner' ); ?>">
+                        <?php esc_html_e( 'Not on page', 'button-link-scanner' ); ?>
+                    </button>
                 </td>
             </tr>
         <?php endforeach; ?>
@@ -205,5 +210,33 @@
         ] );
     endif;
     ?>
+    <?php endif; ?>
+
+    <?php
+    $dismissed_buttons = get_option( BLS_Scanner::DISMISSED_OPTION, [] );
+    $dismissed_count   = is_array( $dismissed_buttons ) ? count( $dismissed_buttons ) : 0;
+    ?>
+    <?php if ( isset( $_GET['bls_dismissed_cleared'] ) ) : ?>
+        <div class="notice notice-success is-dismissible"><p>
+            <?php esc_html_e( 'Dismissed buttons restored. They will reappear after the next scan.', 'button-link-scanner' ); ?>
+        </p></div>
+    <?php endif; ?>
+
+    <?php if ( $dismissed_count > 0 ) : ?>
+        <p class="bls-meta" style="margin-top:18px;">
+            <?php printf(
+                /* translators: %d: number of dismissed buttons */
+                esc_html( _n(
+                    '%d button is hidden because you marked it as not on the page. It stays out of every scan until restored.',
+                    '%d buttons are hidden because you marked them as not on the page. They stay out of every scan until restored.',
+                    $dismissed_count,
+                    'button-link-scanner'
+                ) ),
+                $dismissed_count
+            ); ?>
+            <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_clear_dismissed' ), 'bls_clear_dismissed' ) ); ?>">
+                <?php esc_html_e( 'Restore them', 'button-link-scanner' ); ?>
+            </a>
+        </p>
     <?php endif; ?>
 </div>

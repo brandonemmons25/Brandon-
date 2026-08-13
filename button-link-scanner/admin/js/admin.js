@@ -571,6 +571,39 @@
     // Broken Links: correct one link's address
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Scan Results: "Not on page"
+    // -------------------------------------------------------------------------
+    // The scanner renders content in an admin request as an administrator,
+    // which is not how a visitor loads the page — conditional block visibility,
+    // membership gating and the like evaluate differently. When the owner says
+    // an element is not there, that beats anything a scan can determine, so the
+    // row goes and stays gone through re-scans.
+
+    $(document).on('click', '.bls-dismiss-button', function () {
+        var $btn = $(this);
+        var $row = $btn.closest('tr');
+        var id   = $btn.data('id');
+
+        if (!confirm(
+            'Remove this row and keep it out of future scans?\n\n'
+            + 'Use this when the button genuinely is not on the page. Nothing on your '
+            + 'site is changed — only this report.\n\n'
+            + 'You can bring all dismissed rows back from the bottom of this page.'
+        )) {
+            return;
+        }
+
+        $btn.prop('disabled', true);
+
+        ajax('bls_dismiss_button', { id: id }, function () {
+            $row.fadeOut(250, function () { $(this).remove(); });
+        }, function (err) {
+            $btn.prop('disabled', false);
+            alert(err);
+        });
+    });
+
     $(document).on('click', '.bls-fix-url', function () {
         var $row = $(this).closest('tr').next('.bls-fix-row');
         $row.show().find('.bls-fix-url-input').val('').focus();

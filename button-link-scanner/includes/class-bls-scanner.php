@@ -232,6 +232,9 @@ class BLS_Scanner {
         'play gallery',
     ];
 
+    /** Buttons the owner has marked as not present on the page — see get_dismissed_buttons(). */
+    const DISMISSED_OPTION = 'bls_dismissed_buttons';
+
     /** Option name used to persist the remaining-work queue between AJAX batch calls. */
     const QUEUE_OPTION = 'bls_scan_queue';
 
@@ -500,6 +503,14 @@ class BLS_Scanner {
         if ( $post->post_type === 'product' ) {
             $buttons = array_values( array_filter( $buttons, static function ( array $btn ): bool {
                 return ! in_array( $btn['button_type'], [ 'button_element', 'input_element', 'role_button' ], true );
+            } ) );
+        }
+
+        // Drop anything the owner has already said is not on this page.
+        $dismissed = $this->get_dismissed_buttons();
+        if ( ! empty( $dismissed ) ) {
+            $buttons = array_values( array_filter( $buttons, function ( array $btn ) use ( $post, $dismissed ): bool {
+                return ! isset( $dismissed[ self::dismissal_key( (int) $post->ID, (string) $btn['html'] ) ] );
             } ) );
         }
 
@@ -1947,6 +1958,39 @@ class BLS_Scanner {
     // -------------------------------------------------------------------------
     // Post type discovery
     // -------------------------------------------------------------------------
+
+    /**
+     * Buttons the site owner has said are not on the page.
+     *
+     * The scanner renders content by calling the_content inside an admin-AJAX
+     * request as a logged-in administrator. That is not the environment a
+     * visitor loads the page in, and nothing here can make it one. Any rule
+     * that hides a block conditionally — a block-visibility plugin, membership
+     * or content gating, device or schedule targeting — evaluates differently
+     * there, so a block present in post_content renders for the scanner while a
+     * rule removes it on the live page.
+     *
+     * That produced two unlinked buttons on highlimbcider.com reported four
+     * times as not existing. There is no reliable way to detect it from inside
+     * a scan, so the report needs to accept being told: dismissed once, keyed
+     * on the page and the exact markup, and it stays gone through re-scans.
+     *
+     * Keyed on markup rather than button text so dismissing one leaves an
+     * identically-labelled real button elsewhere alone, and so editing the
+     * block brings it back for review rather than hiding the new version.
+     *
+     * @return array<string, true>
+     */
+    private function get_dismissed_buttons(): array {
+        $dismissed = get_option( self::DISMISSED_OPTION, [] );
+
+        return is_array( $dismissed ) ? $dismissed : [];
+    }
+
+    /** Key identifying one dismissed button: this page, this exact markup. */
+    public static function dismissal_key( int $post_id, string $button_html ): string {
+        return $post_id . ':' . md5( trim( $button_html ) );
+    }
 
     private function get_scannable_post_types(): array {
         $all     = get_post_types( [ 'public' => true ], 'names' );

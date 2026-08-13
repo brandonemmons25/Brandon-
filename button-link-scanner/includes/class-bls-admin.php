@@ -26,6 +26,8 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_unlink_start',      [ __CLASS__, 'ajax_unlink_start' ] );
         add_action( 'wp_ajax_bls_unlink_batch',      [ __CLASS__, 'ajax_unlink_batch' ] );
         add_action( 'wp_ajax_bls_fix_link_url',      [ __CLASS__, 'ajax_fix_link_url' ] );
+        add_action( 'wp_ajax_bls_dismiss_button',    [ __CLASS__, 'ajax_dismiss_button' ] );
+        add_action( 'admin_post_bls_clear_dismissed', [ __CLASS__, 'clear_dismissed_buttons' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
         add_action( 'wp_ajax_bls_link_check_tick',     [ __CLASS__, 'ajax_link_check_tick' ] );
@@ -553,6 +555,67 @@ class BLS_Admin {
             ], false );
             wp_send_json_error( 'Title wipe batch failed: ' . $e->getMessage() );
         }
+    }
+
+    /**
+     * Record that a button is not actually on its page, and remove its row.
+     *
+     * The scanner renders content in an admin-AJAX request as an administrator,
+     * which is not how a visitor loads the page — see
+     * BLS_Scanner::get_dismissed_buttons(). When the owner says an element is
+     * not there, that is better evidence than anything a scan can produce, and
+     * it needs to survive re-scanning.
+     */
+    public static function ajax_dismiss_button() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+        $id    = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+
+        if ( $id < 1 ) {
+            wp_send_json_error( 'No row given.' );
+        }
+
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT post_id, button_html FROM {$table} WHERE id = %d",
+            $id
+        ) );
+
+        if ( ! $row ) {
+            wp_send_json_error( 'That row no longer exists.' );
+        }
+
+        $dismissed = get_option( BLS_Scanner::DISMISSED_OPTION, [] );
+        if ( ! is_array( $dismissed ) ) {
+            $dismissed = [];
+        }
+        $dismissed[ BLS_Scanner::dismissal_key( (int) $row->post_id, (string) $row->button_html ) ] = true;
+        update_option( BLS_Scanner::DISMISSED_OPTION, $dismissed, false );
+
+        $wpdb->delete( $table, [ 'id' => $id ] );
+
+        wp_send_json_success( [ 'dismissed' => count( $dismissed ) ] );
+    }
+
+    /** Undo every dismissal, so they all come back for review on the next scan. */
+    public static function clear_dismissed_buttons() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'button-link-scanner' ) );
+        }
+        check_admin_referer( 'bls_clear_dismissed' );
+
+        delete_option( BLS_Scanner::DISMISSED_OPTION );
+
+        wp_safe_redirect( add_query_arg(
+            'bls_dismissed_cleared',
+            '1',
+            admin_url( 'admin.php?page=' . self::MENU_SLUG . '-results' )
+        ) );
+        exit;
     }
 
     /**
