@@ -1579,6 +1579,11 @@ class BLS_Scanner {
         $class = strtolower( $node->getAttribute( 'class' ) );
         $id    = strtolower( $node->getAttribute( 'id' ) );
 
+        // Hidden by something stated in the HTML — see is_hidden_markup().
+        if ( $this->is_hidden_markup( $node ) ) {
+            return true;
+        }
+
         // Inside markup the browser never renders as-is.
         //
         // <template> holds a blueprint that only becomes content when script
@@ -1778,6 +1783,65 @@ class BLS_Scanner {
      * A <button> wrapped in an <a> is excluded from this: that one genuinely
      * navigates, and the anchor is where its destination lives.
      */
+    /**
+     * Class tokens that mean "present in the markup, not shown to the reader".
+     *
+     * Matched as whole tokens, never substrings — "hidden" must not match
+     * "hidden-field-wrapper" the way 1.4.16's "sidebar" matched
+     * "content-sidebar-wrap".
+     */
+    const HIDDEN_CLASS_TOKENS = [
+        'screen-reader-text',
+        'visually-hidden',
+        'visuallyhidden',
+        'sr-only',
+        'd-none',
+        'is-hidden',
+        'hidden',
+    ];
+
+    /**
+     * True when this element is hidden by something visible in the HTML itself.
+     *
+     * Covers the honest cases only: a `hidden` attribute, an inline
+     * display:none or visibility:hidden, aria-hidden, and the handful of
+     * standard utility classes above — on the element or on any ancestor, since
+     * hiding a container hides everything inside it.
+     *
+     * What this deliberately does NOT claim to cover: anything hidden by an
+     * external stylesheet or a media query. A mobile-only block, a collapsed
+     * accordion panel, a carousel slide off to one side — all are ordinary
+     * markup here and only a real browser applying real CSS can tell they are
+     * not on screen. That gap is why "Not on page" exists, and why a scanner
+     * reading HTML can be truthful about what a server sent without being able
+     * to promise what a reader saw.
+     */
+    private function is_hidden_markup( DOMElement $node ): bool {
+        for ( $el = $node; $el instanceof DOMElement; $el = $el->parentNode ) {
+            if ( $el->hasAttribute( 'hidden' ) ) {
+                return true;
+            }
+
+            if ( strtolower( trim( $el->getAttribute( 'aria-hidden' ) ) ) === 'true' ) {
+                return true;
+            }
+
+            $style = strtolower( preg_replace( '/\s+/', '', $el->getAttribute( 'style' ) ) );
+            if ( str_contains( $style, 'display:none' ) || str_contains( $style, 'visibility:hidden' ) ) {
+                return true;
+            }
+
+            $tokens = preg_split( '/\s+/', strtolower( $el->getAttribute( 'class' ) ), -1, PREG_SPLIT_NO_EMPTY );
+            foreach ( (array) $tokens as $token ) {
+                if ( in_array( $token, self::HIDDEN_CLASS_TOKENS, true ) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private function is_script_control( DOMElement $node ): bool {
         $parent = $node->parentNode;
         if ( $parent instanceof DOMElement && strtolower( $parent->nodeName ) === 'a' ) {
