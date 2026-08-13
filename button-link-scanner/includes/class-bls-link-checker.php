@@ -559,6 +559,21 @@ class BLS_Link_Checker {
             return 'refused';
         }
 
+        // No HTTP status and no error text is the signature of the
+        // database-resolution path in verify_internal(): url_to_postid() DID
+        // match a post on this site, but its status is draft, pending, private
+        // or trashed. Nothing was requested, so there is nothing to report as a
+        // transport failure — which is why these were landing in "other".
+        //
+        // Worth its own name, because it is the most actionable kind in the
+        // report and the least obvious from the outside: the link is spelled
+        // correctly and the page genuinely exists, it is simply not published,
+        // so a visitor gets a 404 while an editor following the same link
+        // while logged in sees the page and concludes it works.
+        if ( $status === 0 && $message === '' ) {
+            return 'unpublished';
+        }
+
         return 'other';
     }
 
@@ -573,6 +588,11 @@ class BLS_Link_Checker {
             'missing' => [
                 'label'  => __( 'Page not found (404/410)', 'button-link-scanner' ),
                 'advice' => __( 'The site is alive but this page is not. It has often just moved — check for a new URL before unlinking.', 'button-link-scanner' ),
+                'unlink' => false,
+            ],
+            'unpublished' => [
+                'label'  => __( 'Links to a page that is not published', 'button-link-scanner' ),
+                'advice' => __( 'The address is correct and the page exists, but it is a draft, private, or in the trash — so visitors get a 404. Note that you will see the page yourself while logged in, which makes this easy to miss. Publish it, or point the link somewhere else.', 'button-link-scanner' ),
                 'unlink' => false,
             ],
             'malformed' => [

@@ -216,6 +216,9 @@ class BLS_Admin {
         $last_unlink      = get_option( 'bls_last_unlink_result', [] );
         $unlink_abandoned = get_option( BLS_Updater::UNLINK_QUEUE_OPTION, null ) !== null;
         $url_fixes        = (array) get_option( 'bls_url_fix_history', [] );
+        $button_meta      = BLS_Database::get_button_meta_for_links(
+            array_merge( $broken_links, $unverified_links )
+        );
         include BLS_PLUGIN_DIR . 'admin/views/broken-links.php';
     }
 

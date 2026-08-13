@@ -216,7 +216,27 @@
                     <td class="check-column">
                         <input type="checkbox" class="bls-unlink-pick" value="<?php echo (int) $row->id; ?>">
                     </td>
-                    <td><strong><?php echo esc_html( $row->button_text ); ?></strong></td>
+                    <td>
+                        <strong><?php echo esc_html( $row->button_text ); ?></strong>
+                        <?php
+                        // Provenance and markup, same as on Scan Results. This
+                        // report is where a row for a button nobody can find on
+                        // the page is most likely to be noticed, so it is the
+                        // last place that should leave the question unanswerable.
+                        $meta = $button_meta[ (int) $row->post_id . '|' . $row->link_url ] ?? null;
+                        ?>
+                        <?php if ( $meta && $meta['source'] !== '' && $meta['source'] !== 'content' ) : ?>
+                            <br><span class="bls-badge bls-badge--info"><?php echo esc_html( $meta['source'] ); ?></span>
+                        <?php endif; ?>
+                        <?php if ( $meta && $meta['button_html'] !== '' ) : ?>
+                            <details style="margin-top:4px;">
+                                <summary class="bls-meta" style="cursor:pointer;"><?php esc_html_e( 'markup', 'button-link-scanner' ); ?></summary>
+                                <pre style="white-space:pre-wrap; word-break:break-all; max-width:340px; margin:6px 0 0; padding:6px; background:#f6f7f7; border:1px solid #dcdcde; font-size:11px;"><?php
+                                    echo esc_html( mb_strimwidth( $meta['button_html'], 0, 600, '…' ) );
+                                ?></pre>
+                            </details>
+                        <?php endif; ?>
+                    </td>
                     <td><a href="<?php echo esc_url( $row->link_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $row->link_url ); ?></a></td>
                     <td>
                         <?php if ( $row->post_url ) : ?>

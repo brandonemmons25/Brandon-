@@ -114,6 +114,62 @@ class BLS_Database {
      *
      * @return string[]
      */
+    /**
+     * Look up the scan row behind each link-health row, so the broken-link
+     * report can show the same provenance the scan results do.
+     *
+     * The health table records a link's URL and the page it was found on, but
+     * not which content source it was read from or what its markup looked
+     * like — that lives in the results table. Without this join, the broken-link
+     * report is the one screen where "where did this come from" still cannot be
+     * answered, which is exactly the question a row for a button nobody can
+     * find on the page provokes.
+     *
+     * One query for the whole page of results rather than one per row.
+     *
+     * @param  array $rows Health rows, each with post_id and link_url.
+     * @return array Keyed "postid|linkurl" => { source, button_html }
+     */
+    public static function get_button_meta_for_links( array $rows ): array {
+        global $wpdb;
+
+        if ( empty( $rows ) ) {
+            return [];
+        }
+
+        $urls = [];
+        foreach ( $rows as $row ) {
+            $url = (string) ( $row->link_url ?? '' );
+            if ( $url !== '' ) {
+                $urls[ $url ] = true;
+            }
+        }
+        if ( empty( $urls ) ) {
+            return [];
+        }
+
+        $urls         = array_keys( $urls );
+        $placeholders = implode( ',', array_fill( 0, count( $urls ), '%s' ) );
+        $table        = $wpdb->prefix . self::RESULTS_TABLE;
+
+        $found = $wpdb->get_results( $wpdb->prepare(
+            "SELECT post_id, link_url, source, button_html
+             FROM {$table}
+             WHERE link_url IN ({$placeholders})",
+            $urls
+        ) );
+
+        $map = [];
+        foreach ( (array) $found as $result ) {
+            $map[ (int) $result->post_id . '|' . $result->link_url ] = [
+                'source'      => (string) $result->source,
+                'button_html' => (string) $result->button_html,
+            ];
+        }
+
+        return $map;
+    }
+
     public static function get_button_signatures_for_post( int $post_id, string $url ): array {
         global $wpdb;
         $table = $wpdb->prefix . self::RESULTS_TABLE;
