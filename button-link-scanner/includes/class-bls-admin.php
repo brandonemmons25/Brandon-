@@ -34,6 +34,7 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_save_link_schedule',  [ __CLASS__, 'ajax_save_link_schedule' ] );
         add_action( 'wp_ajax_bls_dismiss_broken_link', [ __CLASS__, 'ajax_dismiss_broken_link' ] );
         add_action( 'admin_post_bls_export_links_csv',  [ __CLASS__, 'export_links_csv' ] );
+        add_action( 'admin_post_bls_export_results_csv', [ __CLASS__, 'export_results_csv' ] );
         add_action( 'admin_post_bls_save_link_ignore',  [ __CLASS__, 'save_link_ignore' ] );
     }
 
@@ -763,6 +764,82 @@ class BLS_Admin {
      * Streamed rather than written to disk: nothing to clean up, and it always
      * reflects the current state.
      */
+    /**
+     * Stream every scan result as CSV.
+     *
+     * The link report has had this since 1.32, and the reason was the same
+     * then: reviewing hundreds of rows a screenshot at a time is how a bug
+     * where every mailto: link was called a 404 survived a full day. Scan
+     * Results is now the bigger list of the two — collegestationhomes.com
+     * returned 7,958 rows — and it had no way to get the whole thing out.
+     *
+     * Reading the file is what distinguishes "the count grew because the
+     * scanner finally sees IDX and archive output" from "the count grew because
+     * something is being counted twice", and those need opposite responses.
+     *
+     * Streamed in chunks so row count is not bounded by memory.
+     */
+    public static function export_results_csv() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'button-link-scanner' ) );
+        }
+        check_admin_referer( 'bls_export_results_csv' );
+
+        global $wpdb;
+        $table = $wpdb->prefix . BLS_Database::RESULTS_TABLE;
+
+        nocache_headers();
+        header( 'Content-Type: text/csv; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="scan-results-' . gmdate( 'Ymd-His' ) . '.csv"' );
+
+        $out = fopen( 'php://output', 'w' );
+        fputcsv( $out, [
+            'Page', 'Page ID', 'Post type', 'Page URL',
+            'Button/link text', 'Links to', 'Has link',
+            'Has SEO title', 'Title', 'Kind', 'Read from',
+            'Confirmed live', 'Never linked', 'Nearby text', 'Markup',
+        ] );
+
+        $per  = 500;
+        $last = 0;
+        while ( true ) {
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id > %d ORDER BY id ASC LIMIT %d",
+                $last,
+                $per
+            ) );
+            if ( empty( $rows ) ) {
+                break;
+            }
+            foreach ( $rows as $row ) {
+                fputcsv( $out, [
+                    $row->post_title,
+                    $row->post_id,
+                    $row->post_type,
+                    $row->post_url,
+                    $row->button_text,
+                    $row->link_url,
+                    (int) $row->has_link === 1 ? 'yes' : 'no',
+                    (int) $row->has_title === 1 ? 'yes' : 'no',
+                    $row->title_text,
+                    $row->button_type,
+                    $row->source,
+                    (int) ( $row->verified ?? 0 ) === 1 ? 'yes' : 'no',
+                    (int) ( $row->never_linked ?? 0 ) === 1 ? 'yes' : 'no',
+                    $row->context ?? '',
+                    // Truncated: full markup on 8,000 rows makes a file nobody
+                    // can open, and the opening tag is what identifies a source.
+                    mb_strimwidth( (string) $row->button_html, 0, 300, '…' ),
+                ] );
+                $last = (int) $row->id;
+            }
+            flush();
+        }
+
+        fclose( $out );
+        exit;
+    }
+
     public static function export_links_csv() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Unauthorized', 'button-link-scanner' ) );

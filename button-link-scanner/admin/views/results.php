@@ -42,7 +42,14 @@
         <a href="<?php echo esc_url( admin_url( 'admin.php?page=button-link-scanner-results' ) ); ?>" class="button">
             <?php esc_html_e( 'Reset', 'button-link-scanner' ); ?>
         </a>
+        <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=bls_export_results_csv' ), 'bls_export_results_csv' ) ); ?>"
+           class="button button-secondary">
+            <?php esc_html_e( 'Download all results (CSV)', 'button-link-scanner' ); ?>
+        </a>
     </form>
+    <p class="bls-meta" style="margin-top:-6px;">
+        <?php esc_html_e( 'Every row, ignoring the filters and with no cap — including where each was read from and the words next to it on the page. On a site with thousands of links this is the only practical way to see the shape of them.', 'button-link-scanner' ); ?>
+    </p>
 
     <!-- Results count -->
     <p class="bls-results-count">
