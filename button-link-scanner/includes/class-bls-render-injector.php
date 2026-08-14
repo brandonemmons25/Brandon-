@@ -124,6 +124,31 @@ class BLS_Render_Injector {
         update_option( self::OPTION, $rules, false );
     }
 
+    /**
+     * How many titles are currently being applied at render time.
+     *
+     * A standing figure, not a per-run one. The Auto-Fill panel only ever shows
+     * the most recent run, so after any later run the size of this dependency
+     * became invisible — and it matters: these titles are re-applied on every
+     * page load from a stored rule and disappear the moment the plugin is
+     * deactivated, unlike titles written into content. On a small site that is
+     * a footnote. At a few thousand it is worth knowing about, both for what
+     * happens if the plugin is ever disabled and for the work done per render.
+     */
+    public static function count_rules(): int {
+        $rules = get_option( self::OPTION, [] );
+        if ( ! is_array( $rules ) ) {
+            return 0;
+        }
+
+        $total = 0;
+        foreach ( $rules as $per_post ) {
+            $total += count( (array) $per_post );
+        }
+
+        return $total;
+    }
+
     public static function inject( string $content ): string {
         $rules = get_option( self::OPTION, [] );
         if ( empty( $rules ) || ! is_array( $rules ) ) {

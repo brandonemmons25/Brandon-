@@ -67,6 +67,30 @@
         <?php endif; ?>
     </div>
 
+    <?php if ( ! empty( $render_rules ) ) : ?>
+        <?php
+        // A standing figure, deliberately. The Auto-Fill panel only shows the
+        // most recent run, so after any later run the size of this dependency
+        // became invisible — and it is the one number that says what happens
+        // if the plugin is ever deactivated.
+        ?>
+        <div class="bls-card bls-card--notice">
+            <p style="margin:0 0 6px;"><strong><?php printf(
+                /* translators: %d: number of render-time titles */
+                esc_html( _n(
+                    '%d title is being added when the page loads, rather than saved in your content.',
+                    '%d titles are being added when the page loads, rather than saved in your content.',
+                    (int) $render_rules,
+                    'button-link-scanner'
+                ) ),
+                (int) $render_rules
+            ); ?></strong></p>
+            <p class="bls-meta" style="margin:0; max-width:820px;">
+                <?php esc_html_e( 'This is how links with no anchor in the database get a title — a header or footer link, or anything a theme or plugin generates. It works on every page view, but it depends on this plugin staying active: deactivate it and these titles go away. Titles saved into your content are permanent either way.', 'button-link-scanner' ); ?>
+            </p>
+        </div>
+    <?php endif; ?>
+
     <?php if ( ! empty( $skipped_pages ) || $confirmed_empty > 0 || $idx_vendor_pages > 0 || $offsite_redirects > 0 ) : ?>
     <div class="bls-card bls-card--notice">
         <h2><?php esc_html_e( 'Pages Not Scanned', 'button-link-scanner' ); ?></h2>

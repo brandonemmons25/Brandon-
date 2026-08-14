@@ -158,6 +158,7 @@ class BLS_Admin {
     public static function page_dashboard() {
         $summary        = BLS_Database::get_summary();
         $last_scan      = BLS_Database::get_last_scan_date();
+        $render_rules   = BLS_Render_Injector::count_rules();
         $skipped_pages  = get_option( 'bls_last_scan_skipped', [] );
         $confirmed_empty  = (int) get_option( 'bls_last_scan_confirmed_empty', 0 );
         $idx_vendor_pages  = (int) get_option( 'bls_last_scan_idx_vendor_pages', 0 );
