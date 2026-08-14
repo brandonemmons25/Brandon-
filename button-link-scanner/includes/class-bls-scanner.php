@@ -1753,6 +1753,19 @@ class BLS_Scanner {
         // tiles are still skipped below, by data-product_id — those genuinely
         // have nothing to fix.
 
+        // Links into wp-admin or the login screen.
+        //
+        // No visitor can follow one, so it is not content and cannot be a
+        // broken link. These come from plugin credit lines — Advanced iFrame
+        // renders "powered by Advanced iFrame" pointing at its own settings
+        // page, inside page content, and it was reported as a link needing an
+        // SEO title. It even got one, applied at render time on every page
+        // load, for a link only an administrator can see.
+        $href = strtolower( trim( $node->getAttribute( 'href' ) ) );
+        if ( $href !== '' && ( str_contains( $href, '/wp-admin/' ) || str_contains( $href, 'wp-login.php' ) ) ) {
+            return true;
+        }
+
         // WooCommerce add-to-cart, identified by data rather than by class.
         //
         // The class names differ between classic Woo (add_to_cart_button,
