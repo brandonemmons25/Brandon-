@@ -88,6 +88,18 @@ class BLS_Scanner {
         'wc-backward',
         'reset_variations',
         'woocommerce-Button',
+        // Jetpack sharing (the Sharedaddy module). Every variant carries
+        // sd-button: share-facebook, share-email, share-twitter, share-tumblr,
+        // share-pinterest, and the sharing-anchor "More" toggle. On
+        // collegestationhomes.com that module rendered six buttons on each of
+        // 322 posts — 1,932 rows, 24% of the entire scan — and its "More"
+        // toggle has no href, which accounted for all 322 "no URL set" rows
+        // exactly. Sharing widgets are furniture: not authored per post, not
+        // editable from one, and not links that can rot.
+        'sd-button',
+        'sharing-anchor',
+        // Theme post meta: the author byline rendered under every post title.
+        'entry-author-link',
     ];
 
     /**
@@ -1680,6 +1692,16 @@ class BLS_Scanner {
      * page by matching "sidebar" inside "content-sidebar-wrap".
      */
     const NOISE_CONTAINER_PATTERNS = [
+        // Jetpack's sharing block, so anything it renders goes with it.
+        'sharedaddy',
+        'sd-sharing',
+        // Theme post meta — author, date, categories, tags. Generated per post
+        // by the template rather than written by anyone, so one row per post
+        // per item, none of it fixable from the post.
+        'entry-meta',
+        // Breadcrumb trails, same reasoning: 239 posts each contributed a
+        // "Blog" link from theirs.
+        'breadcrumb',
         'tribe-events-c-subscribe-dropdown',
         'tribe-events-c-nav',
         'woocommerce-tabs',
