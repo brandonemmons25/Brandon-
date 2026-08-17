@@ -259,6 +259,22 @@
                         <button class="button button-small bls-dismiss-broken-link" data-id="<?php echo (int) $row->id; ?>">
                             <?php esc_html_e( 'Dismiss', 'button-link-scanner' ); ?>
                         </button>
+                        <?php
+                        // "Not on page" needs the SCAN row, not the health row.
+                        // Dismiss above only clears the health row, so the next
+                        // link check rebuilds it from the surviving scan row —
+                        // which is why a button reported as not existing kept
+                        // reappearing here. This removes both and keeps it out
+                        // of future scans.
+                        $meta_id = $button_meta[ (int) $row->post_id . '|' . $row->link_url ]['id'] ?? 0;
+                        ?>
+                        <?php if ( $meta_id > 0 ) : ?>
+                            <button class="button button-small bls-dismiss-button"
+                                    data-id="<?php echo (int) $meta_id; ?>"
+                                    title="<?php esc_attr_e( 'The button is not on the page — remove it and keep it out of future scans', 'button-link-scanner' ); ?>">
+                                <?php esc_html_e( 'Not on page', 'button-link-scanner' ); ?>
+                            </button>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <tr class="bls-fix-row" style="display:none;">

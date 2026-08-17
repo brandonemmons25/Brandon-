@@ -583,7 +583,7 @@ class BLS_Admin {
         }
 
         $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT post_id, button_html FROM {$table} WHERE id = %d",
+            "SELECT post_id, button_html, link_url FROM {$table} WHERE id = %d",
             $id
         ) );
 
@@ -599,6 +599,22 @@ class BLS_Admin {
         update_option( BLS_Scanner::DISMISSED_OPTION, $dismissed, false );
 
         $wpdb->delete( $table, [ 'id' => $id ] );
+
+        // Clear the link-health row too, if this URL is no longer referenced by
+        // any scan row. Otherwise dismissing a button on Scan Results leaves it
+        // sitting in the broken-link report, and dismissing it there leaves the
+        // scan row to rebuild it on the next check — each screen undoing the
+        // other, which is how the same phantom kept coming back.
+        $link_url = (string) $row->link_url;
+        if ( $link_url !== '' ) {
+            $still_used = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE link_url = %s",
+                $link_url
+            ) );
+            if ( $still_used < 1 ) {
+                BLS_Link_Checker::forget_link( $link_url );
+            }
+        }
 
         wp_send_json_success( [ 'dismissed' => count( $dismissed ) ] );
     }

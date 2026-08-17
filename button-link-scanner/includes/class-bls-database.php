@@ -156,7 +156,7 @@ class BLS_Database {
         $table        = $wpdb->prefix . self::RESULTS_TABLE;
 
         $found = $wpdb->get_results( $wpdb->prepare(
-            "SELECT post_id, link_url, source, button_html
+            "SELECT id, post_id, link_url, source, button_html
              FROM {$table}
              WHERE link_url IN ({$placeholders})",
             $urls
@@ -165,6 +165,12 @@ class BLS_Database {
         $map = [];
         foreach ( (array) $found as $result ) {
             $map[ (int) $result->post_id . '|' . $result->link_url ] = [
+                // The scan row's id, so the broken-link report can offer the
+                // same "Not on page" dismissal Scan Results has. Without it,
+                // Dismiss there only clears the health row and the next link
+                // check re-creates it from the surviving scan row — which is
+                // why a button reported as not existing kept coming back.
+                'id'          => (int) $result->id,
                 'source'      => (string) $result->source,
                 'button_html' => (string) $result->button_html,
             ];
