@@ -1,0 +1,85 @@
+/* ==========================================================================
+   Gravity Forms #7 ("Receive Exclusive Listings")
+   Email field + SIGN UP NOW button: identical size, identical 1px border.
+
+   Paste in: Appearance > Customize > Additional CSS
+   ========================================================================== */
+
+/* --- Layout: bottom-align the two half-width columns --------------------- */
+#gform_wrapper_7 .gform_fields {
+	align-items: end !important;
+}
+
+#gform_wrapper_7 #field_submit_7 {
+	display: flex !important;
+	align-items: stretch !important;
+	align-self: end !important;
+}
+
+/* --- Shared size contract for input + button ----------------------------- */
+#gform_wrapper_7 #input_7_1,
+#gform_wrapper_7 #gform_submit_button_7 {
+	box-sizing: border-box !important;
+	width: 100% !important;
+	height: 40px !important;
+	min-height: 40px !important;
+	max-height: 40px !important;
+	margin: 0 !important;
+	padding: 0 16px !important;
+	line-height: 1 !important;
+	font-size: 13px !important;
+	border-radius: 5px !important;
+	align-self: stretch !important;
+}
+
+/* --- Shared 1px border --------------------------------------------------- */
+/* One rule, both controls, every side. `border` shorthand also resets any
+   per-side width Kadence/GF set (e.g. border-bottom: 2px), and killing the
+   box-shadow stops the theme from faking a thicker edge. */
+#gform_wrapper_7 #input_7_1,
+#gform_wrapper_7 #gform_submit_button_7 {
+	border: 1px solid #000 !important; /* <- change #000 for a different edge color */
+	box-shadow: none !important;
+	outline: none !important;
+}
+
+/* Keep it 1px in every state — no jump on hover/focus/active. */
+#gform_wrapper_7 #input_7_1:hover,
+#gform_wrapper_7 #input_7_1:focus,
+#gform_wrapper_7 #input_7_1:active,
+#gform_wrapper_7 #gform_submit_button_7:hover,
+#gform_wrapper_7 #gform_submit_button_7:focus,
+#gform_wrapper_7 #gform_submit_button_7:active {
+	border: 1px solid #000 !important;
+	box-shadow: none !important;
+	outline: none !important;
+}
+
+/* Error state: GF adds a red 2px border on validation failure. Keep 1px. */
+#gform_wrapper_7 .gfield_error #input_7_1 {
+	border: 1px solid #c02b0a !important;
+}
+
+/* Button label centering (button-only) ------------------------------------ */
+#gform_wrapper_7 #gform_submit_button_7 {
+	display: inline-flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-align: center !important;
+	white-space: nowrap !important;
+}
+
+/* No stray spacing from the GF input wrapper. */
+#gform_wrapper_7 #field_7_1 .ginput_container {
+	margin: 0 !important;
+}
+
+/* --- Mobile: stacked, still equal ---------------------------------------- */
+@media (max-width: 640px) {
+	#gform_wrapper_7 .gform_fields {
+		align-items: stretch !important;
+	}
+	#gform_wrapper_7 #field_submit_7 {
+		align-self: stretch !important;
+	}
+}
