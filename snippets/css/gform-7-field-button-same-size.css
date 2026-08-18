@@ -21,13 +21,13 @@
 #gform_wrapper_7 #gform_submit_button_7 {
 	box-sizing: border-box !important;
 	width: 100% !important;
-	height: 40px !important;
-	min-height: 40px !important;
-	max-height: 40px !important;
+	height: 34px !important;
+	min-height: 34px !important;
+	max-height: 34px !important;
 	margin: 0 !important;
-	padding: 0 16px !important;
+	padding: 0 14px !important;
 	line-height: 1 !important;
-	font-size: 13px !important;
+	font-size: 12px !important;
 	border-radius: 5px !important;
 	align-self: stretch !important;
 }
