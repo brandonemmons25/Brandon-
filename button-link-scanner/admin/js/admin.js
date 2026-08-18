@@ -48,6 +48,22 @@
 
                 // Build a real diagnostic instead of a generic message, so
                 // the actual cause shows up right on the page.
+                // An expired security token. WordPress answers a failed
+                // check_ajax_referer() with HTTP 403 and a body of exactly
+                // "-1", which surfaced as "Request failed (HTTP 403 error): -1"
+                // — true, and no help at all. Nonces expire after a day, and
+                // these admin screens stay open for hours while a scan or a
+                // link check runs, so this is the single most likely failure
+                // here and it is entirely recoverable by reloading.
+                var body = (jqXHR && jqXHR.responseText ? jqXHR.responseText : '').trim();
+                if (status === 403 && (body === '-1' || body === '0')) {
+                    if (fail) {
+                        fail('This page has been open too long and its security token expired. '
+                            + 'Reload the page and try again — nothing was changed.');
+                    }
+                    return;
+                }
+
                 var statusText = jqXHR && jqXHR.statusText ? jqXHR.statusText : 'no connection';
                 var bodySnippet = '';
                 if (jqXHR && jqXHR.responseText) {
