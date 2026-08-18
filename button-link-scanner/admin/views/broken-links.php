@@ -84,6 +84,55 @@
         </div>
     <?php endif; ?>
 
+    <?php
+    // The https retry reports its totals in the status line, but that line is
+    // wiped by the page reload that follows — and the addresses with no working
+    // https are the only part of the result that needs acting on. Keep them on
+    // screen until the next run replaces them.
+    ?>
+    <?php if ( ! empty( $last_https ) ) : ?>
+        <div class="bls-card bls-card--notice">
+            <p style="margin:0 0 6px;"><strong><?php printf(
+                esc_html__( 'Last https retry: %s', 'button-link-scanner' ),
+                esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (string) ( $last_https['time'] ?? '' ) ) )
+            ); ?></strong></p>
+            <ul style="margin:0 0 6px 18px; list-style:disc;">
+                <li><?php printf(
+                    esc_html__( 'Switched to https: %1$d across %2$d page(s)', 'button-link-scanner' ),
+                    (int) ( $last_https['fixed'] ?? 0 ),
+                    (int) ( $last_https['pages_changed'] ?? 0 )
+                ); ?></li>
+                <?php if ( ! empty( $last_https['still_broken'] ) ) : ?>
+                    <li><?php printf(
+                        esc_html__( 'No working https — left exactly as they were: %d', 'button-link-scanner' ),
+                        (int) $last_https['still_broken']
+                    ); ?></li>
+                <?php endif; ?>
+                <?php if ( ! empty( $last_https['skipped_not_http'] ) ) : ?>
+                    <li><?php printf(
+                        esc_html__( 'Skipped, not http:// addresses: %d', 'button-link-scanner' ),
+                        (int) $last_https['skipped_not_http']
+                    ); ?></li>
+                <?php endif; ?>
+            </ul>
+            <?php if ( ! empty( $last_https['still_broken_urls'] ) ) : ?>
+                <details style="margin:0;" open>
+                    <summary style="cursor:pointer;"><?php esc_html_e( 'Which ones had no working https', 'button-link-scanner' ); ?></summary>
+                    <p class="bls-meta" style="margin:6px 0;"><?php esc_html_e( 'These are the ones to research or unlink — https was tried and did not answer either.', 'button-link-scanner' ); ?></p>
+                    <ul style="margin:6px 0 0 18px; list-style:disc;">
+                        <?php foreach ( (array) $last_https['still_broken_urls'] as $failed ) : ?>
+                            <li><code><?php echo esc_html( (string) ( $failed['url'] ?? '' ) ); ?></code>
+                                <?php if ( ! empty( $failed['reason'] ) ) : ?>
+                                    — <?php echo esc_html( (string) $failed['reason'] ); ?>
+                                <?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </details>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
     <?php if ( ! empty( $url_fixes ) ) : ?>
         <details style="margin:0 0 16px;">
             <summary style="cursor:pointer; font-weight:600;">

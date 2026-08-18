@@ -1536,9 +1536,20 @@ class BLS_Updater {
 
             $progress['still_broken']++;
             if ( count( $progress['still_broken_urls'] ) < 50 ) {
+                // replace_link_url()'s own wording is written for someone who
+                // typed a replacement in by hand ("check it in a browser
+                // first"), which reads as nonsense against an address this
+                // tool generated. Say what actually happened instead.
+                $reason = (string) ( $result['message'] ?? '' );
+                if ( strpos( $reason, 'broken too' ) !== false ) {
+                    $reason = __( 'the https address did not answer either', 'button-link-scanner' );
+                } elseif ( strpos( $reason, 'could not be found' ) !== false ) {
+                    $reason = __( 'https works, but the old address is not in any editable content — it is coming from a theme or plugin', 'button-link-scanner' );
+                }
+
                 $progress['still_broken_urls'][] = [
                     'url'    => $old_url,
-                    'reason' => (string) ( $result['message'] ?? '' ),
+                    'reason' => $reason,
                 ];
             }
         }
