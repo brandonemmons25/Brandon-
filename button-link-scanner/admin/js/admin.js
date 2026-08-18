@@ -666,6 +666,7 @@
     function refreshUnlinkCount() {
         var n = unlinkSelection().length;
         $('#bls-unlink-selected').prop('disabled', n < 1);
+        $('#bls-https-retry').prop('disabled', n < 1);
         $('#bls-unlink-count').text(
             n < 1 ? 'Nothing selected' : n + ' link' + (n === 1 ? '' : 's') + ' selected'
         );
@@ -691,6 +692,69 @@
         $('.bls-unlink-pick, #bls-unlink-check-all').prop('checked', false);
         refreshUnlinkCount();
     });
+
+    // Retry over https. Tried before unlinking on purpose: an old http:// link
+    // to a site that is now https-only fails the check with nothing answering on
+    // port 80, while the page itself is fine one scheme over. Unlinking those
+    // would throw away a working destination.
+    $('#bls-https-retry').on('click', function () {
+        var $btn    = $(this);
+        var $status = $('#bls-unlink-status');
+        var ids     = unlinkSelection();
+
+        if (ids.length < 1) {
+            return;
+        }
+
+        if (!confirm(
+            'Try the https version of ' + ids.length + ' selected link'
+            + (ids.length === 1 ? '' : 's') + '?\n\n'
+            + 'Each https address is checked first. Any that work are switched over on every '
+            + 'page using them; anything without a working https is left exactly as it is.'
+        )) {
+            return;
+        }
+
+        $btn.prop('disabled', true);
+        setStatus($status, 'Trying https...' + spinner(), '');
+
+        ajax('bls_https_start', { ids: ids }, function () {
+            runHttpsBatchLoop($btn, $status);
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    });
+
+    function runHttpsBatchLoop($btn, $status) {
+        ajax('bls_https_batch', {}, function (data) {
+            var pct = data.total_items > 0
+                ? Math.round((data.processed / data.total_items) * 100)
+                : 100;
+            setStatus(
+                $status,
+                'Trying https... (' + data.processed + '/' + data.total_items + ' — ' + pct + '%)' + spinner(),
+                ''
+            );
+
+            if (data.done) {
+                var msg = data.fixed + ' link(s) switched to https across ' + data.pages_changed + ' page(s).';
+                if (data.still_broken > 0) {
+                    msg += ' ' + data.still_broken + ' had no working https and were left alone.';
+                }
+                if (data.skipped_not_http > 0) {
+                    msg += ' ' + data.skipped_not_http + ' were not http:// links.';
+                }
+                setStatus($status, msg, 'ok');
+                setTimeout(function () { location.reload(); }, 2200);
+            } else {
+                setTimeout(function () { runHttpsBatchLoop($btn, $status); }, 400);
+            }
+        }, function (err) {
+            $btn.prop('disabled', false);
+            setStatus($status, err, 'error');
+        });
+    }
 
     $('#bls-unlink-selected').on('click', function () {
         var $btn    = $(this);

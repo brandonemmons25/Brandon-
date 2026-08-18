@@ -250,6 +250,13 @@ class BLS_Updater {
      */
     const UNLINK_DEFAULT_BATCH_SIZE = 3;
 
+    /** Queue/progress options for the batched http -> https retry. */
+    const HTTPS_QUEUE_OPTION    = 'bls_https_queue';
+    const HTTPS_PROGRESS_OPTION = 'bls_https_progress';
+
+    /** Links per batch. Each one probes the https address over HTTP. */
+    const HTTPS_DEFAULT_BATCH_SIZE = 3;
+
     /**
      * Build the work queue: every distinct button/link pair (buttons AND
      * plain content hyperlinks alike — this was never scoped to buttons
@@ -1434,6 +1441,121 @@ class BLS_Updater {
     // -------------------------------------------------------------------------
     // Bulk unlink — turn dead links back into plain text
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // Retry over https
+    // -------------------------------------------------------------------------
+
+    /**
+     * Queue broken http:// links to be retried over https.
+     *
+     * A whole class of "broken" link is nothing of the sort: an old http://
+     * address to a site that has since gone https-only. Nothing answers on port
+     * 80 any more, so the check fails, but the page is perfectly alive one
+     * scheme over. On collegestationhomes.com that covered uhaul.com,
+     * dps.texas.gov and sw.org — none dead, all needing one character changed.
+     *
+     * Doing it by hand means opening each row, retyping the address into Fix
+     * URL, and repeating. The work is identical every time and the candidate
+     * address is entirely predictable, which is exactly what should be
+     * automated rather than typed.
+     *
+     * Deliberately not a blind find-and-replace of http with https: each
+     * candidate is fetched first, and replace_link_url() refuses to write an
+     * address that comes back broken. A site that genuinely has no https at all
+     * is left alone and reported, not quietly pointed somewhere worse.
+     *
+     * @param  int[] $ids Row ids from the link-health table.
+     * @return array { total_items: int, skipped_not_http: int }
+     */
+    public function start_https_retry( array $ids ): array {
+        $rows = BLS_Link_Checker::get_links_by_ids( $ids );
+
+        $queue    = [];
+        $not_http = 0;
+        foreach ( $rows as $row ) {
+            $url = trim( (string) $row->link_url );
+            if ( stripos( $url, 'http://' ) !== 0 ) {
+                $not_http++;
+                continue; // Already https, or relative — nothing to upgrade.
+            }
+            $queue[] = $url;
+        }
+
+        // One attempt per address. Selecting two rows that share a URL used to
+        // queue it twice: the first pass fixes it, then the second finds
+        // nothing left to rewrite and reports the address as still broken.
+        $queue = array_values( array_unique( $queue ) );
+
+        update_option( self::HTTPS_QUEUE_OPTION, $queue, false );
+        update_option( self::HTTPS_PROGRESS_OPTION, [
+            'total_items'      => count( $queue ),
+            'processed'        => 0,
+            'fixed'            => 0,
+            'pages_changed'    => 0,
+            'still_broken'     => 0,
+            'still_broken_urls' => [],
+            'skipped_not_http' => $not_http,
+        ], false );
+
+        return [ 'total_items' => count( $queue ), 'skipped_not_http' => $not_http ];
+    }
+
+    /**
+     * Process the next batch of http:// links, upgrading the ones that work.
+     *
+     * @param  int $batch_size How many to try this call.
+     * @return array { done: bool, ...running totals }
+     */
+    public function run_https_retry_batch( int $batch_size = self::HTTPS_DEFAULT_BATCH_SIZE ): array {
+        $queue    = get_option( self::HTTPS_QUEUE_OPTION, null );
+        $progress = get_option( self::HTTPS_PROGRESS_OPTION, null );
+
+        if ( $queue === null || $progress === null ) {
+            return [ 'done' => true, 'error' => 'No https retry in progress.' ];
+        }
+
+        $batch = array_splice( $queue, 0, max( 1, $batch_size ) );
+
+        foreach ( $batch as $old_url ) {
+            $progress['processed']++;
+
+            $new_url = 'https://' . substr( $old_url, strlen( 'http://' ) );
+
+            // replace_link_url() already fetches the candidate, refuses to
+            // write a broken one, rewrites every page using the old address,
+            // moves the scan rows across and records the change. Nothing here
+            // needs to repeat any of that.
+            $result = $this->replace_link_url( $old_url, $new_url );
+
+            if ( ! empty( $result['ok'] ) ) {
+                $progress['fixed']++;
+                $progress['pages_changed'] += (int) $result['pages'];
+                continue;
+            }
+
+            $progress['still_broken']++;
+            if ( count( $progress['still_broken_urls'] ) < 50 ) {
+                $progress['still_broken_urls'][] = [
+                    'url'    => $old_url,
+                    'reason' => (string) ( $result['message'] ?? '' ),
+                ];
+            }
+        }
+
+        $done = empty( $queue );
+
+        if ( $done ) {
+            update_option( 'bls_last_https_result', array_merge( $progress, [ 'time' => current_time( 'mysql' ) ] ), false );
+            delete_option( self::HTTPS_QUEUE_OPTION );
+            delete_option( self::HTTPS_PROGRESS_OPTION );
+        } else {
+            update_option( self::HTTPS_QUEUE_OPTION, $queue, false );
+            update_option( self::HTTPS_PROGRESS_OPTION, $progress, false );
+        }
+
+        return array_merge( $progress, [ 'done' => $done ] );
+    }
 
     /**
      * Queue up a set of broken links to be unlinked.

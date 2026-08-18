@@ -23,6 +23,8 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_auto_fill_batch', [ __CLASS__, 'ajax_auto_fill_batch' ] );
         add_action( 'wp_ajax_bls_wipe_titles_start', [ __CLASS__, 'ajax_wipe_titles_start' ] );
         add_action( 'wp_ajax_bls_wipe_titles_batch', [ __CLASS__, 'ajax_wipe_titles_batch' ] );
+        add_action( 'wp_ajax_bls_https_start',       [ __CLASS__, 'ajax_https_start' ] );
+        add_action( 'wp_ajax_bls_https_batch',       [ __CLASS__, 'ajax_https_batch' ] );
         add_action( 'wp_ajax_bls_unlink_start',      [ __CLASS__, 'ajax_unlink_start' ] );
         add_action( 'wp_ajax_bls_unlink_batch',      [ __CLASS__, 'ajax_unlink_batch' ] );
         add_action( 'wp_ajax_bls_fix_link_url',      [ __CLASS__, 'ajax_fix_link_url' ] );
@@ -668,6 +670,59 @@ class BLS_Admin {
                 ob_end_clean();
             }
             wp_send_json_error( 'Could not update the link: ' . $e->getMessage() );
+        }
+    }
+
+    /**
+     * Kick off a batched retry of selected http:// links over https.
+     * Browser then calls ajax_https_batch repeatedly until done.
+     */
+    public static function ajax_https_start() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $ids = isset( $_POST['ids'] ) ? (array) $_POST['ids'] : [];
+        $ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+
+        if ( empty( $ids ) ) {
+            wp_send_json_error( 'No links selected.' );
+        }
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->start_https_retry( $ids );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'Could not start: ' . $e->getMessage() );
+        }
+    }
+
+    public static function ajax_https_batch() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $batch_size = isset( $_POST['batch_size'] ) ? max( 1, (int) $_POST['batch_size'] ) : BLS_Updater::HTTPS_DEFAULT_BATCH_SIZE;
+
+        ob_start();
+        try {
+            $updater = new BLS_Updater();
+            $result  = $updater->run_https_retry_batch( $batch_size );
+            self::discard_stray_output();
+            wp_send_json_success( $result );
+        } catch ( \Throwable $e ) {
+            if ( ob_get_level() > 0 ) {
+                ob_end_clean();
+            }
+            wp_send_json_error( 'https retry failed: ' . $e->getMessage() );
         }
     }
 

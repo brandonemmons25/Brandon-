@@ -148,6 +148,9 @@
                 <?php esc_html_e( 'Tick any links below whose destination is gone for good — a business that closed, a site that no longer exists — and this removes the link while leaving the words exactly where they are. Nothing is deleted from the page; the text simply stops being clickable.', 'button-link-scanner' ); ?>
             </p>
             <p style="margin:0 0 10px; max-width:820px;" class="bls-meta">
+                <?php esc_html_e( 'Before unlinking anything, try "Retry over https" on the selection. An old http:// address to a site that has since gone https-only fails the check because nothing answers on port 80, while the page itself is perfectly alive one scheme over. That button tries the https address for each selected link and switches any that work, across every page using them. Anything with no working https is left exactly as it was and listed for you.', 'button-link-scanner' ); ?>
+            </p>
+            <p style="margin:0 0 10px; max-width:820px;" class="bls-meta">
                 <?php esc_html_e( 'Every link is re-checked at the moment it is processed, so anything that has come back online since the last check is skipped and left alone. Use this only for destinations that are gone for good — if a page has simply moved, use "Fix URL" on its row to point it at the new address instead. There is no undo, and a full log of every change is saved.', 'button-link-scanner' ); ?>
             </p>
             <?php
@@ -188,6 +191,9 @@
             <p style="margin:0;">
                 <button id="bls-unlink-selected" class="button button-primary" disabled>
                     <?php esc_html_e( 'Unlink selected', 'button-link-scanner' ); ?>
+                </button>
+                <button id="bls-https-retry" class="button" disabled>
+                    <?php esc_html_e( 'Retry over https', 'button-link-scanner' ); ?>
                 </button>
                 <button type="button" id="bls-unlink-clear" class="button button-small"><?php esc_html_e( 'Clear selection', 'button-link-scanner' ); ?></button>
                 <span id="bls-unlink-count" class="bls-meta" style="margin-left:8px;"><?php esc_html_e( 'Nothing selected', 'button-link-scanner' ); ?></span>
