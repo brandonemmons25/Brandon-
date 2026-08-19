@@ -103,6 +103,24 @@ class BLS_Database {
         $wpdb->query( 'TRUNCATE TABLE ' . $wpdb->prefix . self::RESULTS_TABLE );
     }
 
+    /**
+     * Drop every result row for one post.
+     *
+     * scan_post() only ever inserts — a full scan truncates the table up
+     * front, so it never needed to. Re-scanning a single page does need it,
+     * or the page's rows double every time.
+     *
+     * @return int Rows removed.
+     */
+    public static function delete_results_for_post( int $post_id ): int {
+        global $wpdb;
+
+        return (int) $wpdb->query( $wpdb->prepare(
+            'DELETE FROM ' . $wpdb->prefix . self::RESULTS_TABLE . ' WHERE post_id = %d',
+            $post_id
+        ) );
+    }
+
     public static function insert_result( array $data ) {
         global $wpdb;
         $data['scan_date'] = current_time( 'mysql' );

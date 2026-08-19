@@ -268,6 +268,17 @@ class BLS_Scanner {
     // than read from the database. See scan_post().
     const DEFAULT_BATCH_SIZE = 4;
 
+    /**
+     * Sent on every live page fetch. The scanner treats the live page as the
+     * authority on what is on the page, which is only true if what comes back
+     * is current — a cached copy makes the report describe the site as it was
+     * whenever that copy was generated.
+     */
+    const NO_CACHE_HEADERS = [
+        'Cache-Control' => 'no-cache, no-store, max-age=0',
+        'Pragma'        => 'no-cache',
+    ];
+
     // -------------------------------------------------------------------------
     // Public API — batched scan (used by the admin UI)
     // -------------------------------------------------------------------------
@@ -506,7 +517,7 @@ class BLS_Scanner {
      * @return int|null Number of buttons found, or null if the post's
      *                   content was empty (should be flagged for manual review).
      */
-    public function scan_post( WP_Post $post ): ?int {
+    public function scan_post( WP_Post $post, bool $bypass_cache = false ): ?int {
         // The live page is the authority on what is on the page.
         //
         // Reading content from the database and rendering it here cannot match
@@ -531,7 +542,7 @@ class BLS_Scanner {
         $this->live_confirmed_empty = false;
 
         if ( (bool) apply_filters( 'bls_scan_use_live_pages', true ) ) {
-            $fetched = $this->fetch_live_page_html( (string) get_permalink( $post->ID ) );
+            $fetched = $this->fetch_live_page_html( (string) get_permalink( $post->ID ), $bypass_cache );
 
             if ( ! empty( $fetched['offsite_redirect'] ) ) {
                 return null; // No content of its own — handled as a skipped page.
@@ -1250,9 +1261,24 @@ class BLS_Scanner {
      * docblock for why this is safe despite the "no HTTP requests"
      * principle elsewhere in this class.
      */
-    private function fetch_live_page_html( string $url ): array {
+    private function fetch_live_page_html( string $url, bool $bypass_cache = false ): array {
         if ( empty( $url ) ) {
             return [ 'html' => '', 'offsite_redirect' => false ];
+        }
+
+        // A page cache serves this fetch the same stale HTML it serves anyone
+        // else, and that is how a title applied ten minutes ago can still be
+        // reported as missing: the content has it, the cached copy does not,
+        // and the scanner believes the cached copy because the live page is
+        // supposed to be the authority.
+        //
+        // The headers ask politely and most caches honour them. A single-page
+        // re-scan also adds a query argument, which defeats the ones that
+        // don't, since almost every cache keys on the full URL. That argument
+        // is deliberately NOT added on a full scan — it would multiply cache
+        // entries across every page of the site.
+        if ( $bypass_cache ) {
+            $url = add_query_arg( 'bls-fresh', (string) time(), $url );
         }
 
         // Space the requests out. A scan now fetches every page, and firing
@@ -1285,6 +1311,7 @@ class BLS_Scanner {
             'redirection' => 0,
             'user-agent'  => 'WordPress/BLS-Scanner (redirect probe)',
             'sslverify'   => apply_filters( 'bls_fetch_sslverify', true ),
+            'headers'     => self::NO_CACHE_HEADERS,
         ] );
 
         if ( ! is_wp_error( $probe ) ) {
@@ -1303,6 +1330,7 @@ class BLS_Scanner {
             'timeout'    => 10,
             'user-agent' => 'WordPress/BLS-Scanner (manual-check recheck)',
             'sslverify'  => apply_filters( 'bls_fetch_sslverify', true ),
+            'headers'    => self::NO_CACHE_HEADERS,
         ] );
 
         if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {

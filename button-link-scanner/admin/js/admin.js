@@ -620,6 +620,28 @@
         });
     });
 
+    // Re-scan one page. Replaces every row for that page, so the table on
+    // screen is out of date the moment it finishes — reload rather than try to
+    // patch one row, since the re-scan may have found more or fewer buttons
+    // than are currently displayed.
+    $(document).on('click', '.bls-rescan-post', function () {
+        var $btn   = $(this);
+        var postId = $btn.data('post-id');
+        var label  = $btn.text();
+
+        $btn.prop('disabled', true).text('Re-scanning...');
+
+        ajax('bls_rescan_post', { post_id: postId }, function (data) {
+            $btn.text('Done');
+            alert((data && data.message ? data.message : 'Re-scanned.')
+                + '\n\nReloading so the table shows what it found.');
+            location.reload();
+        }, function (err) {
+            $btn.prop('disabled', false).text(label);
+            alert(err);
+        });
+    });
+
     $(document).on('click', '.bls-fix-url', function () {
         var $row = $(this).closest('tr').next('.bls-fix-row');
         $row.show().find('.bls-fix-url-input').val('').focus();

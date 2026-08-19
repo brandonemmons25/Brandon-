@@ -29,6 +29,7 @@ class BLS_Admin {
         add_action( 'wp_ajax_bls_unlink_batch',      [ __CLASS__, 'ajax_unlink_batch' ] );
         add_action( 'wp_ajax_bls_fix_link_url',      [ __CLASS__, 'ajax_fix_link_url' ] );
         add_action( 'wp_ajax_bls_dismiss_button',    [ __CLASS__, 'ajax_dismiss_button' ] );
+        add_action( 'wp_ajax_bls_rescan_post',       [ __CLASS__, 'ajax_rescan_post' ] );
         add_action( 'admin_post_bls_clear_dismissed', [ __CLASS__, 'clear_dismissed_buttons' ] );
         add_action( 'wp_ajax_bls_run_gf_scan',     [ __CLASS__, 'ajax_run_gf_scan' ] );
         add_action( 'wp_ajax_bls_link_check_start',    [ __CLASS__, 'ajax_link_check_start' ] );
@@ -571,6 +572,51 @@ class BLS_Admin {
      * not there, that is better evidence than anything a scan can produce, and
      * it needs to survive re-scanning.
      */
+    /**
+     * Re-scan one page, bypassing any page cache.
+     *
+     * The report is a snapshot from whenever the last full scan ran, and a
+     * scan of this site takes 614 page fetches — so a single row that looks
+     * wrong had no cheap way to be re-checked. Which made every such row an
+     * argument rather than a question: the stored content says the title is
+     * there, the report says it is missing, and confirming which is current
+     * meant re-scanning the entire site.
+     *
+     * This settles it in one click, and forces a fresh fetch while it is at
+     * it, since a cached page is the most likely reason for the disagreement
+     * in the first place.
+     */
+    public static function ajax_rescan_post() {
+        check_ajax_referer( 'bls_ajax', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+        $post    = $post_id > 0 ? get_post( $post_id ) : null;
+
+        if ( ! $post instanceof WP_Post ) {
+            wp_send_json_error( 'That page no longer exists.' );
+        }
+
+        BLS_Database::delete_results_for_post( $post_id );
+
+        $scanner = new BLS_Scanner();
+        $count   = $scanner->scan_post( $post, true );
+
+        wp_send_json_success( [
+            'post_id' => $post_id,
+            'count'   => (int) $count,
+            'message' => $count === null || $count === 0
+                ? __( 'Re-scanned — no buttons or links found on the page now.', 'button-link-scanner' )
+                : sprintf(
+                    /* translators: %d: number of buttons/links found. */
+                    _n( 'Re-scanned — %d button or link found.', 'Re-scanned — %d buttons and links found.', (int) $count, 'button-link-scanner' ),
+                    (int) $count
+                ),
+        ] );
+    }
+
     public static function ajax_dismiss_button() {
         check_ajax_referer( 'bls_ajax', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {

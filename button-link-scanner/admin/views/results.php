@@ -207,6 +207,11 @@
                             title="<?php esc_attr_e( 'Remove this row and keep it out of future scans', 'button-link-scanner' ); ?>">
                         <?php esc_html_e( 'Not on page', 'button-link-scanner' ); ?>
                     </button>
+                    <button class="button button-small bls-rescan-post"
+                            data-post-id="<?php echo (int) $row->post_id; ?>"
+                            title="<?php esc_attr_e( 'Re-read this page now, ignoring any cached copy, and replace every row for it', 'button-link-scanner' ); ?>">
+                        <?php esc_html_e( 'Re-scan page', 'button-link-scanner' ); ?>
+                    </button>
                 </td>
             </tr>
         <?php endforeach; ?>
