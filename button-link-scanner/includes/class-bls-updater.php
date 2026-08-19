@@ -258,6 +258,16 @@ class BLS_Updater {
     const HTTPS_DEFAULT_BATCH_SIZE = 3;
 
     /**
+     * Domain roots already probed, so several dead paths on one host cost one
+     * request rather than one each. Per request, which means per batch of
+     * HTTPS_DEFAULT_BATCH_SIZE — not per run. Worth having anyway: links from
+     * the same era of a site tend to arrive together.
+     *
+     * @var array<string,bool>
+     */
+    private $root_probe_cache = [];
+
+    /**
      * Build the work queue: every distinct button/link pair (buttons AND
      * plain content hyperlinks alike — this was never scoped to buttons
      * only) that has a link but no title. Call once, then call
@@ -1536,21 +1546,10 @@ class BLS_Updater {
 
             $progress['still_broken']++;
             if ( count( $progress['still_broken_urls'] ) < 50 ) {
-                // replace_link_url()'s own wording is written for someone who
-                // typed a replacement in by hand ("check it in a browser
-                // first"), which reads as nonsense against an address this
-                // tool generated. Say what actually happened instead.
-                $reason = (string) ( $result['message'] ?? '' );
-                if ( strpos( $reason, 'broken too' ) !== false ) {
-                    $reason = __( 'the https address did not answer either', 'button-link-scanner' );
-                } elseif ( strpos( $reason, 'could not be found' ) !== false ) {
-                    $reason = __( 'https works, but the old address is not in any editable content — it is coming from a theme or plugin', 'button-link-scanner' );
-                }
-
-                $progress['still_broken_urls'][] = [
-                    'url'    => $old_url,
-                    'reason' => $reason,
-                ];
+                $progress['still_broken_urls'][] = array_merge(
+                    [ 'url' => $old_url ],
+                    $this->diagnose_https_failure( $new_url, (string) ( $result['message'] ?? '' ) )
+                );
             }
         }
 
@@ -1566,6 +1565,105 @@ class BLS_Updater {
         }
 
         return array_merge( $progress, [ 'done' => $done ] );
+    }
+
+    /**
+     * Work out why an https candidate failed, and whether the site is alive.
+     *
+     * "No working https" was one bucket covering two situations that need
+     * opposite fixes. The first run of this tool made that concrete: of the
+     * four it could not fix, one was a bare domain and three were deep paths
+     * from an earlier web — `/index.php/`, `Specials_Events.html`,
+     * `main.htm`. A dead path on a living site wants Fix URL pointed at the
+     * new page; only a dead host wants unlinking. Reporting both as "no
+     * working https" leaves that decision to a browser tab.
+     *
+     * So on failure, ask the domain root as well. Costs one extra request per
+     * distinct host per batch, and turns the result into an instruction
+     * instead of a dead end.
+     *
+     * @param  string $https_url        The candidate that failed.
+     * @param  string $fallback_message replace_link_url()'s own message.
+     * @return array { reason: string, status: int, root: string, root_alive: bool }
+     */
+    private function diagnose_https_failure( string $https_url, string $fallback_message ): array {
+        // "could not be found in any editable content" means https itself was
+        // fine — the address just is not anywhere this plugin can write. No
+        // point probing anything.
+        if ( strpos( $fallback_message, 'could not be found' ) !== false ) {
+            return [
+                'reason'     => __( 'https works, but the old address is not in any editable content — it is coming from a theme or plugin, so it has to be changed there', 'button-link-scanner' ),
+                'status'     => 0,
+                'root'       => '',
+                'root_alive' => false,
+            ];
+        }
+
+        $probe  = BLS_Link_Checker::probe_url_now( $https_url );
+        $status = (int) $probe['status'];
+        $root   = $this->domain_root( $https_url );
+
+        $root_alive = false;
+        if ( $root !== '' && $root !== $https_url ) {
+            if ( ! array_key_exists( $root, $this->root_probe_cache ) ) {
+                $this->root_probe_cache[ $root ] = BLS_Link_Checker::verify_url_now( $root ) === 'ok';
+            }
+            $root_alive = (bool) $this->root_probe_cache[ $root ];
+        }
+
+        if ( $root_alive ) {
+            $reason = $status >= 400
+                ? sprintf(
+                    /* translators: %d: HTTP status code. */
+                    __( 'the site is alive over https but this page answers %d — the page moved, so use Fix URL rather than unlinking', 'button-link-scanner' ),
+                    $status
+                )
+                : __( 'the site is alive over https but this page did not answer — the page moved, so use Fix URL rather than unlinking', 'button-link-scanner' );
+
+            return [
+                'reason'     => $reason,
+                'status'     => $status,
+                'root'       => $root,
+                'root_alive' => true,
+            ];
+        }
+
+        if ( $status >= 400 ) {
+            return [
+                'reason'     => sprintf(
+                    /* translators: %d: HTTP status code. */
+                    __( 'https answered %d, and the domain root did not answer either', 'button-link-scanner' ),
+                    $status
+                ),
+                'status'     => $status,
+                'root'       => $root,
+                'root_alive' => false,
+            ];
+        }
+
+        return [
+            'reason'     => __( 'nothing answered over https, at this page or at the domain root — the site itself looks gone, so unlinking is the right fix', 'button-link-scanner' ),
+            'status'     => $status,
+            'root'       => $root,
+            'root_alive' => false,
+        ];
+    }
+
+    /**
+     * The scheme + host (+ port) of a URL, as a fetchable root address.
+     */
+    private function domain_root( string $url ): string {
+        $parts = wp_parse_url( $url );
+        if ( empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+            return '';
+        }
+
+        $root = $parts['scheme'] . '://' . $parts['host'];
+        if ( ! empty( $parts['port'] ) ) {
+            $root .= ':' . (int) $parts['port'];
+        }
+
+        return $root . '/';
     }
 
     /**

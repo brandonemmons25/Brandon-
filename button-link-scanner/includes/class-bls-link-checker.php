@@ -812,15 +812,31 @@ class BLS_Link_Checker {
      * proceeds on a fresh 'broken'.
      */
     public static function verify_url_now( string $url ): string {
+        return (string) self::probe_url_now( $url )['state'];
+    }
+
+    /**
+     * Same check as verify_url_now(), but reporting what the server said.
+     *
+     * The state alone answers "should I act on this", which is all the unlink
+     * tool needs. It cannot answer "why did this fail", and those are different
+     * questions with opposite fixes: a host that does not answer at all is a
+     * site that is gone, and unlinking is right; a host that answers 404 is a
+     * site that is alive with the page moved, where unlinking throws away a
+     * working destination. Both classify as 'broken'.
+     *
+     * @return array { state: string, status: int, error: string }
+     */
+    public static function probe_url_now( string $url ): array {
         $check_url = self::resolve_checkable_url( $url );
 
         if ( $check_url === null || self::is_ignored( $url ) ) {
-            return 'uncheckable';
+            return [ 'state' => 'uncheckable', 'status' => 0, 'error' => '' ];
         }
 
         $internal = self::verify_internal( $check_url );
         if ( $internal !== null ) {
-            return $internal;
+            return [ 'state' => $internal, 'status' => 0, 'error' => '' ];
         }
 
         self::pace_request( strtolower( (string) wp_parse_url( $check_url, PHP_URL_HOST ) ) );
@@ -841,7 +857,11 @@ class BLS_Link_Checker {
             $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
         }
 
-        return self::classify( $response, $code );
+        return [
+            'state'  => self::classify( $response, $code ),
+            'status' => $code,
+            'error'  => is_wp_error( $response ) ? $response->get_error_message() : '',
+        ];
     }
 
     /**

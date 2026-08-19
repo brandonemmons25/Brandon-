@@ -115,19 +115,62 @@
                     ); ?></li>
                 <?php endif; ?>
             </ul>
-            <?php if ( ! empty( $last_https['still_broken_urls'] ) ) : ?>
+            <?php
+            if ( ! empty( $last_https['still_broken_urls'] ) ) :
+                // Split by what to actually do. A living site with a moved page
+                // and a site that is gone both failed the https retry, but
+                // unlinking is right for exactly one of them.
+                $https_moved = [];
+                $https_gone  = [];
+                foreach ( (array) $last_https['still_broken_urls'] as $failed ) {
+                    if ( ! empty( $failed['root_alive'] ) ) {
+                        $https_moved[] = $failed;
+                    } else {
+                        $https_gone[] = $failed;
+                    }
+                }
+                ?>
                 <details style="margin:0;" open>
                     <summary style="cursor:pointer;"><?php esc_html_e( 'Which ones had no working https', 'button-link-scanner' ); ?></summary>
-                    <p class="bls-meta" style="margin:6px 0;"><?php esc_html_e( 'These are the ones to research or unlink — https was tried and did not answer either.', 'button-link-scanner' ); ?></p>
-                    <ul style="margin:6px 0 0 18px; list-style:disc;">
-                        <?php foreach ( (array) $last_https['still_broken_urls'] as $failed ) : ?>
-                            <li><code><?php echo esc_html( (string) ( $failed['url'] ?? '' ) ); ?></code>
-                                <?php if ( ! empty( $failed['reason'] ) ) : ?>
-                                    — <?php echo esc_html( (string) $failed['reason'] ); ?>
-                                <?php endif; ?>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
+
+                    <?php if ( ! empty( $https_moved ) ) : ?>
+                        <p style="margin:8px 0 4px;"><strong><?php printf(
+                            esc_html__( 'Site is alive, page has moved — use Fix URL (%d)', 'button-link-scanner' ),
+                            count( $https_moved )
+                        ); ?></strong></p>
+                        <p class="bls-meta" style="margin:0 0 4px;"><?php esc_html_e( 'Do not unlink these. The domain answers over https, so there is a working site to point at — open the root address and find where the page went.', 'button-link-scanner' ); ?></p>
+                        <ul style="margin:0 0 0 18px; list-style:disc;">
+                            <?php foreach ( $https_moved as $failed ) : ?>
+                                <li><code><?php echo esc_html( (string) ( $failed['url'] ?? '' ) ); ?></code>
+                                    <?php if ( ! empty( $failed['reason'] ) ) : ?>
+                                        — <?php echo esc_html( (string) $failed['reason'] ); ?>
+                                    <?php endif; ?>
+                                    <?php if ( ! empty( $failed['root'] ) ) : ?>
+                                        <br><span class="bls-meta"><?php esc_html_e( 'Site root:', 'button-link-scanner' ); ?>
+                                            <a href="<?php echo esc_url( (string) $failed['root'] ); ?>" target="_blank" rel="noopener noreferrer nofollow"><?php echo esc_html( (string) $failed['root'] ); ?></a>
+                                        </span>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+
+                    <?php if ( ! empty( $https_gone ) ) : ?>
+                        <p style="margin:10px 0 4px;"><strong><?php printf(
+                            esc_html__( 'Nothing answered at all — safe to unlink (%d)', 'button-link-scanner' ),
+                            count( $https_gone )
+                        ); ?></strong></p>
+                        <p class="bls-meta" style="margin:0 0 4px;"><?php esc_html_e( 'Neither the page nor the domain root answered over https. There is nothing left to link to.', 'button-link-scanner' ); ?></p>
+                        <ul style="margin:0 0 0 18px; list-style:disc;">
+                            <?php foreach ( $https_gone as $failed ) : ?>
+                                <li><code><?php echo esc_html( (string) ( $failed['url'] ?? '' ) ); ?></code>
+                                    <?php if ( ! empty( $failed['reason'] ) ) : ?>
+                                        — <?php echo esc_html( (string) $failed['reason'] ); ?>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
                 </details>
             <?php endif; ?>
         </div>
