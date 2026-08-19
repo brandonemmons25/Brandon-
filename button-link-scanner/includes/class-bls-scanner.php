@@ -2369,6 +2369,28 @@ class BLS_Scanner {
         // content and can hold real links.
         $exclude = array_merge( $exclude, [ 'tribe_venue', 'tribe_organizer' ] );
 
+        // IDX Broker wrapper pages.
+        //
+        // The vendor-host check already skipped 39 of these on
+        // obxlistings.com, but that check reads a page's content and only
+        // catches the ones whose markup names the provider's host. It missed
+        // 777 others, which contributed 6,897 of that site's 7,933 rows — 87%
+        // of the entire report, including 2,690 of its 2,693 "styled buttons".
+        //
+        // Post type is a firmer signal than anything in the markup: these
+        // posts exist only as containers for content IDX Broker serves from
+        // its own subdomain. Every link on them pointed at
+        // realestate.obxlistings.com/idx/..., not one of them is authored in
+        // WordPress, and no title written here would ever reach the page. They
+        // are the same case as tribe_venue above — registered public so they
+        // have permalinks, but not somewhere anybody authors buttons.
+        //
+        // idx-wrapper is included defensively: idx_page is the one confirmed
+        // from a live site, and IDX Broker has used more than one name for its
+        // wrapper type across versions. Excluding a type that does not exist
+        // costs nothing.
+        $exclude = array_merge( $exclude, [ 'idx_page', 'idx-wrapper' ] );
+
         $exclude = apply_filters( 'bls_exclude_post_types', $exclude );
         return array_values( array_diff( $all, $exclude ) );
     }
