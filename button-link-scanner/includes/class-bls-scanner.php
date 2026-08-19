@@ -1861,6 +1861,30 @@ class BLS_Scanner {
             return true;
         }
 
+        // Jetpack Carousel gallery images, identified by data rather than class.
+        //
+        // Jetpack stamps role="button" and "Open image N of M in full-screen"
+        // onto every image in a gallery so its full-screen viewer opens on
+        // click. On obxlistings.com that produced all 9 of the site's "no URL
+        // set" rows — six on one photo page, three on one post.
+        //
+        // They are not authored links and cannot be fixed here. There is no
+        // anchor at all, only a bare <img>, so the navigation belongs to
+        // Jetpack's JavaScript; a title attribute on an <img> is a tooltip
+        // rather than anything a search engine reads, alt is the attribute
+        // that matters for an image; and Jetpack rebuilds this markup from the
+        // attachment record on every render, so a written title would not
+        // survive the next page load. Left in, they were rows that could never
+        // reach zero.
+        //
+        // Matched on the data attribute pair, which is Jetpack's and does not
+        // change when a theme restyles the gallery — the same reasoning as
+        // data-product_id above, and the opposite case to Product Collection
+        // tiles, which stay because those ARE real anchors around an image.
+        if ( $node->hasAttribute( 'data-orig-file' ) && $node->hasAttribute( 'data-attachment-id' ) ) {
+            return true;
+        }
+
         $aria  = strtolower( $node->getAttribute( 'aria-label' ) );
         $title = strtolower( $node->getAttribute( 'title' ) );
 
