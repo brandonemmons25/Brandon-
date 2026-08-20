@@ -392,6 +392,10 @@ class BLS_Link_Checker {
             $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
         }
 
+        // Before condemning a 4xx, ask again as a browser. See
+        // second_look_as_browser() for why a 404 is not always the truth.
+        list( $response, $code ) = self::second_look_as_browser( $response, $code, $check_url );
+
         $error_message = is_wp_error( $response ) ? $response->get_error_message() : '';
 
         // Only a conclusive failure counts as broken. See classify().
@@ -801,6 +805,69 @@ class BLS_Link_Checker {
     const INCONCLUSIVE_STATUSES = [ 401, 403, 408, 429, 444, 460 ];
 
     /**
+     * A real browser's identity, used only for the second look at a 4xx.
+     *
+     * Every other request this plugin makes says WordPress/BLS-LinkChecker,
+     * which is honest and stays that way. This exists because a 404 does not
+     * always mean the page is gone: plenty of small-business sites sit behind
+     * a firewall that answers an unrecognised bot with 404 rather than 403,
+     * specifically so an automated caller cannot tell the difference between
+     * "not here" and "not for you". http://www.nagsheadpier.com/bar/ on
+     * obxlistings.com is exactly that — a live page, reported 404, sitting in
+     * the one group the report invites you to bulk-unlink.
+     */
+    const BROWSER_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+    /**
+     * Ask a 4xx again as a browser would, and believe the better answer.
+     *
+     * Only runs when the first answer was a 4xx that classify() would call
+     * conclusively broken — never for a 2xx/3xx, never for the statuses
+     * already treated as inconclusive, and never for a 5xx. So a working link
+     * costs nothing extra, and the only links that pay for a second request
+     * are the ones about to be declared dead.
+     *
+     * A 404 that becomes a 200 under a browser's headers was never a dead
+     * page, and unlinking it would have thrown away a working destination.
+     * That risk is not theoretical at this point: collegestationhomes.com has
+     * 199 links sitting in the 404 group awaiting exactly that decision.
+     *
+     * @return array{0: mixed, 1: int} The response and code to classify on.
+     */
+    private static function second_look_as_browser( $response, int $code, string $check_url ): array {
+        if ( $code < 400 || $code >= 500 || in_array( $code, self::INCONCLUSIVE_STATUSES, true ) ) {
+            return [ $response, $code ];
+        }
+
+        self::pace_request( strtolower( (string) wp_parse_url( $check_url, PHP_URL_HOST ) ) );
+
+        $retry = wp_remote_get( $check_url, [
+            'timeout'     => 12,
+            'redirection' => 5,
+            'user-agent'  => self::BROWSER_USER_AGENT,
+            'headers'     => [
+                'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language' => 'en-US,en;q=0.9',
+            ],
+        ] );
+
+        if ( is_wp_error( $retry ) ) {
+            return [ $response, $code ]; // Keep the original verdict.
+        }
+
+        $retry_code = (int) wp_remote_retrieve_response_code( $retry );
+
+        // Only ever upgrade. If the browser request fares the same or worse,
+        // the first answer stands — this must not turn a plain 404 into some
+        // other failure and muddle the report.
+        if ( $retry_code > 0 && $retry_code < 400 ) {
+            return [ $retry, $retry_code ];
+        }
+
+        return [ $response, $code ];
+    }
+
+    /**
      * Check one URL right now and say what it is: 'broken', 'unverified',
      * 'ok', or 'uncheckable'.
      *
@@ -856,6 +923,11 @@ class BLS_Link_Checker {
             ] );
             $code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
         }
+
+        // Same second look the background check does. This path feeds the
+        // unlink and Fix URL tools, which write to content — the last place
+        // that should act on a cloaked 404.
+        list( $response, $code ) = self::second_look_as_browser( $response, $code, $check_url );
 
         return [
             'state'  => self::classify( $response, $code ),
