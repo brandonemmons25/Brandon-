@@ -41,6 +41,8 @@ template in your builder.
 | `[ao_neighborhoods]` | Neighborhood Directory |
 | `[ao_featured type="ao_building" limit="6" hide_when_filtered="buildings"]` | Curated featured strip |
 | `[ao_proof context="seller" limit="4"]` | Proof points, written once and reused |
+| `[ao_carousel type="ao_sold" eyebrow="…" title="Recent Transactions" link="/sold-properties/" link_text="View All Transactions"]` | Editorial section header + swipeable card row |
+| `[ao_section type="ao_sold" title="Selected Transactions"]` | Same header and cards as a static grid |
 
 `hide_when_filtered` takes a directory key. The strip hides itself as soon as
 that directory is searched, filtered or re-sorted, and returns on reset.
@@ -73,6 +75,31 @@ shortcode into:
 Sold Properties is a manual post type by design: it exists for the case where
 the feed cannot hide sold dates. If your feed can hide them, use IDX and skip
 that post type.
+
+## Section design
+
+`[ao_carousel]` and `[ao_section]` render the rule-and-eyebrow header, the
+display heading and the view-all link, then the cards. Property cards use a
+full-bleed image with the detail panel overlapping its bottom-left corner.
+
+Both accept `featured="1"` to restrict the row to featured records, and
+`orderby="price|date|menu_order"`. Transactions default to high price → low.
+
+Tune the look by redefining tokens in your theme — no rule overrides needed:
+
+```css
+.ao-section {
+	--ao-font-display: "Your Serif", Georgia, serif;
+	--ao-visible: 2;          /* cards in view */
+	--ao-media-ratio: 4 / 3;
+	--ao-panel-width: 56%;    /* overlapping panel */
+	--ao-panel-lift: 2.5rem;  /* how far it rides up over the image */
+	--ao-gap: 2rem;
+}
+```
+
+The track is native scroll-snap, so it swipes on touch and works by keyboard
+before any JavaScript loads; the arrows only add click navigation.
 
 ## Templates
 

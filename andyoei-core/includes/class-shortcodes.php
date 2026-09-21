@@ -16,10 +16,14 @@ class AO_Shortcodes {
 		add_shortcode( 'ao_neighborhoods', array( __CLASS__, 'neighborhoods' ) );
 		add_shortcode( 'ao_featured', array( __CLASS__, 'featured' ) );
 		add_shortcode( 'ao_proof', array( __CLASS__, 'proof' ) );
+		add_shortcode( 'ao_carousel', array( __CLASS__, 'carousel' ) );
+		add_shortcode( 'ao_section', array( __CLASS__, 'section' ) );
 	}
 
 	public static function register_assets() {
 		wp_register_style( 'ao-filters', AO_URL . 'assets/css/filters.css', array(), AO_VERSION );
+		wp_register_style( 'ao-sections', AO_URL . 'assets/css/sections.css', array(), AO_VERSION );
+		wp_register_script( 'ao-carousel', AO_URL . 'assets/js/carousel.js', array(), AO_VERSION, true );
 		wp_register_script( 'ao-filters', AO_URL . 'assets/js/filters.js', array(), AO_VERSION, true );
 		wp_localize_script( 'ao-filters', 'aoFilters', array(
 			'root' => esc_url_raw( rest_url( 'andyoei/v1/directory/' ) ),
@@ -42,6 +46,7 @@ class AO_Shortcodes {
 		}
 
 		wp_enqueue_style( 'ao-filters' );
+		wp_enqueue_style( 'ao-sections' ); // Card design tokens.
 		wp_enqueue_script( 'ao-filters' );
 
 		// Deep links and no-JS pagination read straight from the URL.
@@ -134,6 +139,99 @@ class AO_Shortcodes {
 			: '';
 
 		return '<div class="ao-featured-strip"' . $attr . '>' . $html . '</div>';
+	}
+
+	/**
+	 * [ao_carousel type="ao_sold" title="Recent Transactions"]
+	 *
+	 * A curated, swipeable row. Featured records first, then most recent.
+	 */
+	public static function carousel( $atts ) {
+		return self::section_output( $atts, true );
+	}
+
+	/**
+	 * [ao_section type="ao_sold" title="Selected Transactions"]
+	 *
+	 * The same section header and cards, laid out as a static grid.
+	 */
+	public static function section( $atts ) {
+		return self::section_output( $atts, false );
+	}
+
+	private static function section_output( $atts, $carousel ) {
+		$atts = shortcode_atts( array(
+			'type'      => 'ao_sold',
+			'limit'     => 8,
+			'card'      => '',
+			'eyebrow'   => '',
+			'title'     => '',
+			'link'      => '',
+			'link_text' => 'View All',
+			'featured'  => '0', // 1 restricts the row to featured records only.
+			'orderby'   => '',  // Defaults to price for properties, date otherwise.
+		), $atts, $carousel ? 'ao_carousel' : 'ao_section' );
+
+		$cards = array(
+			'ao_building'    => 'card-building.php',
+			'ao_sold'        => 'card-sold.php',
+			'ao_press'       => 'card-press.php',
+			'ao_insight'     => 'card-insight.php',
+			'ao_testimonial' => 'card-testimonial.php',
+			'ao_case_study'  => 'card-case-study.php',
+		);
+
+		$card = $atts['card'] ? $atts['card'] : ( isset( $cards[ $atts['type'] ] ) ? $cards[ $atts['type'] ] : 'card-building.php' );
+
+		$args = array(
+			'post_type'      => $atts['type'],
+			'posts_per_page' => (int) $atts['limit'],
+		);
+
+		// Properties and case studies read high price → low; everything else
+		// leads with the newest record.
+		$orderby = $atts['orderby'] ? $atts['orderby'] : ( in_array( $atts['type'], array( 'ao_sold', 'ao_case_study' ), true ) ? 'price' : 'date' );
+
+		if ( 'price' === $orderby ) {
+			$args['meta_key'] = AO_Index::PRICE; // phpcs:ignore WordPress.DB.SlowDBQuery
+			$args['orderby']  = 'meta_value_num';
+			$args['order']    = 'DESC';
+		} elseif ( 'menu_order' === $orderby ) {
+			$args['orderby'] = 'menu_order';
+			$args['order']   = 'ASC';
+		} else {
+			$args['orderby'] = 'date';
+			$args['order']   = 'DESC';
+		}
+
+		if ( '1' === (string) $atts['featured'] ) {
+			$args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery
+				array( 'key' => 'ao_featured', 'value' => '1' ),
+			);
+		}
+
+		$posts = get_posts( $args );
+
+		if ( ! $posts ) {
+			return '';
+		}
+
+		wp_enqueue_style( 'ao-sections' );
+
+		if ( $carousel ) {
+			wp_enqueue_script( 'ao-carousel' );
+		}
+
+		$html = '';
+		foreach ( $posts as $post ) {
+			$html .= ao_template( $card, array( 'post_id' => $post->ID, 'config' => array() ) );
+		}
+
+		return ao_template( 'section.php', array(
+			'atts'     => $atts,
+			'cards'    => $html,
+			'carousel' => $carousel,
+		) );
 	}
 
 	/**

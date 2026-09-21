@@ -328,6 +328,13 @@ function ao_register_fields() {
 		ao_field( 'ao_representation', 'Representation', 'select', array(
 			'choices' => array( 'seller' => 'Seller', 'buyer' => 'Buyer', 'both' => 'Both' ),
 		) ),
+		ao_field( 'ao_beds', 'Beds', 'number' ),
+		ao_field( 'ao_baths', 'Baths', 'number', array( 'step' => '0.5' ) ),
+		ao_field( 'ao_sqft', 'Square Feet', 'number' ),
+		ao_field( 'ao_city', 'City', 'text', array(
+			'default_value' => 'Philadelphia',
+			'instructions'  => 'Shown after the neighborhood on the card.',
+		) ),
 	) );
 
 	// ── 07D Proof points ──────────────────────────────────────────────────
