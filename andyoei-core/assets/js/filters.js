@@ -30,6 +30,7 @@
 		this.sortSelect = root.querySelector( '.ao-sort-select' );
 		this.drawer = root.querySelector( '.ao-drawer' );
 		this.toggle = root.querySelector( '.ao-filters-toggle' );
+		this.toggleCount = root.querySelector( '.ao-filters-count' );
 		this.page = 1;
 		this.timer = null;
 		this.request = 0;
@@ -42,11 +43,43 @@
 		var self = this;
 
 		if ( this.toggle && this.drawer ) {
-			this.toggle.addEventListener( 'click', function () {
-				var open = self.drawer.hasAttribute( 'hidden' );
-				self.drawer.toggleAttribute( 'hidden', ! open );
-				self.toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+			this.toggle.addEventListener( 'click', function ( event ) {
+				event.stopPropagation();
+				self.setDrawer( self.drawer.hasAttribute( 'hidden' ) );
 			} );
+
+			// The drawer floats over the page, so it closes the way any
+			// overlay should.
+			this.drawer.addEventListener( 'click', function ( event ) {
+				event.stopPropagation();
+			} );
+
+			document.addEventListener( 'click', function () {
+				self.setDrawer( false );
+			} );
+
+			document.addEventListener( 'keydown', function ( event ) {
+				if ( event.key === 'Escape' && ! self.drawer.hasAttribute( 'hidden' ) ) {
+					self.setDrawer( false );
+					self.toggle.focus();
+				}
+			} );
+
+			var done = this.drawer.querySelector( '.ao-drawer-done' );
+			var clearAll = this.drawer.querySelector( '.ao-drawer-clear' );
+
+			if ( done ) {
+				done.addEventListener( 'click', function () {
+					self.setDrawer( false );
+					self.toggle.focus();
+				} );
+			}
+
+			if ( clearAll ) {
+				clearAll.addEventListener( 'click', function () {
+					self.reset();
+				} );
+			}
 		}
 
 		if ( this.searchInput ) {
@@ -82,6 +115,15 @@
 				self.load( false );
 			} );
 		}
+	};
+
+	Directory.prototype.setDrawer = function ( open ) {
+		if ( ! this.drawer || ! this.toggle ) {
+			return;
+		}
+
+		this.drawer.toggleAttribute( 'hidden', ! open );
+		this.toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
 	};
 
 	/** Current selections, keyed by facet name. */
@@ -238,6 +280,12 @@
 
 		if ( this.clear ) {
 			this.clear.toggleAttribute( 'hidden', ! boxes.length && ! ( this.searchInput && this.searchInput.value ) );
+		}
+
+		// The count keeps the active filters visible once the drawer closes.
+		if ( this.toggleCount ) {
+			this.toggleCount.textContent = boxes.length;
+			this.toggleCount.toggleAttribute( 'hidden', ! boxes.length );
 		}
 	};
 

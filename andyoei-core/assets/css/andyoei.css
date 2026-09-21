@@ -89,26 +89,43 @@
 
 /* ── Filter drawer ───────────────────────────────────────────────────── */
 
+/* Anchors the drawer so it floats over the page instead of pushing the
+   featured strip and the whole directory down. */
+.ao-controls-wrap {
+	position: relative;
+	z-index: 20;
+}
+
 .ao-drawer {
+	position: absolute;
+	inset-inline: 0;
+	top: calc(100% + 0.5rem);
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-	gap: var(--ao-gap);
+	grid-template-columns: repeat(4, 1fr);
+	gap: 1.5rem 2rem;
+	max-height: min(28rem, 70vh);
+	overflow-y: auto;
 	padding: 1.75rem;
-	margin-bottom: 2rem;
 	border: 1px solid var(--ao-line);
 	border-radius: var(--ao-radius);
 	background: var(--ao-card);
-	box-shadow: var(--ao-shadow);
+	box-shadow: 0 24px 48px -24px rgb(0 0 0 / 0.35);
+}
+
+.ao-drawer[hidden] {
+	display: none;
 }
 
 .ao-facet {
 	border: 0;
 	margin: 0;
 	padding: 0;
+	min-width: 0;
 }
 
 .ao-facet legend {
-	margin-bottom: 0.75rem;
+	margin-bottom: 0.6rem;
+	padding: 0;
 	font-size: 0.7rem;
 	font-weight: 600;
 	letter-spacing: 0.14em;
@@ -116,13 +133,76 @@
 	color: var(--ao-muted);
 }
 
+/* A long vocabulary scrolls inside its own column rather than stretching
+   the drawer. */
+.ao-facet-list {
+	max-height: 13rem;
+	overflow-y: auto;
+	padding-right: 0.25rem;
+}
+
 .ao-facet-option {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
-	padding: 0.3rem 0;
-	font-size: 0.9rem;
+	padding: 0.25rem 0;
+	font-size: 0.85rem;
+	line-height: 1.3;
 	cursor: pointer;
+}
+
+.ao-facet-option input {
+	flex: none;
+	margin: 0;
+}
+
+.ao-drawer-foot {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1.5rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--ao-line);
+}
+
+.ao-drawer-clear,
+.ao-drawer-done {
+	border: 0;
+	background: transparent;
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--ao-ink);
+	cursor: pointer;
+}
+
+.ao-drawer-done {
+	padding: 0.7rem 1.75rem;
+	border-radius: var(--ao-radius);
+	background: var(--ao-ink);
+	color: #fff;
+}
+
+.ao-filters-count {
+	display: inline-grid;
+	place-items: center;
+	min-width: 1.35rem;
+	height: 1.35rem;
+	margin-left: 0.5rem;
+	padding: 0 0.35rem;
+	border-radius: 999px;
+	background: var(--ao-ink);
+	color: #fff;
+	font-size: 0.7rem;
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.ao-filters-count[hidden] {
+	display: none;
 }
 
 /* ── Featured strip ──────────────────────────────────────────────────── */
@@ -431,6 +511,10 @@
 	.ao-control--search {
 		grid-column: 1 / -1;
 	}
+
+	.ao-drawer {
+		grid-template-columns: repeat(2, 1fr);
+	}
 }
 
 @media (max-width: 640px) {
@@ -442,6 +526,15 @@
 
 	.ao-controls {
 		grid-template-columns: 1fr;
+	}
+
+	.ao-drawer {
+		grid-template-columns: 1fr;
+		max-height: 75vh;
+	}
+
+	.ao-facet-list {
+		max-height: 9rem;
 	}
 }
 
