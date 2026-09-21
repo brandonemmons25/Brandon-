@@ -9,8 +9,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$image = function_exists( 'get_field' ) ? get_field( 'ao_card_image', $term ) : '';
-$src   = is_array( $image ) ? $image['url'] : $image;
+$image_id = (int) get_term_meta( $term->term_id, 'ao_card_image', true );
+$src      = $image_id ? wp_get_attachment_image_url( $image_id, 'large' ) : '';
 
 // "The Ritz" would group under R; neighborhoods follow the same rule.
 $sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );

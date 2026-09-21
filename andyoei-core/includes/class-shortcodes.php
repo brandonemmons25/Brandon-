@@ -96,15 +96,30 @@ class AO_Shortcodes {
 			'hidden' => '0',
 		), $atts, 'ao_featured_buildings' );
 
+		// Ordering in PHP, not SQL: ordering by the rank meta would drop any
+		// building marked featured but left unranked.
 		$posts = get_posts( array(
 			'post_type'      => 'ao_building',
-			'posts_per_page' => (int) $atts['limit'],
-			'meta_key'       => 'ao_featured_rank', // phpcs:ignore WordPress.DB.SlowDBQuery
-			'orderby'        => array( 'meta_value_num' => 'ASC', 'title' => 'ASC' ),
+			'posts_per_page' => -1,
 			'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery
-				array( 'key' => 'ao_featured', 'value' => '1' ),
+				array( 'key' => AO_Curation::FEATURED, 'value' => '1' ),
 			),
 		) );
+
+		usort( $posts, function ( $a, $b ) {
+			$rank_a = (int) get_post_meta( $a->ID, AO_Curation::RANK, true );
+			$rank_b = (int) get_post_meta( $b->ID, AO_Curation::RANK, true );
+
+			// Unranked records fall to the end, then sort by title.
+			$rank_a = $rank_a ? $rank_a : PHP_INT_MAX;
+			$rank_b = $rank_b ? $rank_b : PHP_INT_MAX;
+
+			return $rank_a === $rank_b
+				? strcasecmp( $a->post_title, $b->post_title )
+				: $rank_a - $rank_b;
+		} );
+
+		$posts = array_slice( $posts, 0, (int) $atts['limit'] );
 
 		if ( ! $posts ) {
 			return '';
@@ -179,18 +194,31 @@ class AO_Shortcodes {
 			'note'  => 'Andy selects neighborhoods and display order',
 		), $atts, 'ao_featured_neighborhoods' );
 
-		// ACF stores term fields in term meta under the field name.
+		// Ordered in PHP for the same reason as buildings: a featured but
+		// unranked neighborhood must still appear.
 		$terms = get_terms( array(
 			'taxonomy'   => 'ao_neighborhood',
 			'hide_empty' => false,
-			'number'     => (int) $atts['limit'],
-			'meta_key'   => 'ao_nbhd_rank', // phpcs:ignore WordPress.DB.SlowDBQuery
-			'orderby'    => 'meta_value_num',
-			'order'      => 'ASC',
 			'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery
-				array( 'key' => 'ao_nbhd_featured', 'value' => '1' ),
+				array( 'key' => AO_Curation::TERM_FEATURED, 'value' => '1' ),
 			),
 		) );
+
+		if ( ! is_wp_error( $terms ) && $terms ) {
+			usort( $terms, function ( $a, $b ) {
+				$rank_a = (int) get_term_meta( $a->term_id, AO_Curation::TERM_RANK, true );
+				$rank_b = (int) get_term_meta( $b->term_id, AO_Curation::TERM_RANK, true );
+
+				$rank_a = $rank_a ? $rank_a : PHP_INT_MAX;
+				$rank_b = $rank_b ? $rank_b : PHP_INT_MAX;
+
+				return $rank_a === $rank_b
+					? strcasecmp( $a->name, $b->name )
+					: $rank_a - $rank_b;
+			} );
+
+			$terms = array_slice( $terms, 0, (int) $atts['limit'] );
+		}
 
 		if ( is_wp_error( $terms ) || ! $terms ) {
 			return '';

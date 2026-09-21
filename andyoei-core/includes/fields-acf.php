@@ -1,11 +1,15 @@
 <?php
 /**
- * Field groups, registered in code so they are version controlled and deploy
- * with the plugin. Editors see normal ACF panels; nothing is stored in the
- * database as JSON to drift between environments.
+ * Field groups for the individual building and neighborhood PAGES.
  *
- * Requires ACF Pro (repeaters, relationships, taxonomy term fields). Without
- * it the post types and filters still work — only these panels disappear.
+ * Optional. Both directories are complete without ACF — the fields they rely
+ * on (address, card image, featured, rank) are native to this plugin. These
+ * groups only add the page content: amenities, gallery, FAQs and the
+ * neighborhood editorial modules.
+ *
+ * Registered in code so they are version controlled and deploy with the
+ * plugin, rather than drifting between environments as database JSON.
+ * Repeaters and relationship fields need ACF Pro.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -48,26 +52,10 @@ function ao_register_fields() {
 		return;
 	}
 
-	// ── Curation: which buildings Andy features, and in what order ────────
-	ao_group( 'curation', 'Featured', ao_location( 'post_type', 'ao_building' ), array(
-		ao_field( 'ao_featured', 'Featured', 'true_false', array(
-			'ui'           => 1,
-			'instructions' => 'Show this building in the featured strip (approx. 4–6).',
-		) ),
-		ao_field( 'ao_featured_rank', 'Featured Rank', 'number', array(
-			'instructions'      => 'Display order within the featured strip. 1 shows first.',
-			'min'               => 1,
-			'conditional_logic' => array( array( array( 'field' => 'field_ao_featured', 'operator' => '==', 'value' => '1' ) ) ),
-		) ),
-	), array( 'position' => 'side', 'menu_order' => 5 ) );
-
 	// ── 02B Individual condominium building page ──────────────────────────
 	ao_group( 'building', 'Building Page', ao_location( 'post_type', 'ao_building' ), array(
 
 		ao_field( 'ao_tab_facts', 'Facts', 'tab' ),
-		ao_field( 'ao_address', 'Street Address', 'text', array(
-			'instructions' => 'Included in directory search.',
-		) ),
 		ao_field( 'ao_year_built', 'Year Built', 'number' ),
 		ao_field( 'ao_stories', 'Stories', 'number' ),
 		ao_field( 'ao_units', 'Residences', 'number' ),
@@ -172,10 +160,6 @@ function ao_register_fields() {
 
 		ao_field( 'ao_tab_nbhd_hero', 'Hero', 'tab' ),
 		ao_field( 'ao_hero_image_nbhd', 'Hero Image', 'image', array( 'return_format' => 'array' ) ),
-		ao_field( 'ao_card_image', 'Directory Card Image', 'image', array(
-			'return_format' => 'array',
-			'instructions'  => 'Used on the neighborhood directory card.',
-		) ),
 		ao_field( 'ao_descriptor', 'Hero Descriptor', 'textarea', array(
 			'instructions' => '15–25 words.',
 			'rows'         => 2,
@@ -218,17 +202,6 @@ function ao_register_fields() {
 			),
 		) ),
 		ao_field( 'ao_cta_statement', 'Closing Statement', 'textarea', array( 'rows' => 2 ) ),
-
-		ao_field( 'ao_tab_nbhd_featured', 'Featured', 'tab' ),
-		ao_field( 'ao_nbhd_featured', 'Featured Neighborhood', 'true_false', array(
-			'ui'           => 1,
-			'instructions' => 'Show in the featured strip on the neighborhood directory (approx. 4–6).',
-		) ),
-		ao_field( 'ao_nbhd_rank', 'Featured Rank', 'number', array(
-			'instructions'      => 'Display order in the strip. 1 shows first.',
-			'min'               => 1,
-			'conditional_logic' => array( array( array( 'field' => 'field_ao_nbhd_featured', 'operator' => '==', 'value' => '1' ) ) ),
-		) ),
 
 		ao_field( 'ao_tab_nbhd_internal', 'Internal', 'tab' ),
 		ao_field( 'ao_zip_codes', 'ZIP Codes', 'text' ),

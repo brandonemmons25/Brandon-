@@ -16,6 +16,8 @@ define( 'AO_URL', plugin_dir_url( __FILE__ ) );
 require_once AO_PATH . 'includes/class-post-types.php';
 require_once AO_PATH . 'includes/class-taxonomies.php';
 require_once AO_PATH . 'includes/class-index.php';
+require_once AO_PATH . 'includes/class-curation.php';
+require_once AO_PATH . 'includes/class-fields.php';
 require_once AO_PATH . 'includes/class-directories.php';
 require_once AO_PATH . 'includes/class-query.php';
 require_once AO_PATH . 'includes/class-rest.php';
@@ -27,6 +29,8 @@ add_action( 'init', array( 'AO_Taxonomies', 'register' ), 5 );
 add_action( 'init', array( 'AO_Directories', 'register' ), 20 );
 
 AO_Index::init();
+AO_Curation::init();
+AO_Fields::init();
 AO_REST::init();
 AO_Shortcodes::init();
 

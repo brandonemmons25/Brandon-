@@ -9,9 +9,15 @@ plugin.
 
 1. Zip the `andyoei-core` folder and upload it under **Plugins → Add New → Upload**.
 2. Activate. It registers everything and seeds the launch vocabularies.
-3. Install **ACF Pro** for the editing panels. The post type and filters work
-   without it; only the custom fields need it.
-4. After an import or bulk edit, run **Condominium Buildings → Rebuild Index**.
+3. After an import or bulk edit, run **Condominium Buildings → Rebuild Index**.
+
+**No other plugin is required.** Both directories are complete on their own:
+the fields they depend on — Street Address, Featured, Featured Rank and the
+neighborhood Card Image — are built in.
+
+ACF Pro is optional, and only adds the *individual page* content (hero,
+amenities, gallery, FAQs, and the neighborhood editorial modules). Install it
+when you build those templates.
 
 ## Structure
 
@@ -68,12 +74,21 @@ Sixteen terms at launch, so the whole set renders at once and search and sort
 run in the browser — no request per keystroke. Alphabetical headers follow the
 selected sort and disappear when a group empties out. No filters, per the spec.
 
-## Curation
+## Editing
 
-- **Buildings:** Featured toggle + Featured Rank in the sidebar of each building
-- **Neighborhoods:** Featured Neighborhood + Featured Rank on the term
+**Building** (Condominium Buildings → Add New)
+- Title, featured image, and the Neighborhood / Height / Construction /
+  Features boxes in the sidebar
+- **Building Details** box — Street Address, searched with the building name
+- **Featured** box — Featured toggle + Featured Rank
 
-Rank 1 shows first. Nothing is automatic.
+**Neighborhood** (Condominium Buildings → Neighborhoods → edit a term)
+- **Card Image** — shown on the directory card
+- **Featured** + **Featured Rank**
+
+Rank 1 shows first; nothing is automatic. A record marked featured without a
+rank still appears, after the ranked ones. The Featured column on both list
+screens shows the curated set at a glance.
 
 ## Where IDX plugs in
 
