@@ -1,7 +1,7 @@
 <?php
 /**
- * 02A — building card: large image, name, neighborhood. Whole card clickable.
- * No amenity icons, per the concept document.
+ * 02A — building card: large image, name, neighborhood. Whole card is
+ * clickable, and carries no amenity icons.
  *
  * @var int $post_id
  */

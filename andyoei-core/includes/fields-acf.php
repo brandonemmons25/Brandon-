@@ -48,18 +48,11 @@ function ao_register_fields() {
 		return;
 	}
 
-	// ── Curation: which records Andy features, and in what order ──────────
-	$curation_types = array( 'ao_building', 'ao_sold', 'ao_press', 'ao_insight', 'ao_testimonial', 'ao_case_study' );
-	$curation_loc   = array();
-
-	foreach ( $curation_types as $type ) {
-		$curation_loc[] = array( array( 'param' => 'post_type', 'operator' => '==', 'value' => $type ) );
-	}
-
-	ao_group( 'curation', 'Featured', $curation_loc, array(
+	// ── Curation: which buildings Andy features, and in what order ────────
+	ao_group( 'curation', 'Featured', ao_location( 'post_type', 'ao_building' ), array(
 		ao_field( 'ao_featured', 'Featured', 'true_false', array(
-			'ui'            => 1,
-			'instructions'  => 'Show this record in the featured strip.',
+			'ui'           => 1,
+			'instructions' => 'Show this building in the featured strip (approx. 4–6).',
 		) ),
 		ao_field( 'ao_featured_rank', 'Featured Rank', 'number', array(
 			'instructions'      => 'Display order within the featured strip. 1 shows first.',
@@ -226,6 +219,17 @@ function ao_register_fields() {
 		) ),
 		ao_field( 'ao_cta_statement', 'Closing Statement', 'textarea', array( 'rows' => 2 ) ),
 
+		ao_field( 'ao_tab_nbhd_featured', 'Featured', 'tab' ),
+		ao_field( 'ao_nbhd_featured', 'Featured Neighborhood', 'true_false', array(
+			'ui'           => 1,
+			'instructions' => 'Show in the featured strip on the neighborhood directory (approx. 4–6).',
+		) ),
+		ao_field( 'ao_nbhd_rank', 'Featured Rank', 'number', array(
+			'instructions'      => 'Display order in the strip. 1 shows first.',
+			'min'               => 1,
+			'conditional_logic' => array( array( array( 'field' => 'field_ao_nbhd_featured', 'operator' => '==', 'value' => '1' ) ) ),
+		) ),
+
 		ao_field( 'ao_tab_nbhd_internal', 'Internal', 'tab' ),
 		ao_field( 'ao_zip_codes', 'ZIP Codes', 'text' ),
 		ao_field( 'ao_section', 'Philadelphia Section', 'text' ),
@@ -234,121 +238,4 @@ function ao_register_fields() {
 		) ),
 	) );
 
-	// ── 07B Testimonials ──────────────────────────────────────────────────
-	ao_group( 'testimonial', 'Testimonial', ao_location( 'post_type', 'ao_testimonial' ), array(
-		ao_field( 'ao_attribution', 'Attribution', 'text', array(
-			'instructions' => 'Kept discreet in display.',
-		) ),
-		ao_field( 'ao_related_building', 'Related Building', 'post_object', array(
-			'post_type'     => array( 'ao_building' ),
-			'return_format' => 'id',
-			'allow_null'    => 1,
-		) ),
-		ao_field( 'ao_transaction_date', 'Date', 'date_picker' ),
-		ao_field( 'ao_internal_context', 'Internal Context', 'textarea', array( 'rows' => 2 ) ),
-	) );
-
-	// ── 07C Press & Media ─────────────────────────────────────────────────
-	ao_group( 'press', 'Press Record', ao_location( 'post_type', 'ao_press' ), array(
-		ao_field( 'ao_publication', 'Publication', 'text', array(
-			'instructions' => 'Included in press search.',
-		) ),
-		ao_field( 'ao_external_url', 'External URL', 'url', array(
-			'instructions' => 'Normally links straight to the publisher.',
-		) ),
-		ao_field( 'ao_publication_logo', 'Publication Logo', 'image', array( 'return_format' => 'array' ) ),
-		ao_field( 'ao_summary', 'Summary', 'textarea', array( 'rows' => 3 ) ),
-		ao_field( 'ao_role', "Andy's Role", 'text', array(
-			'instructions' => 'For example: quoted expert, subject of coverage, award recipient.',
-		) ),
-		ao_field( 'ao_related_building_press', 'Related Building', 'post_object', array(
-			'post_type'     => array( 'ao_building' ),
-			'return_format' => 'id',
-			'allow_null'    => 1,
-		) ),
-	) );
-
-	// ── 06 Market Insights ────────────────────────────────────────────────
-	ao_group( 'insight', 'Insight Record', ao_location( 'post_type', 'ao_insight' ), array(
-		ao_field( 'ao_report_period', 'Report Period', 'text', array(
-			'instructions' => 'For example: Q3 2026.',
-		) ),
-		ao_field( 'ao_updated_date', 'Updated Date', 'date_picker' ),
-		ao_field( 'ao_takeaways', 'Key Takeaways', 'repeater', array(
-			'layout'       => 'table',
-			'button_label' => 'Add Takeaway',
-			'sub_fields'   => array( ao_field( 'ao_takeaway', 'Takeaway', 'text' ) ),
-		) ),
-		ao_field( 'ao_methodology', 'Methodology & Sources', 'wysiwyg' ),
-		ao_field( 'ao_report_pdf', 'Report PDF', 'file', array(
-			'return_format' => 'array',
-			'instructions'  => 'Supplements the HTML report; it does not replace it.',
-		) ),
-		ao_field( 'ao_related_buildings_insight', 'Related Buildings', 'relationship', array(
-			'post_type'     => array( 'ao_building' ),
-			'return_format' => 'id',
-		) ),
-	) );
-
-	// ── 05D Seller case studies ───────────────────────────────────────────
-	ao_group( 'case_study', 'Case Study', ao_location( 'post_type', 'ao_case_study' ), array(
-		ao_field( 'ao_price', 'Sale Price', 'number', array(
-			'key'          => 'field_ao_case_study_price',
-			'instructions' => 'Drives price sorting.',
-		) ),
-		ao_field( 'ao_challenge', 'Property / Challenge', 'textarea', array( 'rows' => 3 ) ),
-		ao_field( 'ao_strategy', 'Strategy / Execution', 'textarea', array( 'rows' => 3 ) ),
-		ao_field( 'ao_result', 'Result / Proof', 'textarea', array( 'rows' => 3 ) ),
-		ao_field( 'ao_metrics', 'Measurable Results', 'repeater', array(
-			'layout'       => 'table',
-			'button_label' => 'Add Result',
-			'sub_fields'   => array(
-				ao_field( 'ao_metric_value', 'Value', 'text' ),
-				ao_field( 'ao_metric_label', 'Label', 'text' ),
-			),
-		) ),
-		ao_field( 'ao_verified', 'Claims Verified', 'true_false', array(
-			'ui'           => 1,
-			'instructions' => 'Performance claims must be verified before publication.',
-		) ),
-	) );
-
-	// ── 01 Sold properties ────────────────────────────────────────────────
-	ao_group( 'sold', 'Sold Property', ao_location( 'post_type', 'ao_sold' ), array(
-		ao_field( 'ao_address', 'Address', 'text', array( 'key' => 'field_ao_sold_address' ) ),
-		ao_field( 'ao_price', 'Sold Price', 'number', array(
-			'key'          => 'field_ao_sold_price',
-			'instructions' => 'Sorts high to low. The sold date is intentionally not displayed.',
-		) ),
-		ao_field( 'ao_related_building_sold', 'Building', 'post_object', array(
-			'post_type'     => array( 'ao_building' ),
-			'return_format' => 'id',
-			'allow_null'    => 1,
-		) ),
-		ao_field( 'ao_representation', 'Representation', 'select', array(
-			'choices' => array( 'seller' => 'Seller', 'buyer' => 'Buyer', 'both' => 'Both' ),
-		) ),
-		ao_field( 'ao_beds', 'Beds', 'number' ),
-		ao_field( 'ao_baths', 'Baths', 'number', array( 'step' => '0.5' ) ),
-		ao_field( 'ao_sqft', 'Square Feet', 'number' ),
-		ao_field( 'ao_city', 'City', 'text', array(
-			'default_value' => 'Philadelphia',
-			'instructions'  => 'Shown after the neighborhood on the card.',
-		) ),
-	) );
-
-	// ── 07D Proof points ──────────────────────────────────────────────────
-	ao_group( 'proof', 'Proof Point', ao_location( 'post_type', 'ao_proof' ), array(
-		ao_field( 'ao_value', 'Value', 'text', array(
-			'instructions' => 'For example: $650M+.',
-		) ),
-		ao_field( 'ao_label', 'Label', 'text', array(
-			'instructions' => 'For example: Career Sales.',
-		) ),
-		ao_field( 'ao_footnote', 'Footnote / Source', 'text' ),
-		ao_field( 'ao_verified_proof', 'Verified', 'true_false', array(
-			'ui'           => 1,
-			'instructions' => 'Verify every ranking and performance claim before publication.',
-		) ),
-	) );
 }

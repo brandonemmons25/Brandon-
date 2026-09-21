@@ -1,26 +1,29 @@
 <?php
 /**
- * Directory shell: controls, results, Load More.
+ * 02A — Condominium Building Directory: controls, featured strip, results.
  *
  * Override by copying to your theme as andyoei/directory.php.
  *
- * @var array $config
- * @var array $request
- * @var array $result
- * @var bool  $filtered
+ * @var array  $config
+ * @var array  $request
+ * @var array  $result
+ * @var bool   $filtered
+ * @var string $featured
  */
 
 defined( 'ABSPATH' ) || exit;
+
+$key = $config['key'];
 ?>
-<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $config['key'] ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>">
+<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>">
 
 	<div class="ao-controls">
 		<?php if ( $config['search'] ) : ?>
-			<div class="ao-search">
-				<label class="screen-reader-text" for="ao-s-<?php echo esc_attr( $config['key'] ); ?>"><?php echo esc_html( $config['search_label'] ); ?></label>
+			<div class="ao-control ao-control--search">
+				<label class="screen-reader-text" for="ao-s-<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $config['search_label'] ); ?></label>
 				<input
 					type="search"
-					id="ao-s-<?php echo esc_attr( $config['key'] ); ?>"
+					id="ao-s-<?php echo esc_attr( $key ); ?>"
 					class="ao-search-input"
 					placeholder="<?php echo esc_attr( $config['search_label'] ); ?>"
 					value="<?php echo esc_attr( $request['search'] ); ?>">
@@ -28,9 +31,9 @@ defined( 'ABSPATH' ) || exit;
 		<?php endif; ?>
 
 		<?php if ( $config['sorts'] ) : ?>
-			<div class="ao-sort">
-				<label class="screen-reader-text" for="ao-sort-<?php echo esc_attr( $config['key'] ); ?>">Sort by</label>
-				<select id="ao-sort-<?php echo esc_attr( $config['key'] ); ?>" class="ao-sort-select">
+			<div class="ao-control ao-control--sort">
+				<label for="ao-sort-<?php echo esc_attr( $key ); ?>">Sort by:</label>
+				<select id="ao-sort-<?php echo esc_attr( $key ); ?>" class="ao-sort-select">
 					<?php foreach ( $config['sorts'] as $value => $label ) : ?>
 						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $request['sort'], $value ); ?>>
 							<?php echo esc_html( $label ); ?>
@@ -41,14 +44,20 @@ defined( 'ABSPATH' ) || exit;
 		<?php endif; ?>
 
 		<?php if ( $config['facets'] ) : ?>
-			<button type="button" class="ao-filters-toggle" aria-expanded="false" aria-controls="ao-drawer-<?php echo esc_attr( $config['key'] ); ?>">
+			<button type="button" class="ao-control ao-filters-toggle" aria-expanded="false" aria-controls="ao-drawer-<?php echo esc_attr( $key ); ?>">
 				Filters
 			</button>
 		<?php endif; ?>
 	</div>
 
+	<?php
+	// The strip sits between the controls and the full directory, and hides
+	// itself as soon as the visitor narrows the set.
+	echo $featured; // phpcs:ignore WordPress.Security.EscapeOutput
+	?>
+
 	<?php if ( $config['facets'] ) : ?>
-		<div class="ao-drawer" id="ao-drawer-<?php echo esc_attr( $config['key'] ); ?>" hidden>
+		<div class="ao-drawer" id="ao-drawer-<?php echo esc_attr( $key ); ?>" hidden>
 			<?php foreach ( $config['facets'] as $name => $facet ) : ?>
 				<?php
 				$terms = get_terms( array( 'taxonomy' => $facet['taxonomy'], 'hide_empty' => false ) );
@@ -76,24 +85,26 @@ defined( 'ABSPATH' ) || exit;
 		</div>
 	<?php endif; ?>
 
+	<div class="ao-directory-head">
+		<h2 class="ao-directory-title">All Condominium Buildings</h2>
+		<span class="ao-count"><?php echo esc_html( $result['total'] . ' ' . ( 1 === $result['total'] ? $config['count_label'][0] : $config['count_label'][1] ) ); ?></span>
+	</div>
+
 	<div class="ao-status">
-		<span class="ao-count"><?php echo esc_html( $result['total'] ); ?></span>
 		<span class="ao-chips"></span>
 		<button type="button" class="ao-clear" hidden>Clear All</button>
 	</div>
 
 	<div class="ao-results" aria-live="polite" data-last-group="<?php echo esc_attr( $result['last_group'] ); ?>">
 		<?php
-		// Card markup is escaped in the card templates themselves.
+		// Card markup is escaped inside the card templates.
 		echo $result['html']; // phpcs:ignore WordPress.Security.EscapeOutput
 		?>
 	</div>
 
-	<?php if ( ! $result['total'] ) : ?>
-		<p class="ao-empty">No results. Try removing a filter.</p>
-	<?php endif; ?>
+	<p class="ao-empty" <?php echo $result['total'] ? 'hidden' : ''; ?>>No buildings match those filters. Try removing one.</p>
 
 	<div class="ao-more-wrap">
-		<button type="button" class="ao-more" <?php echo $result['has_more'] ? '' : 'hidden'; ?>>Load More</button>
+		<button type="button" class="ao-more" <?php echo $result['has_more'] ? '' : 'hidden'; ?>>Load More Buildings</button>
 	</div>
 </div>

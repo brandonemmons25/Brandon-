@@ -35,7 +35,6 @@ class AO_Query {
 		return array(
 			'facets' => $selected,
 			'search' => isset( $raw['s'] ) ? sanitize_text_field( wp_unslash( $raw['s'] ) ) : '',
-			'year'   => isset( $raw['year'] ) ? (int) $raw['year'] : 0,
 			'sort'   => $sort,
 			'page'   => max( 1, isset( $raw['page'] ) ? (int) $raw['page'] : 1 ),
 		);
@@ -48,7 +47,6 @@ class AO_Query {
 	public static function is_filtered( $config, $request ) {
 		return ! empty( $request['facets'] )
 			|| '' !== $request['search']
-			|| ! empty( $request['year'] )
 			|| $request['sort'] !== $config['default_sort'];
 	}
 
@@ -107,11 +105,6 @@ class AO_Query {
 
 		$args['orderby'] = self::orderby( $request['sort'] );
 
-		// 07C — the press archive filters by year as well as category.
-		if ( ! empty( $config['year_filter'] ) && $request['year'] ) {
-			$args['date_query'] = array( array( 'year' => $request['year'] ) );
-		}
-
 		return apply_filters( 'ao_query_args', $args, $config, $request );
 	}
 
@@ -134,9 +127,6 @@ class AO_Query {
 					'ao_name' => array( 'key' => AO_Index::SORT_NAME, 'compare' => 'EXISTS' ),
 				);
 
-			case 'price_desc':
-			case 'price_asc':
-				return array( 'ao_price' => array( 'key' => AO_Index::PRICE, 'type' => 'NUMERIC', 'compare' => 'EXISTS' ) );
 		}
 
 		return array();
@@ -153,21 +143,8 @@ class AO_Query {
 			case 'nbhd_asc':
 				return array( 'ao_nbhd' => 'ASC', 'ao_name' => 'ASC' );
 
-			case 'price_desc':
-				return array( 'ao_price' => 'DESC' );
-
-			case 'price_asc':
-				return array( 'ao_price' => 'ASC' );
-
-			case 'date_asc':
-				return array( 'date' => 'ASC' );
-
-			case 'menu_order':
-				return array( 'menu_order' => 'ASC', 'date' => 'DESC' );
-
-			case 'date_desc':
 			default:
-				return array( 'date' => 'DESC' );
+				return array( 'ao_name' => 'ASC' );
 		}
 	}
 

@@ -49,16 +49,11 @@ class AO_REST {
 	}
 
 	/**
-	 * "49 BUILDINGS" / "1 BUILDING" style count for the directory header.
+	 * "49 BUILDINGS" / "1 BUILDING" for the directory header.
 	 */
 	private static function count_text( $config, $total ) {
-		$object = get_post_type_object( $config['post_type'] );
-
-		if ( ! $object ) {
-			return (string) $total;
-		}
-
-		$label = 1 === $total ? $object->labels->singular_name : $object->labels->name;
+		$labels = $config['count_label'];
+		$label  = 1 === $total ? $labels[0] : $labels[1];
 
 		return $total . ' ' . $label;
 	}

@@ -258,6 +258,7 @@
 	 * and sort happen here rather than over the network.
 	 */
 	function TermDirectory( root ) {
+		var key = root.getAttribute( 'data-ao-terms' );
 		var search = root.querySelector( '.ao-term-search' );
 		var sort = root.querySelector( '.ao-term-sort' );
 		var results = root.querySelector( '.ao-results' );
@@ -317,12 +318,20 @@
 			} );
 
 			if ( count ) {
-				count.textContent = visible;
+				count.textContent = count.textContent.replace( /^\d+/, visible );
 			}
 
 			if ( empty ) {
 				empty.toggleAttribute( 'hidden', visible > 0 );
 			}
+
+			// The curated strip steps aside on search or an alternate sort,
+			// and returns on reset.
+			var narrowed = !! term || descending;
+
+			document.querySelectorAll( '[data-ao-hide-when-filtered="' + key + '"]' ).forEach( function ( el ) {
+				el.toggleAttribute( 'hidden', narrowed );
+			} );
 		}
 
 		if ( search ) {

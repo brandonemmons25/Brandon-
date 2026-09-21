@@ -4,24 +4,18 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Sort + search index.
  *
- * WordPress cannot order by a taxonomy term, and its default search does not
- * look at custom fields. So on every save we flatten what the directories need
- * to sort and search on into three plain meta keys.
+ * WordPress cannot order by a taxonomy term, and its default search ignores
+ * custom fields. On every save we flatten what the directory sorts and
+ * searches on into three plain meta keys.
  */
 class AO_Index {
 
 	const SORT_NAME = '_ao_sort_name';
 	const SORT_NBHD = '_ao_sort_nbhd';
 	const SEARCH    = '_ao_search';
-	const PRICE     = '_ao_price';
-
-	/** Post types that get indexed. */
-	public static function types() {
-		return array( 'ao_building', 'ao_sold', 'ao_press', 'ao_insight', 'ao_case_study', 'ao_testimonial' );
-	}
 
 	public static function init() {
-		add_action( 'save_post', array( __CLASS__, 'on_save' ), 20, 2 );
+		add_action( 'save_post_ao_building', array( __CLASS__, 'on_save' ), 20, 2 );
 		add_action( 'set_object_terms', array( __CLASS__, 'on_terms' ), 20, 1 );
 		add_action( 'acf/save_post', array( __CLASS__, 'index' ), 20 );
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ) );
@@ -32,52 +26,44 @@ class AO_Index {
 		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return;
 		}
-		if ( in_array( $post->post_type, self::types(), true ) ) {
-			self::index( $post_id );
-		}
+
+		self::index( $post_id );
 	}
 
 	public static function on_terms( $post_id ) {
-		if ( in_array( get_post_type( $post_id ), self::types(), true ) ) {
+		if ( 'ao_building' === get_post_type( $post_id ) ) {
 			self::index( $post_id );
 		}
 	}
 
 	/**
-	 * Write the index for one post.
+	 * Write the index for one building.
 	 */
 	public static function index( $post_id ) {
 		$post_id = (int) $post_id;
 		$post    = get_post( $post_id );
 
-		if ( ! $post || ! in_array( $post->post_type, self::types(), true ) ) {
+		if ( ! $post || 'ao_building' !== $post->post_type ) {
 			return;
 		}
 
-		$title = $post->post_title;
-
 		// "The Ritz-Carlton Residences" sorts and groups under R, not T.
-		$sort_name = trim( preg_replace( '/^the\s+/i', '', $title ) );
+		$sort_name = trim( preg_replace( '/^the\s+/i', '', $post->post_title ) );
 
 		$nbhds = wp_get_object_terms( $post_id, 'ao_neighborhood', array( 'fields' => 'names' ) );
 		$nbhds = is_wp_error( $nbhds ) ? array() : $nbhds;
 		sort( $nbhds );
 
-		// Unplaced records sort last rather than first under a neighborhood sort.
+		// Unplaced buildings sort last under a neighborhood sort.
 		$sort_nbhd = $nbhds ? $nbhds[0] : 'zzzz';
 
-		$address     = (string) get_post_meta( $post_id, 'ao_address', true );
-		$publication = (string) get_post_meta( $post_id, 'ao_publication', true );
-
-		$search = implode( ' ', array_filter( array( $title, $address, $publication, implode( ' ', $nbhds ) ) ) );
+		$address = (string) get_post_meta( $post_id, 'ao_address', true );
 
 		update_post_meta( $post_id, self::SORT_NAME, self::key( $sort_name ) );
 		update_post_meta( $post_id, self::SORT_NBHD, self::key( $sort_nbhd ) );
-		update_post_meta( $post_id, self::SEARCH, self::key( $search ) );
 
-		// Sold properties and case studies sort high → low by price.
-		$price = get_post_meta( $post_id, 'ao_price', true );
-		update_post_meta( $post_id, self::PRICE, $price ? (float) preg_replace( '/[^0-9.]/', '', $price ) : 0 );
+		// Spec: search covers building name and address.
+		update_post_meta( $post_id, self::SEARCH, self::key( $post->post_title . ' ' . $address ) );
 	}
 
 	/**
@@ -92,12 +78,12 @@ class AO_Index {
 	}
 
 	/**
-	 * Rebuild everything. Needed once after import, and after any bulk edit
-	 * that bypassed save_post.
+	 * Rebuild everything. Needed once after an import, and after any bulk
+	 * edit that bypassed save_post.
 	 */
 	public static function reindex_all() {
 		$ids = get_posts( array(
-			'post_type'      => self::types(),
+			'post_type'      => 'ao_building',
 			'post_status'    => 'any',
 			'posts_per_page' => -1,
 			'fields'         => 'ids',
@@ -112,9 +98,9 @@ class AO_Index {
 
 	public static function menu() {
 		add_submenu_page(
-			'tools.php',
-			'Andy Oei Index',
-			'Andy Oei Index',
+			'edit.php?post_type=ao_building',
+			'Rebuild Index',
+			'Rebuild Index',
 			'manage_options',
 			'ao-reindex',
 			array( __CLASS__, 'screen' )
@@ -125,10 +111,10 @@ class AO_Index {
 		$done = isset( $_GET['done'] ) ? (int) $_GET['done'] : 0; // phpcs:ignore WordPress.Security.NonceVerification
 		?>
 		<div class="wrap">
-			<h1>Andy Oei Index</h1>
-			<p>Rebuilds the sort and search index for buildings, sold properties, press, insights, case studies and testimonials. Run this after an import or a bulk edit.</p>
+			<h1>Rebuild Index</h1>
+			<p>Rebuilds the sort and search index for every building. Run this after an import or a bulk edit.</p>
 			<?php if ( $done ) : ?>
-				<div class="notice notice-success"><p><?php echo esc_html( $done ); ?> records reindexed.</p></div>
+				<div class="notice notice-success"><p><?php echo esc_html( $done ); ?> buildings reindexed.</p></div>
 			<?php endif; ?>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="ao_reindex">
@@ -146,7 +132,7 @@ class AO_Index {
 
 		$count = self::reindex_all();
 
-		wp_safe_redirect( admin_url( 'tools.php?page=ao-reindex&done=' . $count ) );
+		wp_safe_redirect( admin_url( 'edit.php?post_type=ao_building&page=ao-reindex&done=' . $count ) );
 		exit;
 	}
 }

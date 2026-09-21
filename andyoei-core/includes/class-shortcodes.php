@@ -2,7 +2,7 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Shortcodes, so the directories can be dropped into any page builder.
+ * Shortcodes, so both directories drop into any page builder.
  */
 class AO_Shortcodes {
 
@@ -12,107 +12,92 @@ class AO_Shortcodes {
 	}
 
 	public static function register() {
-		add_shortcode( 'ao_directory', array( __CLASS__, 'directory' ) );
+		add_shortcode( 'ao_buildings', array( __CLASS__, 'buildings' ) );
 		add_shortcode( 'ao_neighborhoods', array( __CLASS__, 'neighborhoods' ) );
-		add_shortcode( 'ao_featured', array( __CLASS__, 'featured' ) );
-		add_shortcode( 'ao_proof', array( __CLASS__, 'proof' ) );
-		add_shortcode( 'ao_carousel', array( __CLASS__, 'carousel' ) );
-		add_shortcode( 'ao_section', array( __CLASS__, 'section' ) );
+		add_shortcode( 'ao_featured_buildings', array( __CLASS__, 'featured_buildings' ) );
+		add_shortcode( 'ao_featured_neighborhoods', array( __CLASS__, 'featured_neighborhoods' ) );
 	}
 
 	public static function register_assets() {
-		wp_register_style( 'ao-filters', AO_URL . 'assets/css/filters.css', array(), AO_VERSION );
-		wp_register_style( 'ao-sections', AO_URL . 'assets/css/sections.css', array(), AO_VERSION );
-		wp_register_script( 'ao-carousel', AO_URL . 'assets/js/carousel.js', array(), AO_VERSION, true );
+		wp_register_style( 'ao-core', AO_URL . 'assets/css/andyoei.css', array(), AO_VERSION );
 		wp_register_script( 'ao-filters', AO_URL . 'assets/js/filters.js', array(), AO_VERSION, true );
+		wp_register_script( 'ao-carousel', AO_URL . 'assets/js/carousel.js', array(), AO_VERSION, true );
 		wp_localize_script( 'ao-filters', 'aoFilters', array(
 			'root' => esc_url_raw( rest_url( 'andyoei/v1/directory/' ) ),
 		) );
 	}
 
+	private static function assets( $carousel = false ) {
+		wp_enqueue_style( 'ao-core' );
+		wp_enqueue_script( 'ao-filters' );
+
+		if ( $carousel ) {
+			wp_enqueue_script( 'ao-carousel' );
+		}
+	}
+
 	/**
-	 * [ao_directory key="buildings"]
+	 * [ao_buildings]
 	 *
-	 * Renders the filter bar and the first page server-side so the directory
-	 * works without JavaScript and stays indexable; JavaScript takes over for
-	 * filtering and Load More.
+	 * 02A — search, sort, filter drawer, featured strip, alphabetical
+	 * headers and Load More. The first page renders server-side, so the
+	 * directory works without JavaScript and stays indexable.
 	 */
-	public static function directory( $atts ) {
-		$atts   = shortcode_atts( array( 'key' => 'buildings' ), $atts, 'ao_directory' );
-		$config = AO_Directories::get( $atts['key'] );
+	public static function buildings( $atts ) {
+		$atts = shortcode_atts( array(
+			'featured'       => '1',
+			'featured_title' => 'Featured Condominium Buildings',
+			'featured_limit' => 6,
+		), $atts, 'ao_buildings' );
+
+		$config = AO_Directories::get( 'buildings' );
 
 		if ( ! $config ) {
 			return '';
 		}
 
-		wp_enqueue_style( 'ao-filters' );
-		wp_enqueue_style( 'ao-sections' ); // Card design tokens.
-		wp_enqueue_script( 'ao-filters' );
+		self::assets( true );
 
 		// Deep links and no-JS pagination read straight from the URL.
-		$request = AO_Query::parse_request( $config, $_GET ); // phpcs:ignore WordPress.Security.NonceVerification
-		$result  = AO_Query::render( $config, $request );
+		$request  = AO_Query::parse_request( $config, $_GET ); // phpcs:ignore WordPress.Security.NonceVerification
+		$filtered = AO_Query::is_filtered( $config, $request );
+		$result   = AO_Query::render( $config, $request );
+
+		$featured = '';
+
+		if ( '1' === (string) $atts['featured'] ) {
+			$featured = self::featured_buildings( array(
+				'limit'  => $atts['featured_limit'],
+				'title'  => $atts['featured_title'],
+				'hidden' => $filtered ? '1' : '0',
+			) );
+		}
 
 		return ao_template( 'directory.php', array(
 			'config'   => $config,
 			'request'  => $request,
 			'result'   => $result,
-			'filtered' => AO_Query::is_filtered( $config, $request ),
+			'filtered' => $filtered,
+			'featured' => $featured,
 		) );
 	}
 
 	/**
-	 * [ao_neighborhoods]
+	 * [ao_featured_buildings]
 	 *
-	 * 03A — the neighborhood directory. Sixteen terms at launch, so the whole
-	 * set renders at once and search/sort happen in the browser.
+	 * Curated strip of 4–6. Andy sets Featured and Featured Rank on each
+	 * building; nothing here is automatic.
 	 */
-	public static function neighborhoods( $atts ) {
-		$atts = shortcode_atts( array( 'hide_empty' => '0' ), $atts, 'ao_neighborhoods' );
-
-		wp_enqueue_style( 'ao-filters' );
-		wp_enqueue_script( 'ao-filters' );
-
-		$terms = get_terms( array(
-			'taxonomy'   => 'ao_neighborhood',
-			'hide_empty' => (bool) (int) $atts['hide_empty'],
-			'orderby'    => 'name',
-		) );
-
-		if ( is_wp_error( $terms ) ) {
-			return '';
-		}
-
-		return ao_template( 'neighborhoods.php', array( 'terms' => $terms ) );
-	}
-
-	/**
-	 * [ao_featured type="ao_building" limit="6"]
-	 *
-	 * The curated strips. Andy sets Featured and Featured Rank on the record;
-	 * nothing here is automatic.
-	 */
-	public static function featured( $atts ) {
+	public static function featured_buildings( $atts ) {
 		$atts = shortcode_atts( array(
-			'type'               => 'ao_building',
-			'limit'              => 6,
-			'card'               => '',
-			'hide_when_filtered' => '', // Directory key, e.g. "buildings".
-		), $atts, 'ao_featured' );
-
-		$cards = array(
-			'ao_building'    => 'card-building.php',
-			'ao_sold'        => 'card-sold.php',
-			'ao_press'       => 'card-press.php',
-			'ao_insight'     => 'card-insight.php',
-			'ao_testimonial' => 'card-testimonial.php',
-			'ao_case_study'  => 'card-case-study.php',
-		);
-
-		$card = $atts['card'] ? $atts['card'] : ( isset( $cards[ $atts['type'] ] ) ? $cards[ $atts['type'] ] : 'card-building.php' );
+			'limit'  => 6,
+			'title'  => 'Featured Condominium Buildings',
+			'note'   => 'Andy selects + orders',
+			'hidden' => '0',
+		), $atts, 'ao_featured_buildings' );
 
 		$posts = get_posts( array(
-			'post_type'      => $atts['type'],
+			'post_type'      => 'ao_building',
 			'posts_per_page' => (int) $atts['limit'],
 			'meta_key'       => 'ao_featured_rank', // phpcs:ignore WordPress.DB.SlowDBQuery
 			'orderby'        => array( 'meta_value_num' => 'ASC', 'title' => 'ASC' ),
@@ -125,154 +110,105 @@ class AO_Shortcodes {
 			return '';
 		}
 
-		wp_enqueue_style( 'ao-filters' );
+		self::assets( true );
 
-		$html = '';
+		$cards = '';
 		foreach ( $posts as $post ) {
-			$html .= ao_template( $card, array( 'post_id' => $post->ID, 'config' => array() ) );
+			$cards .= ao_template( 'card-building.php', array( 'post_id' => $post->ID ) );
 		}
 
-		// 02A/03A — the curated strip steps aside while a directory on the
-		// same page is being filtered or sorted.
-		$attr = $atts['hide_when_filtered']
-			? ' data-ao-hide-when-filtered="' . esc_attr( $atts['hide_when_filtered'] ) . '"'
-			: '';
-
-		return '<div class="ao-featured-strip"' . $attr . '>' . $html . '</div>';
-	}
-
-	/**
-	 * [ao_carousel type="ao_sold" title="Recent Transactions"]
-	 *
-	 * A curated, swipeable row. Featured records first, then most recent.
-	 */
-	public static function carousel( $atts ) {
-		return self::section_output( $atts, true );
-	}
-
-	/**
-	 * [ao_section type="ao_sold" title="Selected Transactions"]
-	 *
-	 * The same section header and cards, laid out as a static grid.
-	 */
-	public static function section( $atts ) {
-		return self::section_output( $atts, false );
-	}
-
-	private static function section_output( $atts, $carousel ) {
-		$atts = shortcode_atts( array(
-			'type'      => 'ao_sold',
-			'limit'     => 8,
-			'card'      => '',
-			'eyebrow'   => '',
-			'title'     => '',
-			'link'      => '',
-			'link_text' => 'View All',
-			'featured'  => '0', // 1 restricts the row to featured records only.
-			'orderby'   => '',  // Defaults to price for properties, date otherwise.
-		), $atts, $carousel ? 'ao_carousel' : 'ao_section' );
-
-		$cards = array(
-			'ao_building'    => 'card-building.php',
-			'ao_sold'        => 'card-sold.php',
-			'ao_press'       => 'card-press.php',
-			'ao_insight'     => 'card-insight.php',
-			'ao_testimonial' => 'card-testimonial.php',
-			'ao_case_study'  => 'card-case-study.php',
-		);
-
-		$card = $atts['card'] ? $atts['card'] : ( isset( $cards[ $atts['type'] ] ) ? $cards[ $atts['type'] ] : 'card-building.php' );
-
-		$args = array(
-			'post_type'      => $atts['type'],
-			'posts_per_page' => (int) $atts['limit'],
-		);
-
-		// Properties and case studies read high price → low; everything else
-		// leads with the newest record.
-		$orderby = $atts['orderby'] ? $atts['orderby'] : ( in_array( $atts['type'], array( 'ao_sold', 'ao_case_study' ), true ) ? 'price' : 'date' );
-
-		if ( 'price' === $orderby ) {
-			$args['meta_key'] = AO_Index::PRICE; // phpcs:ignore WordPress.DB.SlowDBQuery
-			$args['orderby']  = 'meta_value_num';
-			$args['order']    = 'DESC';
-		} elseif ( 'menu_order' === $orderby ) {
-			$args['orderby'] = 'menu_order';
-			$args['order']   = 'ASC';
-		} else {
-			$args['orderby'] = 'date';
-			$args['order']   = 'DESC';
-		}
-
-		if ( '1' === (string) $atts['featured'] ) {
-			$args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery
-				array( 'key' => 'ao_featured', 'value' => '1' ),
-			);
-		}
-
-		$posts = get_posts( $args );
-
-		if ( ! $posts ) {
-			return '';
-		}
-
-		wp_enqueue_style( 'ao-sections' );
-
-		if ( $carousel ) {
-			wp_enqueue_script( 'ao-carousel' );
-		}
-
-		$html = '';
-		foreach ( $posts as $post ) {
-			$html .= ao_template( $card, array( 'post_id' => $post->ID, 'config' => array() ) );
-		}
-
-		return ao_template( 'section.php', array(
-			'atts'     => $atts,
-			'cards'    => $html,
-			'carousel' => $carousel,
+		return ao_template( 'featured-strip.php', array(
+			'title'  => $atts['title'],
+			'note'   => $atts['note'],
+			'cards'  => $cards,
+			'key'    => 'buildings',
+			'hidden' => '1' === (string) $atts['hidden'],
 		) );
 	}
 
 	/**
-	 * [ao_proof context="seller" limit="4"]
+	 * [ao_neighborhoods]
 	 *
-	 * 07D — the stats written once and reused on About, Buy, Sell and
-	 * Credentials.
+	 * 03A — sixteen terms at launch, so the whole set renders at once and
+	 * search and sort run in the browser.
 	 */
-	public static function proof( $atts ) {
-		$atts = shortcode_atts( array( 'context' => '', 'limit' => 6 ), $atts, 'ao_proof' );
+	public static function neighborhoods( $atts ) {
+		$atts = shortcode_atts( array(
+			'featured'       => '1',
+			'featured_title' => 'Featured Neighborhoods',
+			'featured_limit' => 6,
+			'count_label'    => 'At Launch',
+			'hide_empty'     => '0',
+		), $atts, 'ao_neighborhoods' );
 
-		$args = array(
-			'post_type'      => 'ao_proof',
-			'posts_per_page' => (int) $atts['limit'],
-			'orderby'        => 'menu_order',
-			'order'          => 'ASC',
-		);
+		self::assets( true );
 
-		if ( $atts['context'] ) {
-			$args['tax_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery
-				array(
-					'taxonomy' => 'ao_proof_context',
-					'field'    => 'slug',
-					'terms'    => array_map( 'sanitize_title', explode( ',', $atts['context'] ) ),
-				),
-			);
-		}
+		$terms = get_terms( array(
+			'taxonomy'   => 'ao_neighborhood',
+			'hide_empty' => (bool) (int) $atts['hide_empty'],
+			'orderby'    => 'name',
+		) );
 
-		$posts = get_posts( $args );
-
-		if ( ! $posts ) {
+		if ( is_wp_error( $terms ) || ! $terms ) {
 			return '';
 		}
 
-		wp_enqueue_style( 'ao-filters' );
+		$featured = '';
 
-		$html = '';
-		foreach ( $posts as $post ) {
-			$html .= ao_template( 'proof-point.php', array( 'post_id' => $post->ID ) );
+		if ( '1' === (string) $atts['featured'] ) {
+			$featured = self::featured_neighborhoods( array(
+				'limit' => $atts['featured_limit'],
+				'title' => $atts['featured_title'],
+			) );
 		}
 
-		return '<div class="ao-proof-row">' . $html . '</div>';
+		return ao_template( 'neighborhoods.php', array(
+			'terms'       => $terms,
+			'featured'    => $featured,
+			'count_label' => $atts['count_label'],
+		) );
+	}
+
+	/**
+	 * [ao_featured_neighborhoods]
+	 */
+	public static function featured_neighborhoods( $atts ) {
+		$atts = shortcode_atts( array(
+			'limit' => 6,
+			'title' => 'Featured Neighborhoods',
+			'note'  => 'Andy selects neighborhoods and display order',
+		), $atts, 'ao_featured_neighborhoods' );
+
+		// ACF stores term fields in term meta under the field name.
+		$terms = get_terms( array(
+			'taxonomy'   => 'ao_neighborhood',
+			'hide_empty' => false,
+			'number'     => (int) $atts['limit'],
+			'meta_key'   => 'ao_nbhd_rank', // phpcs:ignore WordPress.DB.SlowDBQuery
+			'orderby'    => 'meta_value_num',
+			'order'      => 'ASC',
+			'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery
+				array( 'key' => 'ao_nbhd_featured', 'value' => '1' ),
+			),
+		) );
+
+		if ( is_wp_error( $terms ) || ! $terms ) {
+			return '';
+		}
+
+		self::assets( true );
+
+		$cards = '';
+		foreach ( $terms as $term ) {
+			$cards .= ao_template( 'card-neighborhood.php', array( 'term' => $term, 'featured' => true ) );
+		}
+
+		return ao_template( 'featured-strip.php', array(
+			'title'  => $atts['title'],
+			'note'   => $atts['note'],
+			'cards'  => $cards,
+			'key'    => 'neighborhoods',
+			'hidden' => false,
+		) );
 	}
 }
