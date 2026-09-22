@@ -30,11 +30,22 @@ class AO_Fields {
 			return current_user_can( 'edit_posts' );
 		};
 
-		register_post_meta( 'ao_building', 'ao_address', array(
-			'type'              => 'string',
+		foreach ( array( 'ao_address', 'ao_starting_price' ) as $text_key ) {
+			register_post_meta( 'ao_building', $text_key, array(
+				'type'              => 'string',
+				'single'            => true,
+				'show_in_rest'      => true,
+				'sanitize_callback' => 'sanitize_text_field',
+				'auth_callback'     => $auth,
+			) );
+		}
+
+		// Drives the Completion filter, so it is numeric.
+		register_post_meta( 'ao_building', 'ao_completion', array(
+			'type'              => 'number',
 			'single'            => true,
 			'show_in_rest'      => true,
-			'sanitize_callback' => 'sanitize_text_field',
+			'sanitize_callback' => 'absint',
 			'auth_callback'     => $auth,
 		) );
 
@@ -75,7 +86,9 @@ class AO_Fields {
 	}
 
 	public static function render_meta_box( $post ) {
-		$address = get_post_meta( $post->ID, 'ao_address', true );
+		$address    = get_post_meta( $post->ID, 'ao_address', true );
+		$price      = get_post_meta( $post->ID, 'ao_starting_price', true );
+		$completion = get_post_meta( $post->ID, 'ao_completion', true );
 
 		wp_nonce_field( 'ao_details_save', 'ao_details_nonce' );
 		?>
@@ -83,8 +96,20 @@ class AO_Fields {
 			<label for="ao_address"><strong>Street Address</strong></label><br>
 			<input type="text" id="ao_address" name="ao_address" class="widefat"
 				value="<?php echo esc_attr( $address ); ?>">
+			<span class="description">Searched alongside the building name.</span>
 		</p>
-		<p class="description">Searched alongside the building name in the directory.</p>
+		<p>
+			<label for="ao_starting_price"><strong>Starting At</strong></label><br>
+			<input type="text" id="ao_starting_price" name="ao_starting_price" class="widefat"
+				value="<?php echo esc_attr( $price ); ?>" placeholder="$1,250,000">
+			<span class="description">Free text, so "Price on request" works.</span>
+		</p>
+		<p>
+			<label for="ao_completion"><strong>Completion Date</strong></label><br>
+			<input type="number" id="ao_completion" name="ao_completion" min="1800" max="2200" step="1"
+				value="<?php echo esc_attr( $completion ); ?>" placeholder="2026" style="width:6rem">
+			<span class="description">Year. Drives the Completion filter.</span>
+		</p>
 		<?php
 	}
 
@@ -106,12 +131,22 @@ class AO_Fields {
 			return;
 		}
 
-		$address = isset( $_POST['ao_address'] ) ? sanitize_text_field( wp_unslash( $_POST['ao_address'] ) ) : '';
+		foreach ( array( 'ao_address', 'ao_starting_price' ) as $text_key ) {
+			$value = isset( $_POST[ $text_key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $text_key ] ) ) : '';
 
-		if ( '' === $address ) {
-			delete_post_meta( $post_id, 'ao_address' );
+			if ( '' === $value ) {
+				delete_post_meta( $post_id, $text_key );
+			} else {
+				update_post_meta( $post_id, $text_key, $value );
+			}
+		}
+
+		$completion = isset( $_POST['ao_completion'] ) ? absint( $_POST['ao_completion'] ) : 0;
+
+		if ( $completion ) {
+			update_post_meta( $post_id, 'ao_completion', $completion );
 		} else {
-			update_post_meta( $post_id, 'ao_address', $address );
+			delete_post_meta( $post_id, 'ao_completion' );
 		}
 
 		// The address feeds the search index.

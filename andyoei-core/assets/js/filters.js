@@ -27,7 +27,8 @@
 		this.empty = root.querySelector( '.ao-empty' );
 		this.searchInput = root.querySelector( '.ao-search-input' );
 		this.sortSelect = root.querySelector( '.ao-sort-select' );
-		this.pills = Array.prototype.slice.call( root.querySelectorAll( '.ao-pill--facet' ) );
+		this.pills = Array.prototype.slice.call( root.querySelectorAll( '.ao-pill--facet, .ao-pill--panel' ) );
+		this.groups = Array.prototype.slice.call( root.querySelectorAll( '[data-facet]' ) );
 		this.page = 1;
 		this.timer = null;
 		this.request = 0;
@@ -66,16 +67,30 @@
 				event.stopPropagation();
 			} );
 
-			menu.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
-				box.addEventListener( 'change', function () {
+			menu.querySelectorAll( 'input' ).forEach( function ( input ) {
+				input.addEventListener( 'change', function () {
+					// The "All" row clears its own group rather than filtering.
+					if ( input.value === '' && input.checked ) {
+						var group = input.closest( '[data-facet]' );
+
+						group.querySelectorAll( 'input' ).forEach( function ( other ) {
+							other.checked = other === input;
+						} );
+					}
+
 					self.load( true );
+
+					// A single-choice menu has nothing more to offer.
+					if ( input.type === 'radio' ) {
+						self.closeMenus();
+					}
 				} );
 			} );
 
 			if ( clear ) {
 				clear.addEventListener( 'click', function () {
-					menu.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
-						box.checked = false;
+					menu.querySelectorAll( 'input' ).forEach( function ( input ) {
+						input.checked = input.value === '';
 					} );
 
 					self.load( true );
@@ -141,12 +156,15 @@
 	Directory.prototype.state = function () {
 		var facets = {};
 
-		this.pills.forEach( function ( pill ) {
-			var name = pill.getAttribute( 'data-facet' );
+		this.groups.forEach( function ( group ) {
+			var name = group.getAttribute( 'data-facet' );
 			var values = [];
 
-			pill.querySelectorAll( 'input[type="checkbox"]:checked' ).forEach( function ( box ) {
-				values.push( box.value );
+			group.querySelectorAll( 'input:checked' ).forEach( function ( input ) {
+				// The "All" row carries no value.
+				if ( input.value ) {
+					values.push( input.value );
+				}
 			} );
 
 			if ( values.length ) {
@@ -270,29 +288,44 @@
 	 */
 	Directory.prototype.syncPills = function () {
 		this.pills.forEach( function ( pill ) {
-			var checked = pill.querySelectorAll( 'input[type="checkbox"]:checked' );
+			var chosen = [];
+
+			pill.querySelectorAll( 'input:checked' ).forEach( function ( input ) {
+				if ( input.value ) {
+					chosen.push( input );
+				}
+			} );
+
 			var value = pill.querySelector( '.ao-pill-value' );
+			var count = pill.querySelector( '.ao-pill-count' );
 
-			if ( ! value ) {
-				return;
+			if ( value ) {
+				var group = pill.querySelector( '[data-facet]' );
+				var all = group ? group.getAttribute( 'data-all' ) : 'All';
+
+				if ( ! chosen.length ) {
+					value.textContent = all;
+				} else if ( chosen.length === 1 ) {
+					value.textContent = chosen[ 0 ].getAttribute( 'data-label' ) || chosen[ 0 ].value;
+				} else {
+					value.textContent = chosen.length + ' selected';
+				}
 			}
 
-			if ( ! checked.length ) {
-				value.textContent = 'All';
-			} else if ( checked.length === 1 ) {
-				value.textContent = checked[ 0 ].getAttribute( 'data-label' ) || checked[ 0 ].value;
-			} else {
-				value.textContent = checked.length + ' selected';
+			// The Filters button shows how many of its filters are on.
+			if ( count ) {
+				count.textContent = chosen.length;
+				count.toggleAttribute( 'hidden', ! chosen.length );
 			}
 
-			pill.classList.toggle( 'is-active', !! checked.length );
+			pill.classList.toggle( 'is-active', !! chosen.length );
 		} );
 	};
 
 	Directory.prototype.reset = function () {
-		this.pills.forEach( function ( pill ) {
-			pill.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
-				box.checked = false;
+		this.groups.forEach( function ( group ) {
+			group.querySelectorAll( 'input' ).forEach( function ( input ) {
+				input.checked = input.value === '';
 			} );
 		} );
 

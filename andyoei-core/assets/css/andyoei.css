@@ -29,16 +29,13 @@
 	font-family: var(--ao-font-ui);
 }
 
-/* Breaks out of a narrower theme container so the directory can run to its
-   own width. Set --ao-width, or the shortcode's width attribute, to change.
-   The featured strip is nested inside a directory, so it is deliberately not
-   included — it would shift twice. */
+/* Widens past a narrower theme container by bleeding an equal amount either
+   side, so it stays centred on whatever wraps it. No transform and no vw
+   units: both centre on something other than the parent and drift. */
 .ao-directory {
-	position: relative;
-	left: 50%;
-	transform: translateX(-50%);
-	width: min(var(--ao-width), 100vw - 3rem);
-	max-width: 100vw;
+	--ao-bleed: max(0px, calc((var(--ao-width) - 100%) / 2));
+
+	margin-inline: calc(var(--ao-bleed) * -1);
 }
 
 /* ── Control bar ─────────────────────────────────────────────────────── */
@@ -50,11 +47,9 @@
 	margin-bottom: 2rem;
 	border-radius: 999px;
 	background: var(--ao-bar);
-	width: 100%;
-}
-
-.ao-pill--search {
-	flex: 1 1 12rem;
+	/* Hugs its controls, as in the reference — it does not stretch. */
+	width: fit-content;
+	max-width: 100%;
 }
 
 .ao-pill {
@@ -127,7 +122,7 @@
 }
 
 .ao-search-input {
-	width: 100%;
+	width: 11rem;
 	cursor: text;
 }
 
@@ -171,13 +166,37 @@
 
 /* ── Filter menus ────────────────────────────────────────────────────── */
 
+.ao-pill-icon svg {
+	display: block;
+	width: 0.9rem;
+	height: 0.7rem;
+}
+
+.ao-pill-count {
+	display: inline-grid;
+	place-items: center;
+	min-width: 1.2rem;
+	height: 1.2rem;
+	padding: 0 0.3rem;
+	border-radius: 999px;
+	background: var(--ao-ink);
+	color: #fff;
+	font-size: 0.65rem;
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.ao-pill-count[hidden] {
+	display: none;
+}
+
 .ao-menu {
 	position: absolute;
 	top: calc(100% + 0.5rem);
 	left: 0;
 	z-index: 30;
-	min-width: 15rem;
-	padding: 0.5rem;
+	min-width: 13rem;
+	padding: 0.6rem;
 	border: 1px solid var(--ao-line);
 	border-radius: 8px;
 	background: var(--ao-menu);
@@ -188,64 +207,67 @@
 	display: none;
 }
 
-.ao-menu-list {
-	max-height: min(60vh, 34rem);
-	overflow-y: auto;
-}
-
+/* A long vocabulary runs in two columns so every option is visible. */
 .ao-menu--wide {
 	min-width: 26rem;
 }
 
-.ao-menu--wide .ao-menu-list {
+.ao-menu--wide .ao-group {
 	columns: 2;
 	column-gap: 0.5rem;
 }
 
-.ao-menu--wide .ao-menu-option {
-	break-inside: avoid;
+/* The Filters panel holds the secondary filters side by side. */
+.ao-menu--panel {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(11rem, 1fr));
+	gap: 1.5rem;
+	padding: 1.25rem;
 }
 
-/* A menu near the right edge opens leftward rather than off-screen. */
-.ao-pill--facet:nth-last-child(-n+2) .ao-menu {
-	left: auto;
-	right: 0;
+.ao-group-label {
+	margin: 0 0 0.5rem;
+	font-size: 0.65rem;
+	font-weight: 600;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ao-muted);
 }
 
-.ao-menu-option {
+.ao-option {
 	display: flex;
 	align-items: center;
 	gap: 0.6rem;
-	padding: 0.45rem 0.6rem;
+	padding: 0.4rem 0.55rem;
 	border-radius: 4px;
 	font-size: 0.85rem;
 	line-height: 1.3;
 	cursor: pointer;
+	break-inside: avoid;
 }
 
-.ao-menu-option:hover {
+.ao-option:hover {
 	background: var(--ao-bar);
 }
 
-.ao-menu-option input {
+.ao-option input {
 	flex: none;
 	margin: 0;
 }
 
-.ao-menu-clear {
-	width: 100%;
-	margin-top: 0.4rem;
-	padding: 0.6rem;
-	border: 0;
-	border-top: 1px solid var(--ao-line);
-	background: none;
-	font: inherit;
-	font-size: 0.7rem;
-	font-weight: 600;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
+/* The reset row reads as the default rather than as another choice. */
+.ao-option--all {
+	margin-bottom: 0.2rem;
+	padding-bottom: 0.55rem;
+	border-bottom: 1px solid var(--ao-line);
+	border-radius: 0;
 	color: var(--ao-muted);
-	cursor: pointer;
+}
+
+/* A menu near the right edge opens leftward rather than off-screen. */
+.ao-pill:nth-last-child(-n+3) .ao-menu:not(.ao-menu--panel) {
+	left: auto;
+	right: 0;
 }
 
 /* ── Count ───────────────────────────────────────────────────────────── */
@@ -485,6 +507,14 @@
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+}
+
+/* Below this the container is close enough to the viewport that bleeding
+   would cause a horizontal scrollbar. */
+@media (max-width: 1360px) {
+	:where(.ao-directory) {
+		--ao-width: 100%;
+	}
 }
 
 @media (max-width: 1000px) {

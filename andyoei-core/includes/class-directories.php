@@ -27,25 +27,57 @@ class AO_Directories {
 				// bring them back.
 				'group_by'     => '',
 				'facets'       => array(
-					'neighborhood' => array(
-						'taxonomy' => 'ao_neighborhood',
-						'label'    => 'Neighborhood',
-						'operator' => 'IN',  // OR within the group.
+
+					// In the bar, in this order.
+					'area'         => array(
+						'taxonomy'  => 'ao_neighborhood',
+						'label'     => 'Area',
+						'operator'  => 'IN',   // OR within the group.
+						'all_label' => 'All Areas',
+						'in_bar'    => true,
 					),
+					'completion'   => array(
+						'type'      => 'range', // Buckets over a numeric field.
+						'meta_key'  => 'ao_completion',
+						'label'     => 'Completion',
+						'all_label' => 'Any Year',
+						'single'    => true,
+						'in_bar'    => true,
+						'options'   => array(
+							'2026-plus' => array( 'label' => '2026 & Beyond', 'min' => 2026, 'max' => 0 ),
+							'2020-2025' => array( 'label' => '2020 – 2025', 'min' => 2020, 'max' => 2025 ),
+							'2010-2019' => array( 'label' => '2010 – 2019', 'min' => 2010, 'max' => 2019 ),
+							'2000-2009' => array( 'label' => '2000 – 2009', 'min' => 2000, 'max' => 2009 ),
+							'pre-2000'  => array( 'label' => 'Before 2000', 'min' => 0, 'max' => 1999 ),
+						),
+					),
+					'status'       => array(
+						'taxonomy'  => 'ao_status',
+						'label'     => 'Status',
+						'operator'  => 'IN',
+						'all_label' => 'All',
+						'single'    => true,
+						'in_bar'    => true,
+					),
+
+					// Behind the Filters button.
 					'height'       => array(
-						'taxonomy' => 'ao_height',
-						'label'    => 'Height',
-						'operator' => 'IN',
+						'taxonomy'  => 'ao_height',
+						'label'     => 'Height',
+						'operator'  => 'IN',
+						'all_label' => 'All',
 					),
 					'construction' => array(
-						'taxonomy' => 'ao_construction',
-						'label'    => 'Construction',
-						'operator' => 'IN',
+						'taxonomy'  => 'ao_construction',
+						'label'     => 'Construction',
+						'operator'  => 'IN',
+						'all_label' => 'All',
 					),
 					'features'     => array(
-						'taxonomy' => 'ao_feature',
-						'label'    => 'Features',
-						'operator' => 'AND', // Must have every selected feature.
+						'taxonomy'  => 'ao_feature',
+						'label'     => 'Features',
+						'operator'  => 'AND', // Must have every selected feature.
+						'all_label' => 'All',
 					),
 				),
 				'sorts'        => array(

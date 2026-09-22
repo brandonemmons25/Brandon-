@@ -51,20 +51,48 @@ class AO_Query {
 	}
 
 	/**
-	 * What a filter pill reads when it is closed: "All", the single chosen
-	 * term, or a count once several are selected.
+	 * The choices a facet offers, as value => label, whether it is backed by
+	 * a taxonomy or by numeric buckets.
 	 */
-	public static function facet_summary( $facet, $terms, $active ) {
-		if ( ! $active ) {
-			return 'All';
+	public static function facet_options( $facet ) {
+		if ( isset( $facet['type'] ) && 'range' === $facet['type'] ) {
+			$options = array();
+
+			foreach ( $facet['options'] as $value => $range ) {
+				$options[ $value ] = $range['label'];
+			}
+
+			return $options;
 		}
 
-		if ( 1 === count( $active ) ) {
-			foreach ( $terms as $term ) {
-				if ( $term->slug === $active[0] ) {
-					return $term->name;
-				}
-			}
+		$terms = get_terms( array( 'taxonomy' => $facet['taxonomy'], 'hide_empty' => false ) );
+
+		if ( is_wp_error( $terms ) ) {
+			return array();
+		}
+
+		$options = array();
+
+		foreach ( $terms as $term ) {
+			$options[ $term->slug ] = $term->name;
+		}
+
+		return $options;
+	}
+
+	/**
+	 * What a pill reads when it is closed: its all-label, the single choice,
+	 * or a count once several are selected.
+	 */
+	public static function facet_summary( $facet, $options, $active ) {
+		$all = isset( $facet['all_label'] ) ? $facet['all_label'] : 'All';
+
+		if ( ! $active ) {
+			return $all;
+		}
+
+		if ( 1 === count( $active ) && isset( $options[ $active[0] ] ) ) {
+			return $options[ $active[0] ];
 		}
 
 		return count( $active ) . ' selected';
@@ -88,8 +116,16 @@ class AO_Query {
 		// group uses AND so a building must carry every selected feature.
 		$tax_query = array();
 
+		$ranges = array();
+
 		foreach ( $config['facets'] as $name => $facet ) {
 			if ( empty( $request['facets'][ $name ] ) ) {
+				continue;
+			}
+
+			// Numeric buckets filter on a meta field, not a taxonomy.
+			if ( isset( $facet['type'] ) && 'range' === $facet['type'] ) {
+				$ranges[ $name ] = $facet;
 				continue;
 			}
 
@@ -117,6 +153,14 @@ class AO_Query {
 			);
 		}
 
+		foreach ( $ranges as $name => $facet ) {
+			$clause = self::range_clause( $facet, $request['facets'][ $name ] );
+
+			if ( $clause ) {
+				$meta_query[ 'range_' . $name ] = $clause;
+			}
+		}
+
 		$meta_query = array_merge( $meta_query, self::sort_clauses( $request['sort'] ) );
 
 		if ( count( $meta_query ) > 1 ) {
@@ -126,6 +170,46 @@ class AO_Query {
 		$args['orderby'] = self::orderby( $request['sort'] );
 
 		return apply_filters( 'ao_query_args', $args, $config, $request );
+	}
+
+	/**
+	 * One clause covering every selected bucket. Several buckets are OR'd,
+	 * so picking two year ranges widens the set rather than emptying it.
+	 */
+	private static function range_clause( $facet, $selected ) {
+		$clauses = array( 'relation' => 'OR' );
+
+		foreach ( $selected as $value ) {
+			if ( ! isset( $facet['options'][ $value ] ) ) {
+				continue;
+			}
+
+			$range = $facet['options'][ $value ];
+			$min   = isset( $range['min'] ) ? (int) $range['min'] : 0;
+			$max   = isset( $range['max'] ) ? (int) $range['max'] : 0;
+
+			if ( $min && $max ) {
+				$compare = 'BETWEEN';
+				$value_q = array( $min, $max );
+			} elseif ( $min ) {
+				$compare = '>=';
+				$value_q = $min;
+			} elseif ( $max ) {
+				$compare = '<=';
+				$value_q = $max;
+			} else {
+				continue;
+			}
+
+			$clauses[] = array(
+				'key'     => $facet['meta_key'],
+				'value'   => $value_q,
+				'type'    => 'NUMERIC',
+				'compare' => $compare,
+			);
+		}
+
+		return count( $clauses ) > 1 ? $clauses : array();
 	}
 
 	/**

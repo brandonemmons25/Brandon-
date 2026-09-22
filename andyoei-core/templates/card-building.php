@@ -1,7 +1,7 @@
 <?php
 /**
- * 02A — building card: logo (or name), large image, then spec rows separated
- * by hairlines. No card chrome; the photography carries it.
+ * 02A — building card: logo (or name), large image, then detail rows
+ * separated by hairlines. No card chrome; the photography carries it.
  *
  * @var int $post_id
  */
@@ -11,25 +11,19 @@ defined( 'ABSPATH' ) || exit;
 $nbhds = wp_get_object_terms( $post_id, 'ao_neighborhood', array( 'fields' => 'names' ) );
 $nbhd  = ( ! is_wp_error( $nbhds ) && $nbhds ) ? $nbhds[0] : '';
 
-$heights = wp_get_object_terms( $post_id, 'ao_height', array( 'fields' => 'names' ) );
-$height  = ( ! is_wp_error( $heights ) && $heights ) ? $heights[0] : '';
+$price      = get_post_meta( $post_id, 'ao_starting_price', true );
+$completion = get_post_meta( $post_id, 'ao_completion', true );
 
-// ACF fields, absent until it is installed.
-$logo  = function_exists( 'get_field' ) ? get_field( 'ao_building_logo', $post_id ) : '';
-$year  = function_exists( 'get_field' ) ? get_field( 'ao_year_built', $post_id ) : '';
-$units = function_exists( 'get_field' ) ? get_field( 'ao_units', $post_id ) : '';
-
+// ACF field, absent until it is installed.
+$logo     = function_exists( 'get_field' ) ? get_field( 'ao_building_logo', $post_id ) : '';
 $logo_src = is_array( $logo ) ? $logo['url'] : $logo;
 
 // Only rows with something to say are drawn.
 $rows = array_filter( array(
-	'Area'       => $nbhd,
-	'Residences' => $units ? number_format( (float) $units ) : '',
-	'Year Built' => $year,
-	'Height'     => $height,
+	'Starting At'     => $price,
+	'Area'            => $nbhd,
+	'Completion Date' => $completion,
 ) );
-
-$rows = array_slice( $rows, 0, 3, true );
 ?>
 <a class="ao-card ao-card--building" href="<?php echo esc_url( get_permalink( $post_id ) ); ?>">
 	<div class="ao-card-mark">
