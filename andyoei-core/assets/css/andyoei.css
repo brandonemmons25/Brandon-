@@ -30,10 +30,16 @@
 }
 
 /* Widens past a narrower theme container by bleeding an equal amount either
-   side, so it stays centred on whatever wraps it. No transform and no vw
-   units: both centre on something other than the parent and drift. */
+   side, so it stays centred on whatever wraps it — no transform, which would
+   centre on something other than the parent and drift.
+   The bleed is whichever is smaller: what --ao-width asks for, or what the
+   viewport can actually give (less a gutter, and less room for a scrollbar).
+   So it adapts instead of switching off wholesale at a breakpoint. */
 .ao-directory {
-	--ao-bleed: max(0px, calc((var(--ao-width) - 100%) / 2));
+	--ao-bleed: max(0px, min(
+		calc((var(--ao-width) - 100%) / 2),
+		calc((100vw - 100%) / 2 - 2rem)
+	));
 
 	margin-inline: calc(var(--ao-bleed) * -1);
 }
@@ -507,14 +513,6 @@
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
-}
-
-/* Below this the container is close enough to the viewport that bleeding
-   would cause a horizontal scrollbar. */
-@media (max-width: 1360px) {
-	:where(.ao-directory) {
-		--ao-width: 100%;
-	}
 }
 
 @media (max-width: 1000px) {
