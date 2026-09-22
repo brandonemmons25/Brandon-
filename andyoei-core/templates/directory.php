@@ -1,8 +1,9 @@
 <?php
 /**
- * 02A — Condominium Building Directory: controls, featured strip, results.
+ * 02A — Condominium Building Directory.
  *
- * Override by copying to your theme as andyoei/directory.php.
+ * Controls are a compact pill bar: one dropdown per filter, each opening a
+ * small popover. Override by copying to your theme as andyoei/directory.php.
  *
  * @var array  $config
  * @var array  $request
@@ -17,10 +18,9 @@ $key = $config['key'];
 ?>
 <div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>">
 
-	<div class="ao-controls-wrap">
-		<div class="ao-controls">
+	<div class="ao-bar">
 		<?php if ( $config['search'] ) : ?>
-			<div class="ao-control ao-control--search">
+			<div class="ao-pill ao-pill--search">
 				<label class="screen-reader-text" for="ao-s-<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $config['search_label'] ); ?></label>
 				<input
 					type="search"
@@ -31,9 +31,45 @@ $key = $config['key'];
 			</div>
 		<?php endif; ?>
 
+		<?php foreach ( $config['facets'] as $name => $facet ) : ?>
+			<?php
+			$terms = get_terms( array( 'taxonomy' => $facet['taxonomy'], 'hide_empty' => false ) );
+
+			if ( is_wp_error( $terms ) || ! $terms ) {
+				continue;
+			}
+
+			$active = isset( $request['facets'][ $name ] ) ? $request['facets'][ $name ] : array();
+			?>
+			<div class="ao-pill ao-pill--facet" data-facet="<?php echo esc_attr( $name ); ?>">
+				<button type="button" class="ao-pill-button" aria-expanded="false" aria-haspopup="true">
+					<span class="ao-pill-label"><?php echo esc_html( $facet['label'] ); ?></span>
+					<span class="ao-pill-value"><?php echo esc_html( AO_Query::facet_summary( $facet, $terms, $active ) ); ?></span>
+					<span class="ao-pill-caret" aria-hidden="true"></span>
+				</button>
+
+				<div class="ao-menu" hidden>
+					<div class="ao-menu-list">
+						<?php foreach ( $terms as $term ) : ?>
+							<label class="ao-menu-option">
+								<input
+									type="checkbox"
+									value="<?php echo esc_attr( $term->slug ); ?>"
+									data-label="<?php echo esc_attr( $term->name ); ?>"
+									<?php checked( in_array( $term->slug, $active, true ) ); ?>>
+								<span><?php echo esc_html( $term->name ); ?></span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+					<button type="button" class="ao-menu-clear">Clear</button>
+				</div>
+			</div>
+		<?php endforeach; ?>
+
 		<?php if ( $config['sorts'] ) : ?>
-			<div class="ao-control ao-control--sort">
-				<label for="ao-sort-<?php echo esc_attr( $key ); ?>">Sort by:</label>
+			<div class="ao-pill ao-pill--sort">
+				<label class="screen-reader-text" for="ao-sort-<?php echo esc_attr( $key ); ?>">Sort by</label>
+				<span class="ao-pill-label">Sort</span>
 				<select id="ao-sort-<?php echo esc_attr( $key ); ?>" class="ao-sort-select">
 					<?php foreach ( $config['sorts'] as $value => $label ) : ?>
 						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $request['sort'], $value ); ?>>
@@ -44,64 +80,16 @@ $key = $config['key'];
 			</div>
 		<?php endif; ?>
 
-		<?php if ( $config['facets'] ) : ?>
-			<button type="button" class="ao-control ao-filters-toggle" aria-expanded="false" aria-controls="ao-drawer-<?php echo esc_attr( $key ); ?>">
-				Filters <span class="ao-filters-count" hidden></span>
-			</button>
-		<?php endif; ?>
-		</div>
-
-	<?php if ( $config['facets'] ) : ?>
-		<div class="ao-drawer" id="ao-drawer-<?php echo esc_attr( $key ); ?>" hidden>
-			<?php foreach ( $config['facets'] as $name => $facet ) : ?>
-				<?php
-				$terms = get_terms( array( 'taxonomy' => $facet['taxonomy'], 'hide_empty' => false ) );
-
-				if ( is_wp_error( $terms ) || ! $terms ) {
-					continue;
-				}
-
-				$active = isset( $request['facets'][ $name ] ) ? $request['facets'][ $name ] : array();
-				?>
-				<fieldset class="ao-facet" data-facet="<?php echo esc_attr( $name ); ?>">
-					<legend><?php echo esc_html( $facet['label'] ); ?></legend>
-					<div class="ao-facet-list">
-						<?php foreach ( $terms as $term ) : ?>
-							<label class="ao-facet-option">
-								<input
-									type="checkbox"
-									value="<?php echo esc_attr( $term->slug ); ?>"
-									data-label="<?php echo esc_attr( $term->name ); ?>"
-									<?php checked( in_array( $term->slug, $active, true ) ); ?>>
-								<span><?php echo esc_html( $term->name ); ?></span>
-							</label>
-						<?php endforeach; ?>
-					</div>
-				</fieldset>
-			<?php endforeach; ?>
-
-			<div class="ao-drawer-foot">
-				<button type="button" class="ao-drawer-clear">Clear All</button>
-				<button type="button" class="ao-drawer-done">Done</button>
-			</div>
-		</div>
-	<?php endif; ?>
+		<button type="button" class="ao-clear" <?php echo $filtered ? '' : 'hidden'; ?>>Clear All</button>
 	</div>
 
 	<?php
-	// The strip sits between the controls and the full directory, and hides
-	// itself as soon as the visitor narrows the set.
+	// The strip hides as soon as the visitor narrows the set.
 	echo $featured; // phpcs:ignore WordPress.Security.EscapeOutput
 	?>
 
-	<div class="ao-directory-head">
-		<h2 class="ao-directory-title">All Condominium Buildings</h2>
+	<div class="ao-meta">
 		<span class="ao-count"><?php echo esc_html( $result['total'] . ' ' . ( 1 === $result['total'] ? $config['count_label'][0] : $config['count_label'][1] ) ); ?></span>
-	</div>
-
-	<div class="ao-status">
-		<span class="ao-chips"></span>
-		<button type="button" class="ao-clear" hidden>Clear All</button>
 	</div>
 
 	<div class="ao-results" aria-live="polite" data-last-group="<?php echo esc_attr( $result['last_group'] ); ?>">
@@ -111,9 +99,9 @@ $key = $config['key'];
 		?>
 	</div>
 
-	<p class="ao-empty" <?php echo $result['total'] ? 'hidden' : ''; ?>>No buildings match those filters. Try removing one.</p>
+	<p class="ao-empty" <?php echo $result['total'] ? 'hidden' : ''; ?>>No buildings match those filters.</p>
 
 	<div class="ao-more-wrap">
-		<button type="button" class="ao-more" <?php echo $result['has_more'] ? '' : 'hidden'; ?>>Load More Buildings</button>
+		<button type="button" class="ao-more" <?php echo $result['has_more'] ? '' : 'hidden'; ?>>Load More</button>
 	</div>
 </div>

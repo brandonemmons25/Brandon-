@@ -1,7 +1,7 @@
 <?php
 /**
- * 03A — Neighborhood Directory. Sixteen at launch, so the full set renders
- * at once and search and sort run in the browser.
+ * 03A — Neighborhood Directory. Sixteen at launch, so the full set renders at
+ * once and search and sort run in the browser.
  *
  * @var WP_Term[] $terms
  * @var string    $featured
@@ -12,14 +12,15 @@ defined( 'ABSPATH' ) || exit;
 ?>
 <div class="ao-directory ao-directory--terms" data-ao-terms="neighborhoods">
 
-	<div class="ao-controls">
-		<div class="ao-control ao-control--search">
+	<div class="ao-bar">
+		<div class="ao-pill ao-pill--search">
 			<label class="screen-reader-text" for="ao-nbhd-search">Search Neighborhoods</label>
-			<input type="search" id="ao-nbhd-search" class="ao-term-search" placeholder="Search Neighborhoods">
+			<input type="search" id="ao-nbhd-search" class="ao-term-search ao-search-input" placeholder="Search Neighborhoods">
 		</div>
-		<div class="ao-control ao-control--sort">
-			<label for="ao-nbhd-sort">Sort:</label>
-			<select id="ao-nbhd-sort" class="ao-term-sort">
+		<div class="ao-pill ao-pill--sort">
+			<span class="ao-pill-label">Sort</span>
+			<label class="screen-reader-text" for="ao-nbhd-sort">Sort by</label>
+			<select id="ao-nbhd-sort" class="ao-term-sort ao-sort-select">
 				<option value="asc">A–Z</option>
 				<option value="desc">Z–A</option>
 			</select>
@@ -31,8 +32,7 @@ defined( 'ABSPATH' ) || exit;
 	echo $featured; // phpcs:ignore WordPress.Security.EscapeOutput
 	?>
 
-	<div class="ao-directory-head">
-		<h2 class="ao-directory-title">All Neighborhoods</h2>
+	<div class="ao-meta">
 		<span class="ao-count"><?php echo esc_html( count( $terms ) . ' ' . $count_label ); ?></span>
 	</div>
 

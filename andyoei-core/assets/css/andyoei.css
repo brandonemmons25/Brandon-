@@ -1,214 +1,238 @@
 /**
  * Building and neighborhood directories.
  *
- * Structural, and every dimension and face is a custom property — tune the
- * look by redefining tokens in the theme rather than overriding rules.
+ * Editorial and chrome-free: a compact pill bar for the controls, then
+ * photography with specs beneath it. Tune with the tokens rather than
+ * overriding rules.
  */
 
 :where(.ao-directory, .ao-featured) {
 	--ao-ink: #1c1c1e;
-	--ao-muted: #6f6f76;
-	--ao-accent: #c8944e;      /* Alphabetical group headers. */
-	--ao-line: #e3e0da;
-	--ao-card: #fff;
-	--ao-radius: 10px;
-	--ao-shadow: 0 6px 18px -10px rgb(0 0 0 / 0.25);
+	--ao-muted: #83838b;
+	--ao-line: #e2dfda;
+	--ao-bar: #f4f2ef;
+	--ao-menu: #fff;
+	--ao-accent: #c8944e;
 
 	--ao-font-display: inherit;
 	--ao-font-ui: inherit;
 
-	--ao-gap: 1.75rem;
-	--ao-columns: 3;           /* ~3 across desktop. */
-	--ao-featured-visible: 4;  /* 4–6 in the strip. */
+	--ao-gap: 2.5rem;
+	--ao-columns: 3;
+	--ao-featured-visible: 3;
 	--ao-media-ratio: 4 / 3;
 
 	color: var(--ao-ink);
 	font-family: var(--ao-font-ui);
 }
 
-/* ── Controls ────────────────────────────────────────────────────────── */
+/* ── Control bar ─────────────────────────────────────────────────────── */
 
-.ao-controls {
-	display: grid;
-	grid-template-columns: 2fr 1.2fr 1fr;
-	gap: 1.25rem;
-	margin-bottom: 2.5rem;
+.ao-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	margin-bottom: 2rem;
+	border-radius: 999px;
+	background: var(--ao-bar);
+	width: fit-content;
+	max-width: 100%;
 }
 
-.ao-control {
+.ao-pill {
+	position: relative;
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
-	min-height: 3.5rem;
-	padding: 0 1.25rem;
-	border: 1px solid var(--ao-line);
-	border-radius: var(--ao-radius);
-	background: var(--ao-card);
-	box-shadow: var(--ao-shadow);
-	font-size: 0.85rem;
-	letter-spacing: 0.06em;
+	padding: 0 1.4rem;
+	min-height: 3.25rem;
+}
+
+/* Hairlines between segments, so the bar reads as one control. */
+.ao-pill + .ao-pill,
+.ao-pill + .ao-clear {
+	box-shadow: inset 1px 0 0 rgb(0 0 0 / 0.07);
+}
+
+.ao-pill-label,
+.ao-pill--sort .ao-pill-label {
+	font-size: 0.7rem;
+	font-weight: 500;
+	letter-spacing: 0.14em;
 	text-transform: uppercase;
 	color: var(--ao-ink);
-}
-
-.ao-control label {
 	white-space: nowrap;
-	color: var(--ao-ink);
 }
 
-.ao-search-input,
-.ao-term-search,
-.ao-sort-select,
-.ao-term-sort {
-	width: 100%;
+.ao-pill-value {
+	font-size: 0.8rem;
+	color: var(--ao-muted);
+	white-space: nowrap;
+}
+
+.ao-pill-button {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0;
 	border: 0;
-	background: transparent;
+	background: none;
 	font: inherit;
-	letter-spacing: inherit;
-	text-transform: inherit;
 	color: inherit;
-	appearance: none;
-}
-
-.ao-search-input:focus,
-.ao-term-search:focus,
-.ao-sort-select:focus,
-.ao-term-sort:focus {
-	outline: none;
-}
-
-.ao-control:focus-within {
-	border-color: var(--ao-ink);
-}
-
-.ao-filters-toggle {
-	justify-content: center;
 	cursor: pointer;
+}
+
+.ao-pill-caret {
+	width: 0.45rem;
+	height: 0.45rem;
+	margin-left: 0.15rem;
+	border-right: 1px solid currentColor;
+	border-bottom: 1px solid currentColor;
+	transform: rotate(45deg) translate(-1px, -1px);
+	opacity: 0.55;
+}
+
+.ao-pill--facet.is-active .ao-pill-value {
+	color: var(--ao-ink);
 	font-weight: 600;
 }
 
-/* ── Filter drawer ───────────────────────────────────────────────────── */
-
-/* Anchors the drawer so it floats over the page instead of pushing the
-   featured strip and the whole directory down. */
-.ao-controls-wrap {
-	position: relative;
-	z-index: 20;
-}
-
-.ao-drawer {
-	position: absolute;
-	inset-inline: 0;
-	top: calc(100% + 0.5rem);
-	display: grid;
-	grid-template-columns: repeat(4, 1fr);
-	gap: 1.5rem 2rem;
-	max-height: min(28rem, 70vh);
-	overflow-y: auto;
-	padding: 1.75rem;
-	border: 1px solid var(--ao-line);
-	border-radius: var(--ao-radius);
-	background: var(--ao-card);
-	box-shadow: 0 24px 48px -24px rgb(0 0 0 / 0.35);
-}
-
-.ao-drawer[hidden] {
-	display: none;
-}
-
-.ao-facet {
+.ao-search-input,
+.ao-sort-select {
 	border: 0;
-	margin: 0;
-	padding: 0;
-	min-width: 0;
+	background: transparent;
+	font: inherit;
+	font-size: 0.8rem;
+	color: inherit;
+	appearance: none;
+	cursor: pointer;
 }
 
-.ao-facet legend {
-	margin-bottom: 0.6rem;
-	padding: 0;
+.ao-search-input {
+	width: 11rem;
+	cursor: text;
+}
+
+.ao-search-input::placeholder {
+	font-size: 0.7rem;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ao-ink);
+	opacity: 1;
+}
+
+.ao-search-input:focus,
+.ao-sort-select:focus {
+	outline: none;
+}
+
+.ao-clear {
+	display: flex;
+	align-items: center;
+	padding: 0 1.4rem;
+	border: 0;
+	background: none;
+	font: inherit;
 	font-size: 0.7rem;
 	font-weight: 600;
 	letter-spacing: 0.14em;
 	text-transform: uppercase;
 	color: var(--ao-muted);
+	cursor: pointer;
 }
 
-/* A long vocabulary scrolls inside its own column rather than stretching
-   the drawer. */
-.ao-facet-list {
-	max-height: 13rem;
+.ao-clear:hover {
+	color: var(--ao-ink);
+}
+
+/* display:flex would otherwise beat the hidden attribute. */
+.ao-clear[hidden],
+.ao-meta[hidden] {
+	display: none;
+}
+
+/* ── Filter menus ────────────────────────────────────────────────────── */
+
+.ao-menu {
+	position: absolute;
+	top: calc(100% + 0.5rem);
+	left: 0;
+	z-index: 30;
+	min-width: 15rem;
+	padding: 0.5rem;
+	border: 1px solid var(--ao-line);
+	border-radius: 8px;
+	background: var(--ao-menu);
+	box-shadow: 0 20px 40px -20px rgb(0 0 0 / 0.3);
+}
+
+.ao-menu[hidden] {
+	display: none;
+}
+
+.ao-menu-list {
+	max-height: 15rem;
 	overflow-y: auto;
-	padding-right: 0.25rem;
 }
 
-.ao-facet-option {
+.ao-menu-option {
 	display: flex;
 	align-items: center;
-	gap: 0.5rem;
-	padding: 0.25rem 0;
+	gap: 0.6rem;
+	padding: 0.45rem 0.6rem;
+	border-radius: 4px;
 	font-size: 0.85rem;
 	line-height: 1.3;
 	cursor: pointer;
 }
 
-.ao-facet-option input {
+.ao-menu-option:hover {
+	background: var(--ao-bar);
+}
+
+.ao-menu-option input {
 	flex: none;
 	margin: 0;
 }
 
-.ao-drawer-foot {
-	grid-column: 1 / -1;
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	gap: 1.5rem;
-	padding-top: 1rem;
-	border-top: 1px solid var(--ao-line);
-}
-
-.ao-drawer-clear,
-.ao-drawer-done {
+.ao-menu-clear {
+	width: 100%;
+	margin-top: 0.4rem;
+	padding: 0.6rem;
 	border: 0;
-	background: transparent;
+	border-top: 1px solid var(--ao-line);
+	background: none;
 	font: inherit;
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 	font-weight: 600;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
-	color: var(--ao-ink);
+	color: var(--ao-muted);
 	cursor: pointer;
 }
 
-.ao-drawer-done {
-	padding: 0.7rem 1.75rem;
-	border-radius: var(--ao-radius);
-	background: var(--ao-ink);
-	color: #fff;
+/* ── Count ───────────────────────────────────────────────────────────── */
+
+.ao-meta {
+	display: flex;
+	justify-content: flex-end;
+	padding-bottom: 1.25rem;
+	margin-bottom: var(--ao-gap);
+	border-bottom: 1px solid var(--ao-line);
 }
 
-.ao-filters-count {
-	display: inline-grid;
-	place-items: center;
-	min-width: 1.35rem;
-	height: 1.35rem;
-	margin-left: 0.5rem;
-	padding: 0 0.35rem;
-	border-radius: 999px;
-	background: var(--ao-ink);
-	color: #fff;
+.ao-count {
 	font-size: 0.7rem;
-	font-weight: 700;
-	letter-spacing: 0;
-}
-
-.ao-filters-count[hidden] {
-	display: none;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ao-muted);
 }
 
 /* ── Featured strip ──────────────────────────────────────────────────── */
 
 .ao-featured {
-	margin-bottom: 3rem;
+	margin-bottom: 3.5rem;
 }
 
 .ao-featured[hidden] {
@@ -221,21 +245,21 @@
 	align-items: baseline;
 	justify-content: space-between;
 	gap: 1rem;
-	margin-bottom: 1.25rem;
+	margin-bottom: 1.5rem;
 }
 
 .ao-featured-title {
 	margin: 0;
 	font-family: var(--ao-font-display);
-	font-size: 1rem;
-	font-weight: 700;
-	letter-spacing: 0.08em;
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.14em;
 	text-transform: uppercase;
 }
 
 .ao-featured-note {
 	margin: 0;
-	font-size: 0.8rem;
+	font-size: 0.75rem;
 	color: var(--ao-muted);
 }
 
@@ -249,7 +273,6 @@
 	grid-auto-columns: calc((100% - (var(--ao-featured-visible) - 1) * var(--ao-gap)) / var(--ao-featured-visible));
 	gap: var(--ao-gap);
 	overflow-x: auto;
-	padding-bottom: 0.75rem;
 	scroll-snap-type: x mandatory;
 	scroll-behavior: smooth;
 	scrollbar-width: none;
@@ -265,7 +288,7 @@
 
 .ao-nav {
 	position: absolute;
-	top: 40%;
+	top: 35%;
 	z-index: 2;
 	display: grid;
 	place-items: center;
@@ -274,120 +297,39 @@
 	padding: 0;
 	border: 0;
 	border-radius: 50%;
-	background: rgb(255 255 255 / 0.9);
-	box-shadow: var(--ao-shadow);
+	background: rgb(255 255 255 / 0.92);
+	box-shadow: 0 4px 14px -6px rgb(0 0 0 / 0.4);
 	color: var(--ao-ink);
 	cursor: pointer;
 }
 
 .ao-nav svg {
-	width: 1.4rem;
-	height: 1.4rem;
+	width: 1.3rem;
+	height: 1.3rem;
 }
 
-.ao-nav--prev { left: 0.5rem; }
-.ao-nav--next { right: 0.5rem; }
+.ao-nav--prev { left: 0.75rem; }
+.ao-nav--next { right: 0.75rem; }
 
 .ao-nav[disabled] {
-	opacity: 0.2;
-	cursor: default;
+	opacity: 0;
+	pointer-events: none;
 }
 
-@media (min-width: 1500px) {
-	.ao-nav {
-		background: transparent;
-		box-shadow: none;
-	}
-
-	.ao-nav--prev { left: -3rem; }
-	.ao-nav--next { right: -3rem; }
-}
-
-/* ── Directory header, chips, count ──────────────────────────────────── */
-
-.ao-directory-head {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 1rem;
-	margin-bottom: 1rem;
-}
-
-.ao-directory-title {
-	margin: 0;
-	font-family: var(--ao-font-display);
-	font-size: 1rem;
-	font-weight: 700;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-}
-
-.ao-count {
-	font-size: 0.75rem;
-	font-weight: 600;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-	color: var(--ao-muted);
-}
-
-.ao-status {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.75rem;
-	min-height: 1.5rem;
-	margin-bottom: 2rem;
-}
-
-.ao-chips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.65rem;
-}
-
-.ao-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.6rem;
-	padding: 0.5rem 0.9rem;
-	border: 1px solid var(--ao-line);
-	border-radius: var(--ao-radius);
-	background: var(--ao-card);
-	font: inherit;
-	font-size: 0.75rem;
-	color: inherit;
-	cursor: pointer;
-}
-
-.ao-clear {
-	border: 0;
-	background: transparent;
-	font: inherit;
-	font-size: 0.75rem;
-	font-weight: 600;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-	color: var(--ao-ink);
-	cursor: pointer;
-}
-
-/* ── Results ─────────────────────────────────────────────────────────── */
+/* ── Cards ───────────────────────────────────────────────────────────── */
 
 .ao-results {
 	display: grid;
 	grid-template-columns: repeat(var(--ao-columns), 1fr);
-	gap: var(--ao-gap);
+	gap: calc(var(--ao-gap) * 1.4) var(--ao-gap);
 }
 
-/* Group headers span the row so the grid keeps its alphabetical rhythm. */
 .ao-group {
 	grid-column: 1 / -1;
-	margin-top: 1rem;
-	font-size: 0.95rem;
-	font-weight: 700;
-	letter-spacing: 0.1em;
+	margin-top: 0.5rem;
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.14em;
 	color: var(--ao-accent);
 }
 
@@ -395,33 +337,42 @@
 	display: none;
 }
 
+/* No border, no shadow, no radius — the photography carries the card. */
 .ao-card {
 	display: block;
-	padding: 0.75rem;
-	border-radius: var(--ao-radius);
-	background: var(--ao-card);
-	box-shadow: var(--ao-shadow);
 	text-decoration: none;
 	color: inherit;
-	transition: box-shadow 200ms ease, transform 200ms ease;
 }
 
 .ao-card[hidden] {
 	display: none;
 }
 
-.ao-card:hover,
-.ao-card:focus-visible {
-	box-shadow: 0 14px 30px -14px rgb(0 0 0 / 0.35);
-	transform: translateY(-2px);
+.ao-card-mark {
+	display: flex;
+	align-items: flex-end;
+	min-height: 3.5rem;
+	margin-bottom: 1rem;
 }
 
-/* The ratio belongs to the frame, so a card holds its shape while the
-   photography loads. */
+.ao-card-logo {
+	max-height: 3.25rem;
+	max-width: 60%;
+	width: auto;
+	object-fit: contain;
+}
+
+.ao-card-name {
+	font-family: var(--ao-font-display);
+	font-size: 1.05rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	line-height: 1.2;
+}
+
 .ao-card-media {
 	overflow: hidden;
 	aspect-ratio: var(--ao-media-ratio);
-	border-radius: calc(var(--ao-radius) - 4px);
 	background: #eae6e0;
 }
 
@@ -430,34 +381,46 @@
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
+	transition: transform 700ms cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 
-.ao-card-body {
-	padding: 0.9rem 0.5rem 0.6rem;
+.ao-card:hover .ao-card-media img {
+	transform: scale(1.03);
 }
 
-.ao-card-title {
+.ao-card-specs {
 	margin: 0;
-	font-family: var(--ao-font-display);
-	font-size: 0.95rem;
-	font-weight: 700;
-	line-height: 1.25;
 }
 
-.ao-card-meta {
-	margin: 0.25rem 0 0;
-	font-size: 0.85rem;
+.ao-spec {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.85rem 0;
+	border-bottom: 1px solid var(--ao-line);
+}
+
+.ao-spec dt {
+	font-size: 0.7rem;
+	font-weight: 500;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
 	color: var(--ao-muted);
 }
 
-/* Featured neighborhood cards centre their name under the image. */
-.ao-card--neighborhood.is-featured .ao-card-body {
-	text-align: center;
+.ao-spec dd {
+	margin: 0;
+	font-size: 0.85rem;
+	text-align: right;
 }
 
-.ao-card--neighborhood .ao-card-title {
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
+/* A neighborhood card carries its name in the first cell. */
+.ao-card--neighborhood .ao-spec dt {
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	color: var(--ao-ink);
 }
 
 .ao-empty {
@@ -468,24 +431,31 @@
 .ao-more-wrap {
 	display: flex;
 	justify-content: center;
-	margin-top: 2.5rem;
+	margin-top: 3rem;
 }
 
 .ao-more {
-	padding: 0.9rem 2rem;
-	border: 0;
+	padding: 0.95rem 2.5rem;
+	border: 1px solid var(--ao-ink);
+	border-radius: 999px;
 	background: transparent;
 	font: inherit;
-	font-size: 0.8rem;
-	font-weight: 700;
-	letter-spacing: 0.14em;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.16em;
 	text-transform: uppercase;
 	color: var(--ao-ink);
 	cursor: pointer;
+	transition: background 200ms ease, color 200ms ease;
+}
+
+.ao-more:hover {
+	background: var(--ao-ink);
+	color: #fff;
 }
 
 .ao-directory.is-loading .ao-results {
-	opacity: 0.45;
+	opacity: 0.4;
 	transition: opacity 120ms ease;
 }
 
@@ -502,43 +472,50 @@
 	:where(.ao-directory, .ao-featured) {
 		--ao-columns: 2;
 		--ao-featured-visible: 2;
-	}
-
-	.ao-controls {
-		grid-template-columns: 1fr 1fr;
-	}
-
-	.ao-control--search {
-		grid-column: 1 / -1;
-	}
-
-	.ao-drawer {
-		grid-template-columns: repeat(2, 1fr);
+		--ao-gap: 1.75rem;
 	}
 }
 
-@media (max-width: 640px) {
+@media (max-width: 700px) {
 	:where(.ao-directory, .ao-featured) {
 		--ao-columns: 1;
 		--ao-featured-visible: 1;
-		--ao-gap: 1.25rem;
 	}
 
-	.ao-controls {
-		grid-template-columns: 1fr;
+	/* The single bar becomes separate pills so it can wrap cleanly. */
+	.ao-bar {
+		width: 100%;
+		gap: 0.5rem;
+		border-radius: 0;
+		background: transparent;
 	}
 
-	.ao-drawer {
-		grid-template-columns: 1fr;
-		max-height: 75vh;
+	.ao-pill {
+		border-radius: 999px;
+		background: var(--ao-bar);
 	}
 
-	.ao-facet-list {
-		max-height: 9rem;
+	.ao-pill + .ao-pill,
+	.ao-pill + .ao-clear {
+		box-shadow: none;
+	}
+
+	.ao-pill--search {
+		width: 100%;
+	}
+
+	.ao-search-input {
+		width: 100%;
+	}
+
+	.ao-menu {
+		left: 0;
+		right: 0;
+		min-width: 0;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.ao-track { scroll-behavior: auto; }
-	.ao-card { transition: none; }
+	.ao-card-media img { transition: none; }
 }

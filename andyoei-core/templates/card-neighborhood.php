@@ -1,10 +1,10 @@
 <?php
 /**
- * 03A — neighborhood card: large image + name. The whole card opens the
- * individual neighborhood page.
+ * 03A — neighborhood card: large image, name beneath a hairline. The whole
+ * card opens the individual neighborhood page.
  *
  * @var WP_Term $term
- * @var bool    $featured Featured cards set the name over the image.
+ * @var bool    $featured
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -16,6 +16,7 @@ $src      = $image_id ? wp_get_attachment_image_url( $image_id, 'large' ) : '';
 $sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );
 $letter    = strtoupper( substr( $sort_name, 0, 1 ) );
 
+$count   = (int) $term->count;
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );
 ?>
 <a class="<?php echo esc_attr( $classes ); ?>"
@@ -27,7 +28,11 @@ $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featu
 			<img src="<?php echo esc_url( $src ); ?>" alt="" loading="lazy">
 		<?php endif; ?>
 	</div>
-	<div class="ao-card-body">
-		<h3 class="ao-card-title"><?php echo esc_html( $term->name ); ?></h3>
-	</div>
+
+	<dl class="ao-card-specs">
+		<div class="ao-spec">
+			<dt><?php echo esc_html( $term->name ); ?></dt>
+			<dd><?php echo esc_html( $count . ( 1 === $count ? ' Building' : ' Buildings' ) ); ?></dd>
+		</div>
+	</dl>
 </a>

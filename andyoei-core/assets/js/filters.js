@@ -22,65 +22,76 @@
 		this.key = root.getAttribute( 'data-ao-directory' );
 		this.results = root.querySelector( '.ao-results' );
 		this.count = root.querySelector( '.ao-count' );
-		this.chips = root.querySelector( '.ao-chips' );
 		this.clear = root.querySelector( '.ao-clear' );
 		this.more = root.querySelector( '.ao-more' );
 		this.empty = root.querySelector( '.ao-empty' );
 		this.searchInput = root.querySelector( '.ao-search-input' );
 		this.sortSelect = root.querySelector( '.ao-sort-select' );
-		this.drawer = root.querySelector( '.ao-drawer' );
-		this.toggle = root.querySelector( '.ao-filters-toggle' );
-		this.toggleCount = root.querySelector( '.ao-filters-count' );
+		this.pills = Array.prototype.slice.call( root.querySelectorAll( '.ao-pill--facet' ) );
 		this.page = 1;
 		this.timer = null;
 		this.request = 0;
 
 		this.bind();
-		this.syncChips();
+		this.syncPills();
 	}
 
 	Directory.prototype.bind = function () {
 		var self = this;
 
-		if ( this.toggle && this.drawer ) {
-			this.toggle.addEventListener( 'click', function ( event ) {
+		this.pills.forEach( function ( pill ) {
+			var button = pill.querySelector( '.ao-pill-button' );
+			var menu = pill.querySelector( '.ao-menu' );
+			var clear = pill.querySelector( '.ao-menu-clear' );
+
+			if ( ! button || ! menu ) {
+				return;
+			}
+
+			button.addEventListener( 'click', function ( event ) {
 				event.stopPropagation();
-				self.setDrawer( self.drawer.hasAttribute( 'hidden' ) );
-			} );
 
-			// The drawer floats over the page, so it closes the way any
-			// overlay should.
-			this.drawer.addEventListener( 'click', function ( event ) {
-				event.stopPropagation();
-			} );
+				var open = menu.hasAttribute( 'hidden' );
 
-			document.addEventListener( 'click', function () {
-				self.setDrawer( false );
-			} );
+				// Only one menu at a time.
+				self.closeMenus();
 
-			document.addEventListener( 'keydown', function ( event ) {
-				if ( event.key === 'Escape' && ! self.drawer.hasAttribute( 'hidden' ) ) {
-					self.setDrawer( false );
-					self.toggle.focus();
+				if ( open ) {
+					menu.removeAttribute( 'hidden' );
+					button.setAttribute( 'aria-expanded', 'true' );
 				}
 			} );
 
-			var done = this.drawer.querySelector( '.ao-drawer-done' );
-			var clearAll = this.drawer.querySelector( '.ao-drawer-clear' );
+			menu.addEventListener( 'click', function ( event ) {
+				event.stopPropagation();
+			} );
 
-			if ( done ) {
-				done.addEventListener( 'click', function () {
-					self.setDrawer( false );
-					self.toggle.focus();
+			menu.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
+				box.addEventListener( 'change', function () {
+					self.load( true );
+				} );
+			} );
+
+			if ( clear ) {
+				clear.addEventListener( 'click', function () {
+					menu.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
+						box.checked = false;
+					} );
+
+					self.load( true );
 				} );
 			}
+		} );
 
-			if ( clearAll ) {
-				clearAll.addEventListener( 'click', function () {
-					self.reset();
-				} );
+		document.addEventListener( 'click', function () {
+			self.closeMenus();
+		} );
+
+		document.addEventListener( 'keydown', function ( event ) {
+			if ( event.key === 'Escape' ) {
+				self.closeMenus();
 			}
-		}
+		} );
 
 		if ( this.searchInput ) {
 			this.searchInput.addEventListener( 'input', function () {
@@ -97,12 +108,6 @@
 			} );
 		}
 
-		this.root.querySelectorAll( '.ao-facet input[type="checkbox"]' ).forEach( function ( box ) {
-			box.addEventListener( 'change', function () {
-				self.load( true );
-			} );
-		} );
-
 		if ( this.clear ) {
 			this.clear.addEventListener( 'click', function () {
 				self.reset();
@@ -117,24 +122,30 @@
 		}
 	};
 
-	Directory.prototype.setDrawer = function ( open ) {
-		if ( ! this.drawer || ! this.toggle ) {
-			return;
-		}
+	Directory.prototype.closeMenus = function () {
+		this.pills.forEach( function ( pill ) {
+			var menu = pill.querySelector( '.ao-menu' );
+			var button = pill.querySelector( '.ao-pill-button' );
 
-		this.drawer.toggleAttribute( 'hidden', ! open );
-		this.toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+			if ( menu ) {
+				menu.setAttribute( 'hidden', '' );
+			}
+
+			if ( button ) {
+				button.setAttribute( 'aria-expanded', 'false' );
+			}
+		} );
 	};
 
 	/** Current selections, keyed by facet name. */
 	Directory.prototype.state = function () {
 		var facets = {};
 
-		this.root.querySelectorAll( '.ao-facet' ).forEach( function ( group ) {
-			var name = group.getAttribute( 'data-facet' );
+		this.pills.forEach( function ( pill ) {
+			var name = pill.getAttribute( 'data-facet' );
 			var values = [];
 
-			group.querySelectorAll( 'input[type="checkbox"]:checked' ).forEach( function ( box ) {
+			pill.querySelectorAll( 'input[type="checkbox"]:checked' ).forEach( function ( box ) {
 				values.push( box.value );
 			} );
 
@@ -206,14 +217,14 @@
 					return;
 				}
 
-				self.apply( data, isReset, state, params );
+				self.apply( data, isReset, params );
 			} )
 			.catch( function () {
 				self.root.classList.remove( 'is-loading' );
 			} );
 	};
 
-	Directory.prototype.apply = function ( data, isReset, state, params ) {
+	Directory.prototype.apply = function ( data, isReset, params ) {
 		if ( isReset ) {
 			this.results.innerHTML = data.html;
 		} else {
@@ -234,6 +245,10 @@
 			this.empty.toggleAttribute( 'hidden', data.total > 0 );
 		}
 
+		if ( this.clear ) {
+			this.clear.toggleAttribute( 'hidden', ! data.filtered );
+		}
+
 		this.root.setAttribute( 'data-filtered', data.filtered ? '1' : '0' );
 		this.root.classList.remove( 'is-loading' );
 
@@ -242,7 +257,7 @@
 			el.toggleAttribute( 'hidden', !! data.filtered );
 		} );
 
-		this.syncChips();
+		this.syncPills();
 
 		if ( isReset ) {
 			var query = params.toString();
@@ -250,48 +265,35 @@
 		}
 	};
 
-	/** Removable chips for everything currently narrowing the set. */
-	Directory.prototype.syncChips = function () {
-		if ( ! this.chips ) {
-			return;
-		}
+	/**
+	 * Each closed pill reads "All", the single chosen term, or a count.
+	 */
+	Directory.prototype.syncPills = function () {
+		this.pills.forEach( function ( pill ) {
+			var checked = pill.querySelectorAll( 'input[type="checkbox"]:checked' );
+			var value = pill.querySelector( '.ao-pill-value' );
 
-		var self = this;
-		var boxes = this.root.querySelectorAll( '.ao-facet input[type="checkbox"]:checked' );
+			if ( ! value ) {
+				return;
+			}
 
-		this.chips.innerHTML = '';
+			if ( ! checked.length ) {
+				value.textContent = 'All';
+			} else if ( checked.length === 1 ) {
+				value.textContent = checked[ 0 ].getAttribute( 'data-label' ) || checked[ 0 ].value;
+			} else {
+				value.textContent = checked.length + ' selected';
+			}
 
-		boxes.forEach( function ( box ) {
-			var chip = document.createElement( 'button' );
-
-			chip.type = 'button';
-			chip.className = 'ao-chip';
-			chip.innerHTML = '<span></span><span aria-hidden="true">&times;</span>';
-			chip.firstChild.textContent = box.getAttribute( 'data-label' ) || box.value;
-			chip.setAttribute( 'aria-label', 'Remove filter: ' + chip.firstChild.textContent );
-
-			chip.addEventListener( 'click', function () {
-				box.checked = false;
-				self.load( true );
-			} );
-
-			self.chips.appendChild( chip );
+			pill.classList.toggle( 'is-active', !! checked.length );
 		} );
-
-		if ( this.clear ) {
-			this.clear.toggleAttribute( 'hidden', ! boxes.length && ! ( this.searchInput && this.searchInput.value ) );
-		}
-
-		// The count keeps the active filters visible once the drawer closes.
-		if ( this.toggleCount ) {
-			this.toggleCount.textContent = boxes.length;
-			this.toggleCount.toggleAttribute( 'hidden', ! boxes.length );
-		}
 	};
 
 	Directory.prototype.reset = function () {
-		this.root.querySelectorAll( '.ao-facet input[type="checkbox"]' ).forEach( function ( box ) {
-			box.checked = false;
+		this.pills.forEach( function ( pill ) {
+			pill.querySelectorAll( 'input[type="checkbox"]' ).forEach( function ( box ) {
+				box.checked = false;
+			} );
 		} );
 
 		if ( this.searchInput ) {
@@ -373,8 +375,7 @@
 				empty.toggleAttribute( 'hidden', visible > 0 );
 			}
 
-			// The curated strip steps aside on search or an alternate sort,
-			// and returns on reset.
+			// The curated strip steps aside on search or an alternate sort.
 			var narrowed = !! term || descending;
 
 			document.querySelectorAll( '[data-ao-hide-when-filtered="' + key + '"]' ).forEach( function ( el ) {

@@ -51,6 +51,26 @@ class AO_Query {
 	}
 
 	/**
+	 * What a filter pill reads when it is closed: "All", the single chosen
+	 * term, or a count once several are selected.
+	 */
+	public static function facet_summary( $facet, $terms, $active ) {
+		if ( ! $active ) {
+			return 'All';
+		}
+
+		if ( 1 === count( $active ) ) {
+			foreach ( $terms as $term ) {
+				if ( $term->slug === $active[0] ) {
+					return $term->name;
+				}
+			}
+		}
+
+		return count( $active ) . ' selected';
+	}
+
+	/**
 	 * Build the WP_Query arguments.
 	 */
 	public static function args( $config, $request ) {
