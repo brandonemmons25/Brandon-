@@ -31,17 +31,10 @@ class AO_Directories {
 				'facets'       => array(
 
 					// In the bar, in this order.
-					'area'         => array(
-						'taxonomy'  => 'ao_neighborhood',
-						'label'     => 'Area',
-						'operator'  => 'IN',   // OR within the group.
-						'all_label' => 'All Areas',
-						'in_bar'    => true,
-					),
 					'completion'   => array(
 						'type'      => 'range', // Buckets over a numeric field.
 						'meta_key'  => 'ao_completion',
-						'label'     => 'Completion',
+						'label'     => 'Built Date',
 						'all_label' => 'Any Year',
 						'single'    => true,
 						'in_bar'    => true,
@@ -53,16 +46,28 @@ class AO_Directories {
 							'pre-2000'  => array( 'label' => 'Before 2000', 'min' => 0, 'max' => 1999 ),
 						),
 					),
+					'area'         => array(
+						'taxonomy'  => 'ao_neighborhood',
+						'label'     => 'Areas',
+						'operator'  => 'IN',   // OR within the group.
+						'all_label' => 'All Areas',
+						'in_bar'    => true,
+					),
+					'views'        => array(
+						'taxonomy'  => 'ao_view',
+						'label'     => 'Views',
+						'operator'  => 'IN',
+						'all_label' => 'All',
+						'in_bar'    => true,
+					),
+
+					// Behind the Filters button.
 					'status'       => array(
 						'taxonomy'  => 'ao_status',
 						'label'     => 'Status',
 						'operator'  => 'IN',
 						'all_label' => 'All',
-						'single'    => true,
-						'in_bar'    => true,
 					),
-
-					// Behind the Filters button.
 					'height'       => array(
 						'taxonomy'  => 'ao_height',
 						'label'     => 'Height',

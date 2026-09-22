@@ -20,6 +20,7 @@ class AO_Taxonomies {
 		register_taxonomy( 'ao_construction', array( 'ao_building' ), self::args( 'Construction', 'Construction' ) );
 		register_taxonomy( 'ao_feature', array( 'ao_building' ), self::args( 'Feature', 'Features' ) );
 		register_taxonomy( 'ao_status', array( 'ao_building' ), self::args( 'Status', 'Status' ) );
+		register_taxonomy( 'ao_view', array( 'ao_building' ), self::args( 'View', 'Views' ) );
 	}
 
 	private static function args( $single, $plural, $args = array() ) {
@@ -60,6 +61,7 @@ class AO_Taxonomies {
 				'Pets Allowed', 'Swimming Pool', 'Outdoor Space', 'Storage',
 			),
 			'ao_status'       => array( 'Now Selling', 'Pre-Construction', 'Under Construction', 'Move-In Ready' ),
+			'ao_view'         => array( 'Skyline', 'River', 'Park', 'City', 'Courtyard' ),
 		);
 
 		foreach ( $seeds as $tax => $terms ) {
