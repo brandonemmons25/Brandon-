@@ -48,6 +48,7 @@ class AO_Shortcodes {
 			'featured'       => '1',
 			'featured_title' => 'Featured Condominium Buildings',
 			'featured_limit' => 6,
+			'width'          => '', // e.g. "1280px" or "100%".
 		), $atts, 'ao_buildings' );
 
 		$config = AO_Directories::get( 'buildings' );
@@ -79,6 +80,7 @@ class AO_Shortcodes {
 			'result'   => $result,
 			'filtered' => $filtered,
 			'featured' => $featured,
+			'width'    => $atts['width'],
 		) );
 	}
 
@@ -154,6 +156,7 @@ class AO_Shortcodes {
 			'featured_limit' => 6,
 			'count_label'    => 'At Launch',
 			'hide_empty'     => '0',
+			'width'          => '',
 		), $atts, 'ao_neighborhoods' );
 
 		self::assets( true );
@@ -181,6 +184,7 @@ class AO_Shortcodes {
 			'terms'       => $terms,
 			'featured'    => $featured,
 			'count_label' => $atts['count_label'],
+			'width'       => $atts['width'],
 		) );
 	}
 

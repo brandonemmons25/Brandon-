@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
 
 $key = $config['key'];
 ?>
-<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>">
+<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>"<?php echo $width ? ' style="--ao-width:' . esc_attr( $width ) . '"' : ''; ?>>
 
 	<div class="ao-bar">
 		<?php if ( $config['search'] ) : ?>
@@ -48,7 +48,7 @@ $key = $config['key'];
 					<span class="ao-pill-caret" aria-hidden="true"></span>
 				</button>
 
-				<div class="ao-menu" hidden>
+				<div class="ao-menu<?php echo count( $terms ) > 8 ? ' ao-menu--wide' : ''; ?>" hidden>
 					<div class="ao-menu-list">
 						<?php foreach ( $terms as $term ) : ?>
 							<label class="ao-menu-option">

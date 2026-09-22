@@ -17,6 +17,8 @@
 	--ao-font-display: inherit;
 	--ao-font-ui: inherit;
 
+	--ao-width: 1280px;
+	--ao-image-radius: 5px;
 	--ao-gap: 2.5rem;
 	--ao-columns: 3;
 	--ao-featured-visible: 3;
@@ -24,6 +26,18 @@
 
 	color: var(--ao-ink);
 	font-family: var(--ao-font-ui);
+}
+
+/* Breaks out of a narrower theme container so the directory can run to its
+   own width. Set --ao-width, or the shortcode's width attribute, to change.
+   The featured strip is nested inside a directory, so it is deliberately not
+   included — it would shift twice. */
+.ao-directory {
+	position: relative;
+	left: 50%;
+	transform: translateX(-50%);
+	width: min(var(--ao-width), 100vw - 3rem);
+	max-width: 100vw;
 }
 
 /* ── Control bar ─────────────────────────────────────────────────────── */
@@ -35,8 +49,11 @@
 	margin-bottom: 2rem;
 	border-radius: 999px;
 	background: var(--ao-bar);
-	width: fit-content;
-	max-width: 100%;
+	width: 100%;
+}
+
+.ao-pill--search {
+	flex: 1 1 12rem;
 }
 
 .ao-pill {
@@ -109,7 +126,7 @@
 }
 
 .ao-search-input {
-	width: 11rem;
+	width: 100%;
 	cursor: text;
 }
 
@@ -171,8 +188,27 @@
 }
 
 .ao-menu-list {
-	max-height: 15rem;
+	max-height: min(60vh, 34rem);
 	overflow-y: auto;
+}
+
+.ao-menu--wide {
+	min-width: 26rem;
+}
+
+.ao-menu--wide .ao-menu-list {
+	columns: 2;
+	column-gap: 0.5rem;
+}
+
+.ao-menu--wide .ao-menu-option {
+	break-inside: avoid;
+}
+
+/* A menu near the right edge opens leftward rather than off-screen. */
+.ao-pill--facet:nth-last-child(-n+2) .ao-menu {
+	left: auto;
+	right: 0;
 }
 
 .ao-menu-option {
@@ -373,6 +409,7 @@
 .ao-card-media {
 	overflow: hidden;
 	aspect-ratio: var(--ao-media-ratio);
+	border-radius: var(--ao-image-radius);
 	background: #eae6e0;
 }
 
@@ -413,6 +450,7 @@
 	margin: 0;
 	font-size: 0.85rem;
 	text-align: right;
+	white-space: nowrap;
 }
 
 /* A neighborhood card carries its name in the first cell. */

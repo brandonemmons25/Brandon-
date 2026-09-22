@@ -10,7 +10,7 @@
 
 defined( 'ABSPATH' ) || exit;
 ?>
-<div class="ao-directory ao-directory--terms" data-ao-terms="neighborhoods">
+<div class="ao-directory ao-directory--terms" data-ao-terms="neighborhoods"<?php echo $width ? ' style="--ao-width:' . esc_attr( $width ) . '"' : ''; ?>>
 
 	<div class="ao-bar">
 		<div class="ao-pill ao-pill--search">
