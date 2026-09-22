@@ -27,6 +27,23 @@ class AO_Shortcodes {
 		) );
 	}
 
+	/**
+	 * Inline token overrides for a directory wrapper.
+	 */
+	public static function style( $width, $columns ) {
+		$tokens = array();
+
+		if ( $width ) {
+			$tokens[] = '--ao-width:' . $width;
+		}
+
+		if ( $columns ) {
+			$tokens[] = '--ao-columns:' . (int) $columns;
+		}
+
+		return $tokens ? ' style="' . esc_attr( implode( ';', $tokens ) ) . '"' : '';
+	}
+
 	private static function assets( $carousel = false ) {
 		wp_enqueue_style( 'ao-core' );
 		wp_enqueue_script( 'ao-filters' );
@@ -49,6 +66,7 @@ class AO_Shortcodes {
 			'featured_title' => 'Featured Condominium Buildings',
 			'featured_limit' => 6,
 			'width'          => '', // e.g. "1280px" or "100%".
+			'columns'        => '', // Cards per row; defaults to 3.
 		), $atts, 'ao_buildings' );
 
 		$config = AO_Directories::get( 'buildings' );
@@ -81,6 +99,7 @@ class AO_Shortcodes {
 			'filtered' => $filtered,
 			'featured' => $featured,
 			'width'    => $atts['width'],
+			'columns'  => $atts['columns'],
 		) );
 	}
 
@@ -157,6 +176,7 @@ class AO_Shortcodes {
 			'count_label'    => 'At Launch',
 			'hide_empty'     => '0',
 			'width'          => '',
+			'columns'        => '',
 		), $atts, 'ao_neighborhoods' );
 
 		self::assets( true );
@@ -185,6 +205,7 @@ class AO_Shortcodes {
 			'featured'    => $featured,
 			'count_label' => $atts['count_label'],
 			'width'       => $atts['width'],
+			'columns'     => $atts['columns'],
 		) );
 	}
 

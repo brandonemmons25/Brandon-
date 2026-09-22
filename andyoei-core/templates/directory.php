@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
 
 $key = $config['key'];
 ?>
-<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>"<?php echo $width ? ' style="--ao-width:' . esc_attr( $width ) . '"' : ''; ?>>
+<div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>"<?php echo AO_Shortcodes::style( $width, $columns ); ?>>
 
 	<div class="ao-bar">
 		<?php if ( $config['search'] ) : ?>
