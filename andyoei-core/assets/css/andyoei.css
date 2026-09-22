@@ -523,15 +523,10 @@
 	}
 }
 
-@media (max-width: 700px) {
-	:where(.ao-directory, .ao-featured) {
-		--ao-columns: 1;
-		--ao-featured-visible: 1;
-	}
-
-	/* The single bar becomes separate pills so it can wrap cleanly. */
+/* Narrower than four pills on a line: separate pills, so a wrapped capsule
+   never shows its seams. */
+@media (max-width: 1024px) {
 	.ao-bar {
-		width: 100%;
 		gap: 0.5rem;
 		border-radius: 0;
 		background: transparent;
@@ -546,11 +541,19 @@
 	.ao-pill + .ao-clear {
 		box-shadow: none;
 	}
+}
 
-	.ao-pill--search {
+@media (max-width: 700px) {
+	:where(.ao-directory, .ao-featured) {
+		--ao-columns: 1;
+		--ao-featured-visible: 1;
+	}
+
+	.ao-bar {
 		width: 100%;
 	}
 
+	.ao-pill--search,
 	.ao-search-input {
 		width: 100%;
 	}
