@@ -19,7 +19,9 @@ class AO_Directories {
 				'post_type'    => 'ao_building',
 				'per_page'     => 24, // ~24, then Load More.
 				'card'         => 'card-building.php',
-				'search'       => true,
+				// No search box and no sort control in the bar; the directory
+				// still orders A–Z underneath, ignoring a leading "The".
+				'search'       => false,
 				'search_label' => 'Search Buildings',
 				'count_label'  => array( 'Building', 'Buildings' ),
 				// Alphabetical headers are off: the grid runs continuously.
@@ -80,11 +82,7 @@ class AO_Directories {
 						'all_label' => 'All',
 					),
 				),
-				'sorts'        => array(
-					'name_asc'  => 'A–Z',
-					'name_desc' => 'Z–A',
-					'nbhd_asc'  => 'Neighborhood A–Z',
-				),
+				'sorts'        => array(),
 				'default_sort' => 'name_asc',
 			),
 		);
