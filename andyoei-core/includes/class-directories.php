@@ -22,7 +22,10 @@ class AO_Directories {
 				'search'       => true,
 				'search_label' => 'Search Buildings',
 				'count_label'  => array( 'Building', 'Buildings' ),
-				'group_by'     => 'letter',
+				// Alphabetical headers are off: the grid runs continuously.
+				// Set this to 'letter' via the ao_directories filter to
+				// bring them back.
+				'group_by'     => '',
 				'facets'       => array(
 					'neighborhood' => array(
 						'taxonomy' => 'ao_neighborhood',

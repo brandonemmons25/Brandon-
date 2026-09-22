@@ -315,7 +315,6 @@
 		var count = root.querySelector( '.ao-count' );
 		var empty = root.querySelector( '.ao-empty' );
 		var cards = Array.prototype.slice.call( results.querySelectorAll( '.ao-card' ) );
-		var headers = Array.prototype.slice.call( results.querySelectorAll( '.ao-group' ) );
 
 		function render() {
 			var term = search ? search.value.trim().toLowerCase() : '';
@@ -332,40 +331,18 @@
 				}
 			} );
 
-			// A letter heading only belongs on screen while it still has cards.
-			headers.forEach( function ( header ) {
-				var letter = header.getAttribute( 'data-letter' );
-				var used = cards.some( function ( card ) {
-					return card.getAttribute( 'data-letter' ) === letter && ! card.hasAttribute( 'hidden' );
+			// The grid runs continuously, so sorting just reorders the cards.
+			cards
+				.slice()
+				.sort( function ( a, b ) {
+					var x = a.getAttribute( 'data-name' );
+					var y = b.getAttribute( 'data-name' );
+
+					return descending ? y.localeCompare( x ) : x.localeCompare( y );
+				} )
+				.forEach( function ( card ) {
+					results.appendChild( card );
 				} );
-
-				header.toggleAttribute( 'hidden', ! used );
-			} );
-
-			var order = headers.slice().sort( function ( a, b ) {
-				var x = a.getAttribute( 'data-letter' );
-				var y = b.getAttribute( 'data-letter' );
-
-				return descending ? y.localeCompare( x ) : x.localeCompare( y );
-			} );
-
-			order.forEach( function ( header ) {
-				results.appendChild( header );
-
-				cards
-					.filter( function ( card ) {
-						return card.getAttribute( 'data-letter' ) === header.getAttribute( 'data-letter' );
-					} )
-					.sort( function ( a, b ) {
-						var x = a.getAttribute( 'data-name' );
-						var y = b.getAttribute( 'data-name' );
-
-						return descending ? y.localeCompare( x ) : x.localeCompare( y );
-					} )
-					.forEach( function ( card ) {
-						results.appendChild( card );
-					} );
-			} );
 
 			if ( count ) {
 				count.textContent = count.textContent.replace( /^\d+/, visible );

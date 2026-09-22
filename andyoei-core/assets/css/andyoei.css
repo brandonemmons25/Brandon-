@@ -18,6 +18,7 @@
 	--ao-font-ui: inherit;
 
 	--ao-width: 1280px;
+	--ao-mark-height: 3.75rem;
 	--ao-image-radius: 5px;
 	--ao-gap: 2.5rem;
 	--ao-columns: 3;
@@ -360,20 +361,6 @@
 	gap: calc(var(--ao-gap) * 1.4) var(--ao-gap);
 }
 
-.ao-group {
-	grid-column: 1 / -1;
-	margin-top: 0.5rem;
-	font-size: 0.8rem;
-	font-weight: 600;
-	letter-spacing: 0.14em;
-	color: var(--ao-accent);
-}
-
-.ao-group[hidden] {
-	display: none;
-}
-
-/* No border, no shadow, no radius — the photography carries the card. */
 .ao-card {
 	display: block;
 	text-decoration: none;
@@ -384,11 +371,13 @@
 	display: none;
 }
 
+/* Reserved whether or not a logo is set, so every card in a row lines its
+   image up with its neighbours. */
 .ao-card-mark {
 	display: flex;
 	align-items: flex-end;
-	min-height: 3.5rem;
-	margin-bottom: 1rem;
+	min-height: var(--ao-mark-height);
+	margin-bottom: 0.9rem;
 }
 
 .ao-card-logo {
@@ -451,14 +440,6 @@
 	font-size: 0.85rem;
 	text-align: right;
 	white-space: nowrap;
-}
-
-/* A neighborhood card carries its name in the first cell. */
-.ao-card--neighborhood .ao-spec dt {
-	font-size: 0.8rem;
-	font-weight: 600;
-	letter-spacing: 0.1em;
-	color: var(--ao-ink);
 }
 
 .ao-empty {

@@ -38,21 +38,9 @@ defined( 'ABSPATH' ) || exit;
 
 	<div class="ao-results ao-results--terms">
 		<?php
-		$last_letter = '';
-
-		foreach ( $terms as $term ) :
-			$sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );
-			$letter    = strtoupper( substr( $sort_name, 0, 1 ) );
-
-			if ( $letter !== $last_letter ) :
-				$last_letter = $letter;
-				?>
-				<div class="ao-group" data-letter="<?php echo esc_attr( $letter ); ?>" role="heading" aria-level="3"><?php echo esc_html( $letter ); ?></div>
-				<?php
-			endif;
-
+		foreach ( $terms as $term ) {
 			echo ao_template( 'card-neighborhood.php', array( 'term' => $term, 'featured' => false ) ); // phpcs:ignore WordPress.Security.EscapeOutput
-		endforeach;
+		}
 		?>
 	</div>
 
