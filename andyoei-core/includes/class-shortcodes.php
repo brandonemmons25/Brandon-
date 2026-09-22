@@ -22,6 +22,7 @@ class AO_Shortcodes {
 		wp_register_style( 'ao-core', AO_URL . 'assets/css/andyoei.css', array(), AO_VERSION );
 		wp_register_script( 'ao-filters', AO_URL . 'assets/js/filters.js', array(), AO_VERSION, true );
 		wp_register_script( 'ao-carousel', AO_URL . 'assets/js/carousel.js', array(), AO_VERSION, true );
+		wp_register_script( 'ao-fit', AO_URL . 'assets/js/fit.js', array(), AO_VERSION, true );
 		wp_localize_script( 'ao-filters', 'aoFilters', array(
 			'root' => esc_url_raw( rest_url( 'andyoei/v1/directory/' ) ),
 		) );
@@ -47,6 +48,7 @@ class AO_Shortcodes {
 	private static function assets( $carousel = false ) {
 		wp_enqueue_style( 'ao-core' );
 		wp_enqueue_script( 'ao-filters' );
+		wp_enqueue_script( 'ao-fit' );
 
 		if ( $carousel ) {
 			wp_enqueue_script( 'ao-carousel' );
