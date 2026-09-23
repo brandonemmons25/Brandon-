@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Andy Oei Core
  * Description: Custom post types, taxonomies, fields and directory filters for andyoei.com. Content and IDX are handled outside this plugin.
- * Version:     1.8.6
+ * Version:     1.8.7
  * Author:      imFORZA
  * Text Domain: andyoei
  */
@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 // Also the cache-busting string on the CSS and JS — bump it on every
 // release or browsers and caching plugins keep serving the old assets.
-define( 'AO_VERSION', '1.8.6' );
+define( 'AO_VERSION', '1.8.7' );
 define( 'AO_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AO_URL', plugin_dir_url( __FILE__ ) );
 
