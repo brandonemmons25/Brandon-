@@ -9,7 +9,7 @@
 :where(.ao-directory, .ao-featured) {
 	--ao-ink: #1c1c1e;
 	--ao-muted: #83838b;
-	--ao-line: #e2dfda;
+	--ao-line: #f5f5f5;
 	--ao-bar: #f4f2ef;
 	--ao-menu: #fff;
 	--ao-accent: #c8944e;
