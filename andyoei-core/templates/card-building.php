@@ -18,12 +18,13 @@ $completion = get_post_meta( $post_id, 'ao_completion', true );
 $logo     = function_exists( 'get_field' ) ? get_field( 'ao_building_logo', $post_id ) : '';
 $logo_src = is_array( $logo ) ? $logo['url'] : $logo;
 
-// Only rows with something to say are drawn.
-$rows = array_filter( array(
-	'Starting At'     => $price,
-	'Area'            => $nbhd,
-	'Completion Date' => $completion,
-) );
+// Always three rows, so every card in a row is the same height. An empty
+// price reads as "Price on request", as the reference does.
+$rows = array(
+	'Starting At'     => $price ? $price : 'Price on request',
+	'Area'            => $nbhd ? $nbhd : '—',
+	'Completion Date' => $completion ? $completion : '—',
+);
 ?>
 <a class="ao-card ao-card--building" href="<?php echo esc_url( get_permalink( $post_id ) ); ?>">
 	<div class="ao-card-mark">
@@ -38,14 +39,12 @@ $rows = array_filter( array(
 		<?php echo get_the_post_thumbnail( $post_id, 'large', array( 'loading' => 'lazy' ) ); ?>
 	</div>
 
-	<?php if ( $rows ) : ?>
-		<dl class="ao-card-specs">
-			<?php foreach ( $rows as $label => $value ) : ?>
-				<div class="ao-spec">
-					<dt><?php echo esc_html( $label ); ?></dt>
-					<dd><?php echo esc_html( $value ); ?></dd>
-				</div>
-			<?php endforeach; ?>
-		</dl>
-	<?php endif; ?>
+	<dl class="ao-card-specs">
+		<?php foreach ( $rows as $label => $value ) : ?>
+			<div class="ao-spec">
+				<dt><?php echo esc_html( $label ); ?></dt>
+				<dd><?php echo esc_html( $value ); ?></dd>
+			</div>
+		<?php endforeach; ?>
+	</dl>
 </a>

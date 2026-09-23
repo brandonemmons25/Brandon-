@@ -21,12 +21,13 @@ $zips    = function_exists( 'get_field' ) ? get_field( 'ao_zip_codes', $term ) :
 
 $count = (int) $term->count;
 
-// Only rows with something to say are drawn.
-$rows = array_filter( array(
+// Always three rows, matching the building card, so the two directories
+// line up and no card is shorter than its neighbours.
+$rows = array(
 	'Buildings' => $count ? number_format( $count ) : '—',
-	'Section'   => $section,
-	'ZIP Codes' => $zips,
-) );
+	'Section'   => $section ? $section : '—',
+	'ZIP Codes' => $zips ? $zips : '—',
+);
 
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );
 ?>
