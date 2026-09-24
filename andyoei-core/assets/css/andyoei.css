@@ -404,8 +404,19 @@
 
 .ao-card {
 	display: block;
-	text-decoration: none;
 	color: inherit;
+}
+
+/* The whole card is one link, and themes underline links on hover — which
+   underlines every line on the card at once. Refused outright, so the only
+   underline is the border drawn on the title below. */
+.ao-card,
+.ao-card *,
+.ao-card:hover,
+.ao-card:hover *,
+.ao-card:focus,
+.ao-card:focus * {
+	text-decoration: none !important;
 }
 
 .ao-card[hidden] {
