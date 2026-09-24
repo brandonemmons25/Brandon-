@@ -135,8 +135,11 @@
 }
 
 .ao-search-input {
-	width: 11rem;
+	/* Wide enough for the longest placeholder, which is
+	   "Search Neighborhoods". */
+	width: 15rem;
 	cursor: text;
+	text-overflow: ellipsis;
 }
 
 .ao-search-input::placeholder {

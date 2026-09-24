@@ -33,7 +33,9 @@ defined( 'ABSPATH' ) || exit;
 	?>
 
 	<div class="ao-meta">
-		<span class="ao-count"><?php echo esc_html( count( $terms ) . ' ' . $count_label ); ?></span>
+		<?php if ( $count_label ) : ?>
+			<span class="ao-count"><?php echo esc_html( count( $terms ) . ' ' . $count_label ); ?></span>
+		<?php endif; ?>
 	</div>
 
 	<div class="ao-results ao-results--terms">

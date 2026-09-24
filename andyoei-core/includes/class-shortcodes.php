@@ -175,7 +175,7 @@ class AO_Shortcodes {
 			'featured'       => '1',
 			'featured_title' => 'Featured Neighborhoods',
 			'featured_limit' => 6,
-			'count_label'    => 'At Launch',
+			'count_label'    => '', // e.g. "At Launch" to show "16 At Launch".
 			'hide_empty'     => '0',
 			'width'          => '',
 			'columns'        => '',
