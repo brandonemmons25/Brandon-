@@ -461,7 +461,10 @@
 	padding-bottom: 2px;
 }
 
-.ao-card:hover .ao-card-name,
+/* The title only: hovering the image or the spec rows leaves it alone.
+   Keyboard focus still underlines, since the card is one link and there is
+   nothing else to show where focus has landed. */
+.ao-card-name:hover,
 .ao-card:focus-visible .ao-card-name {
 	border-bottom-color: currentColor;
 }
