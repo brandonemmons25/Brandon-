@@ -26,7 +26,7 @@ $rows = array(
 	'Completion Date' => $completion ? $completion : '—',
 );
 ?>
-<a class="ao-card ao-card--building" href="<?php echo esc_url( get_permalink( $post_id ) ); ?>">
+<a class="ao-card ao-card--building" href="<?php echo esc_url( AO_Destinations::for_post( $post_id ) ); ?>">
 	<div class="ao-card-mark">
 		<?php if ( $logo_src ) : ?>
 			<img class="ao-card-logo" src="<?php echo esc_url( $logo_src ); ?>" alt="<?php echo esc_attr( get_the_title( $post_id ) ); ?>" loading="lazy">

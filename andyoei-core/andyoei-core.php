@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Andy Oei Core
  * Description: Custom post types, taxonomies, fields and directory filters for andyoei.com. Content and IDX are handled outside this plugin.
- * Version:     1.9.0
+ * Version:     1.10.0
  * Author:      imFORZA
  * Text Domain: andyoei
  */
@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 // Also the cache-busting string on the CSS and JS — bump it on every
 // release or browsers and caching plugins keep serving the old assets.
-define( 'AO_VERSION', '1.9.0' );
+define( 'AO_VERSION', '1.10.0' );
 define( 'AO_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AO_URL', plugin_dir_url( __FILE__ ) );
 
@@ -20,6 +20,7 @@ require_once AO_PATH . 'includes/class-taxonomies.php';
 require_once AO_PATH . 'includes/class-index.php';
 require_once AO_PATH . 'includes/class-curation.php';
 require_once AO_PATH . 'includes/class-fields.php';
+require_once AO_PATH . 'includes/class-destinations.php';
 require_once AO_PATH . 'includes/class-directories.php';
 require_once AO_PATH . 'includes/class-query.php';
 require_once AO_PATH . 'includes/class-rest.php';
@@ -33,6 +34,7 @@ add_action( 'init', array( 'AO_Directories', 'register' ), 20 );
 AO_Index::init();
 AO_Curation::init();
 AO_Fields::init();
+AO_Destinations::init();
 AO_REST::init();
 AO_Shortcodes::init();
 

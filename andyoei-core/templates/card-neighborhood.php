@@ -32,7 +32,7 @@ $rows = array(
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );
 ?>
 <a class="<?php echo esc_attr( $classes ); ?>"
-	href="<?php echo esc_url( get_term_link( $term ) ); ?>"
+	href="<?php echo esc_url( AO_Destinations::for_term( $term ) ); ?>"
 	data-name="<?php echo esc_attr( strtolower( $sort_name ) ); ?>">
 	<div class="ao-card-mark">
 		<span class="ao-card-name"><?php echo esc_html( $term->name ); ?></span>

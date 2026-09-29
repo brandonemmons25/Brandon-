@@ -40,6 +40,23 @@ class AO_Fields {
 			) );
 		}
 
+		// Where the card sends a visitor, when the page lives elsewhere.
+		register_post_meta( 'ao_building', 'ao_destination', array(
+			'type'              => 'string',
+			'single'            => true,
+			'show_in_rest'      => true,
+			'sanitize_callback' => 'esc_url_raw',
+			'auth_callback'     => $auth,
+		) );
+
+		register_term_meta( 'ao_neighborhood', 'ao_destination', array(
+			'type'              => 'string',
+			'single'            => true,
+			'show_in_rest'      => true,
+			'sanitize_callback' => 'esc_url_raw',
+			'auth_callback'     => $auth,
+		) );
+
 		// Drives the Completion filter, so it is numeric.
 		register_post_meta( 'ao_building', 'ao_completion', array(
 			'type'              => 'number',
@@ -86,9 +103,10 @@ class AO_Fields {
 	}
 
 	public static function render_meta_box( $post ) {
-		$address    = get_post_meta( $post->ID, 'ao_address', true );
-		$price      = get_post_meta( $post->ID, 'ao_starting_price', true );
-		$completion = get_post_meta( $post->ID, 'ao_completion', true );
+		$address     = get_post_meta( $post->ID, 'ao_address', true );
+		$price       = get_post_meta( $post->ID, 'ao_starting_price', true );
+		$completion  = get_post_meta( $post->ID, 'ao_completion', true );
+		$destination = get_post_meta( $post->ID, 'ao_destination', true );
 
 		wp_nonce_field( 'ao_details_save', 'ao_details_nonce' );
 		?>
@@ -109,6 +127,14 @@ class AO_Fields {
 			<input type="number" id="ao_completion" name="ao_completion" min="1800" max="2200" step="1"
 				value="<?php echo esc_attr( $completion ); ?>" placeholder="2026" style="width:6rem">
 			<span class="description">Year. Drives the Completion filter.</span>
+		</p>
+		<p>
+			<label for="ao_destination"><strong>Destination URL</strong></label><br>
+			<input type="url" id="ao_destination" name="ao_destination" class="widefat"
+				value="<?php echo esc_attr( $destination ); ?>" placeholder="https://andyoei.com/the-ritz-carlton/">
+			<span class="description">
+				Where the card sends visitors. Leave empty to use this record's own page.
+			</span>
 		</p>
 		<?php
 	}
@@ -141,6 +167,14 @@ class AO_Fields {
 			}
 		}
 
+		$destination = isset( $_POST['ao_destination'] ) ? esc_url_raw( wp_unslash( $_POST['ao_destination'] ) ) : '';
+
+		if ( '' === $destination ) {
+			delete_post_meta( $post_id, 'ao_destination' );
+		} else {
+			update_post_meta( $post_id, 'ao_destination', $destination );
+		}
+
 		$completion = isset( $_POST['ao_completion'] ) ? absint( $_POST['ao_completion'] ) : 0;
 
 		if ( $completion ) {
@@ -162,6 +196,11 @@ class AO_Fields {
 			<?php self::picker( 0 ); ?>
 			<p>Shown on the neighborhood directory card.</p>
 		</div>
+		<div class="form-field">
+			<label for="ao_destination">Destination URL</label>
+			<input type="url" id="ao_destination" name="ao_destination" value="" placeholder="https://andyoei.com/rittenhouse-square/">
+			<p>Where the card sends visitors. Leave empty to use this neighborhood's own page.</p>
+		</div>
 		<?php
 	}
 
@@ -172,6 +211,17 @@ class AO_Fields {
 			<td>
 				<?php self::picker( (int) get_term_meta( $term->term_id, 'ao_card_image', true ) ); ?>
 				<p class="description">Shown on the neighborhood directory card.</p>
+			</td>
+		</tr>
+		<tr class="form-field">
+			<th scope="row"><label for="ao_destination">Destination URL</label></th>
+			<td>
+				<input type="url" id="ao_destination" name="ao_destination" class="regular-text"
+					value="<?php echo esc_attr( get_term_meta( $term->term_id, 'ao_destination', true ) ); ?>"
+					placeholder="https://andyoei.com/rittenhouse-square/">
+				<p class="description">
+					Where the card sends visitors. Leave empty to use this neighborhood's own page.
+				</p>
 			</td>
 		</tr>
 		<?php
@@ -191,7 +241,7 @@ class AO_Fields {
 	}
 
 	public static function save_term( $term_id ) {
-		if ( ! isset( $_POST['ao_card_image'] ) || ! current_user_can( 'manage_categories' ) ) {
+		if ( ! current_user_can( 'manage_categories' ) ) {
 			return;
 		}
 
@@ -207,6 +257,14 @@ class AO_Fields {
 			update_term_meta( $term_id, 'ao_card_image', $id );
 		} else {
 			delete_term_meta( $term_id, 'ao_card_image' );
+		}
+
+		$destination = isset( $_POST['ao_destination'] ) ? esc_url_raw( wp_unslash( $_POST['ao_destination'] ) ) : '';
+
+		if ( '' === $destination ) {
+			delete_term_meta( $term_id, 'ao_destination' );
+		} else {
+			update_term_meta( $term_id, 'ao_destination', $destination );
 		}
 	}
 }
