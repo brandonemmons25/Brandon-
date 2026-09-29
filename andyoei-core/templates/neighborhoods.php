@@ -3,7 +3,7 @@
  * 03A — Neighborhood Directory. Sixteen at launch, so the full set renders at
  * once and search and sort run in the browser.
  *
- * @var WP_Term[] $terms
+ * @var WP_Post[] $posts
  * @var string    $featured
  * @var string    $count_label
  */
@@ -34,14 +34,14 @@ defined( 'ABSPATH' ) || exit;
 
 	<div class="ao-meta">
 		<?php if ( $count_label ) : ?>
-			<span class="ao-count"><?php echo esc_html( count( $terms ) . ' ' . $count_label ); ?></span>
+			<span class="ao-count"><?php echo esc_html( count( $posts ) . ' ' . $count_label ); ?></span>
 		<?php endif; ?>
 	</div>
 
 	<div class="ao-results ao-results--terms">
 		<?php
-		foreach ( $terms as $term ) {
-			echo ao_template( 'card-neighborhood.php', array( 'term' => $term, 'featured' => false ) ); // phpcs:ignore WordPress.Security.EscapeOutput
+		foreach ( $posts as $post ) {
+			echo ao_template( 'card-neighborhood.php', array( 'post_id' => $post->ID, 'featured' => false ) ); // phpcs:ignore WordPress.Security.EscapeOutput
 		}
 		?>
 	</div>

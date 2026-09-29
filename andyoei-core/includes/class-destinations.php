@@ -27,28 +27,14 @@ class AO_Destinations {
 		return $url ? $url : get_permalink( $post_id );
 	}
 
-	public static function for_term( $term ) {
-		$url = get_term_meta( $term->term_id, self::KEY, true );
-
-		if ( $url ) {
-			return $url;
-		}
-
-		$link = get_term_link( $term );
-
-		return is_wp_error( $link ) ? '' : $link;
-	}
-
 	/**
 	 * Send the record's own URL to its destination, so the two do not compete.
 	 */
 	public static function redirect() {
 		$url = '';
 
-		if ( is_singular( 'ao_building' ) ) {
+		if ( is_singular( array( 'ao_building', 'ao_neighborhood' ) ) ) {
 			$url = get_post_meta( get_queried_object_id(), self::KEY, true );
-		} elseif ( is_tax( 'ao_neighborhood' ) ) {
-			$url = get_term_meta( get_queried_object_id(), self::KEY, true );
 		}
 
 		if ( ! $url ) {

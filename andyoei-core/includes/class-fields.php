@@ -3,7 +3,7 @@ defined( 'ABSPATH' ) || exit;
 
 /**
  * The handful of fields the two directories cannot work without: a building's
- * address (the directory searches it) and a neighborhood's card image.
+ * address (the directory searches it) and a neighborhood's median price.
  *
  * Native, so both directories are complete with no other plugin installed.
  * The richer page content — amenities, gallery, FAQs — stays in ACF, which is
@@ -17,12 +17,8 @@ class AO_Fields {
 		add_action( 'add_meta_boxes_ao_building', array( __CLASS__, 'meta_box' ) );
 		add_action( 'save_post_ao_building', array( __CLASS__, 'save_post' ), 10, 2 );
 
-		add_action( 'ao_neighborhood_add_form_fields', array( __CLASS__, 'term_add_fields' ) );
-		add_action( 'ao_neighborhood_edit_form_fields', array( __CLASS__, 'term_edit_fields' ) );
-		add_action( 'created_ao_neighborhood', array( __CLASS__, 'save_term' ) );
-		add_action( 'edited_ao_neighborhood', array( __CLASS__, 'save_term' ) );
-
-		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ) );
+		add_action( 'add_meta_boxes_ao_neighborhood', array( __CLASS__, 'neighborhood_meta_box' ) );
+		add_action( 'save_post_ao_neighborhood', array( __CLASS__, 'save_neighborhood' ), 10, 2 );
 	}
 
 	public static function register_meta() {
@@ -49,7 +45,7 @@ class AO_Fields {
 			'auth_callback'     => $auth,
 		) );
 
-		register_term_meta( 'ao_neighborhood', 'ao_destination', array(
+		register_post_meta( 'ao_neighborhood', 'ao_destination', array(
 			'type'              => 'string',
 			'single'            => true,
 			'show_in_rest'      => true,
@@ -67,35 +63,13 @@ class AO_Fields {
 		) );
 
 		// Free text, so "Data pending" reads as well as a figure.
-		register_term_meta( 'ao_neighborhood', 'ao_median_price', array(
+		register_post_meta( 'ao_neighborhood', 'ao_median_price', array(
 			'type'              => 'string',
 			'single'            => true,
 			'show_in_rest'      => true,
 			'sanitize_callback' => 'sanitize_text_field',
 			'auth_callback'     => $auth,
 		) );
-
-		register_term_meta( 'ao_neighborhood', 'ao_card_image', array(
-			'type'              => 'number',
-			'single'            => true,
-			'show_in_rest'      => true,
-			'sanitize_callback' => 'absint',
-			'auth_callback'     => $auth,
-		) );
-	}
-
-	/**
-	 * The media picker is only needed on the neighborhood term screens.
-	 */
-	public static function assets( $hook ) {
-		$screen = get_current_screen();
-
-		if ( ! $screen || 'ao_neighborhood' !== $screen->taxonomy ) {
-			return;
-		}
-
-		wp_enqueue_media();
-		wp_enqueue_script( 'ao-admin-media', AO_URL . 'assets/js/admin-media.js', array( 'jquery' ), AO_VERSION, true );
 	}
 
 	/* ── Building address ───────────────────────────────────────────── */
@@ -196,108 +170,75 @@ class AO_Fields {
 		AO_Index::index( $post_id );
 	}
 
-	/* ── Neighborhood card image ────────────────────────────────────── */
+	/* ── Neighborhoods ──────────────────────────────────────────────── */
 
-	public static function term_add_fields() {
+	public static function neighborhood_meta_box() {
+		add_meta_box(
+			'ao-neighborhood-details',
+			'Neighborhood Details',
+			array( __CLASS__, 'render_neighborhood_box' ),
+			'ao_neighborhood',
+			'side',
+			'default'
+		);
+	}
+
+	public static function render_neighborhood_box( $post ) {
+		$price       = get_post_meta( $post->ID, 'ao_median_price', true );
+		$destination = get_post_meta( $post->ID, 'ao_destination', true );
+
+		wp_nonce_field( 'ao_neighborhood_details_save', 'ao_neighborhood_details_nonce' );
 		?>
-		<div class="form-field">
-			<label>Card Image</label>
-			<?php self::picker( 0 ); ?>
-			<p>Shown on the neighborhood directory card.</p>
-		</div>
-		<div class="form-field">
-			<label for="ao_median_price">Median Price</label>
-			<input type="text" id="ao_median_price" name="ao_median_price" value="" placeholder="$685,000">
-			<p>The card's second column. Buildings, the first, is counted automatically.</p>
-		</div>
-		<div class="form-field">
-			<label for="ao_destination">Destination URL</label>
-			<input type="url" id="ao_destination" name="ao_destination" value="" placeholder="https://andyoei.com/rittenhouse-square/">
-			<p>Where the card sends visitors. Leave empty to use this neighborhood's own page.</p>
-		</div>
+		<p>
+			<label for="ao_median_price"><strong>Median Price</strong></label><br>
+			<input type="text" id="ao_median_price" name="ao_median_price" class="widefat"
+				value="<?php echo esc_attr( $price ); ?>" placeholder="$685,000">
+			<span class="description">
+				The card's second column. Buildings, the first, counts itself.
+			</span>
+		</p>
+		<p>
+			<label for="ao_destination"><strong>Destination URL</strong></label><br>
+			<input type="url" id="ao_destination" name="ao_destination" class="widefat"
+				value="<?php echo esc_attr( $destination ); ?>" placeholder="https://andyoei.com/rittenhouse-square/">
+			<span class="description">
+				Where the card sends visitors. Leave empty to use this page.
+			</span>
+		</p>
+		<p class="description">
+			The card image is the Featured Image, set in the sidebar.
+		</p>
 		<?php
 	}
 
-	public static function term_edit_fields( $term ) {
-		?>
-		<tr class="form-field">
-			<th scope="row"><label>Card Image</label></th>
-			<td>
-				<?php self::picker( (int) get_term_meta( $term->term_id, 'ao_card_image', true ) ); ?>
-				<p class="description">Shown on the neighborhood directory card.</p>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="ao_median_price">Median Price</label></th>
-			<td>
-				<input type="text" id="ao_median_price" name="ao_median_price" class="regular-text"
-					value="<?php echo esc_attr( get_term_meta( $term->term_id, 'ao_median_price', true ) ); ?>"
-					placeholder="$685,000">
-				<p class="description">
-					The card's second column. Buildings, the first, is counted automatically.
-				</p>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="ao_destination">Destination URL</label></th>
-			<td>
-				<input type="url" id="ao_destination" name="ao_destination" class="regular-text"
-					value="<?php echo esc_attr( get_term_meta( $term->term_id, 'ao_destination', true ) ); ?>"
-					placeholder="https://andyoei.com/rittenhouse-square/">
-				<p class="description">
-					Where the card sends visitors. Leave empty to use this neighborhood's own page.
-				</p>
-			</td>
-		</tr>
-		<?php
-	}
-
-	private static function picker( $attachment_id ) {
-		$src = $attachment_id ? wp_get_attachment_image_url( $attachment_id, 'medium' ) : '';
-		?>
-		<div class="ao-media-picker">
-			<input type="hidden" name="ao_card_image" class="ao-media-id" value="<?php echo esc_attr( $attachment_id ); ?>">
-			<img class="ao-media-preview" src="<?php echo esc_url( $src ); ?>"
-				style="max-width:200px;height:auto;display:<?php echo $src ? 'block' : 'none'; ?>;margin-bottom:8px">
-			<button type="button" class="button ao-media-select">Select Image</button>
-			<button type="button" class="button-link ao-media-remove" style="margin-left:8px;display:<?php echo $src ? 'inline' : 'none'; ?>">Remove</button>
-		</div>
-		<?php
-	}
-
-	public static function save_term( $term_id ) {
-		if ( ! current_user_can( 'manage_categories' ) ) {
+	public static function save_neighborhood( $post_id, $post ) {
+		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return;
 		}
 
-		// Shares the nonce with the curation fields on the same form.
-		if ( ! isset( $_POST['ao_term_featured_nonce'] )
-			|| ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ao_term_featured_nonce'] ) ), 'ao_term_featured_save' ) ) {
+		if ( ! isset( $_POST['ao_neighborhood_details_nonce'] ) ) {
 			return;
 		}
 
-		$id = absint( $_POST['ao_card_image'] );
-
-		if ( $id ) {
-			update_term_meta( $term_id, 'ao_card_image', $id );
-		} else {
-			delete_term_meta( $term_id, 'ao_card_image' );
-		}
-
-		$destination = isset( $_POST['ao_destination'] ) ? esc_url_raw( wp_unslash( $_POST['ao_destination'] ) ) : '';
-
-		if ( '' === $destination ) {
-			delete_term_meta( $term_id, 'ao_destination' );
-		} else {
-			update_term_meta( $term_id, 'ao_destination', $destination );
+		if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ao_neighborhood_details_nonce'] ) ), 'ao_neighborhood_details_save' )
+			|| ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
 		}
 
 		$price = isset( $_POST['ao_median_price'] ) ? sanitize_text_field( wp_unslash( $_POST['ao_median_price'] ) ) : '';
 
 		if ( '' === $price ) {
-			delete_term_meta( $term_id, 'ao_median_price' );
+			delete_post_meta( $post_id, 'ao_median_price' );
 		} else {
-			update_term_meta( $term_id, 'ao_median_price', $price );
+			update_post_meta( $post_id, 'ao_median_price', $price );
+		}
+
+		$destination = isset( $_POST['ao_destination'] ) ? esc_url_raw( wp_unslash( $_POST['ao_destination'] ) ) : '';
+
+		if ( '' === $destination ) {
+			delete_post_meta( $post_id, 'ao_destination' );
+		} else {
+			update_post_meta( $post_id, 'ao_destination', $destination );
 		}
 	}
 }

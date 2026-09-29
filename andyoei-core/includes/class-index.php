@@ -4,9 +4,9 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Sort + search index.
  *
- * WordPress cannot order by a taxonomy term, and its default search ignores
- * custom fields. On every save we flatten what the directory sorts and
- * searches on into three plain meta keys.
+ * WordPress cannot order by a related record's title, and its default search
+ * ignores custom fields. On every save we flatten what the directory sorts
+ * and searches on into three plain meta keys.
  */
 class AO_Index {
 
@@ -50,12 +50,9 @@ class AO_Index {
 		// "The Ritz-Carlton Residences" sorts and groups under R, not T.
 		$sort_name = trim( preg_replace( '/^the\s+/i', '', $post->post_title ) );
 
-		$nbhds = wp_get_object_terms( $post_id, 'ao_neighborhood', array( 'fields' => 'names' ) );
-		$nbhds = is_wp_error( $nbhds ) ? array() : $nbhds;
-		sort( $nbhds );
-
 		// Unplaced buildings sort last under a neighborhood sort.
-		$sort_nbhd = $nbhds ? $nbhds[0] : 'zzzz';
+		$nbhd      = AO_Relations::name_for_building( $post_id );
+		$sort_nbhd = $nbhd ? $nbhd : 'zzzz';
 
 		$address = (string) get_post_meta( $post_id, 'ao_address', true );
 

@@ -47,7 +47,10 @@ class AO_Directories {
 						),
 					),
 					'area'         => array(
-						'taxonomy'  => 'ao_neighborhood',
+						// Backed by the neighborhood post type, not a
+						// taxonomy: the meta key holds the neighborhood's ID.
+						'post_type' => 'ao_neighborhood',
+						'meta_key'  => 'ao_neighborhood',
 						'label'     => 'Areas',
 						'operator'  => 'IN',   // OR within the group.
 						'all_label' => 'All Areas',

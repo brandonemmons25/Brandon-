@@ -52,9 +52,30 @@ class AO_Query {
 
 	/**
 	 * The choices a facet offers, as value => label, whether it is backed by
-	 * a taxonomy or by numeric buckets.
+	 * a taxonomy, a post type or numeric buckets.
+	 *
+	 * The value is always a slug, never an ID: a shared filter URL has to keep
+	 * working after a record is rebuilt.
 	 */
 	public static function facet_options( $facet ) {
+		if ( ! empty( $facet['post_type'] ) ) {
+			$posts = get_posts( array(
+				'post_type'      => $facet['post_type'],
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'orderby'        => 'title',
+				'order'          => 'ASC',
+			) );
+
+			$options = array();
+
+			foreach ( $posts as $post ) {
+				$options[ $post->post_name ] = $post->post_title;
+			}
+
+			return $options;
+		}
+
 		if ( isset( $facet['type'] ) && 'range' === $facet['type'] ) {
 			$options = array();
 
@@ -116,7 +137,8 @@ class AO_Query {
 		// group uses AND so a building must carry every selected feature.
 		$tax_query = array();
 
-		$ranges = array();
+		$ranges    = array();
+		$relations = array();
 
 		foreach ( $config['facets'] as $name => $facet ) {
 			if ( empty( $request['facets'][ $name ] ) ) {
@@ -126,6 +148,12 @@ class AO_Query {
 			// Numeric buckets filter on a meta field, not a taxonomy.
 			if ( isset( $facet['type'] ) && 'range' === $facet['type'] ) {
 				$ranges[ $name ] = $facet;
+				continue;
+			}
+
+			// A related post type filters on the meta key holding its ID.
+			if ( ! empty( $facet['post_type'] ) ) {
+				$relations[ $name ] = $facet;
 				continue;
 			}
 
@@ -161,6 +189,14 @@ class AO_Query {
 			}
 		}
 
+		foreach ( $relations as $name => $facet ) {
+			$clause = self::relation_clause( $facet, $request['facets'][ $name ] );
+
+			if ( $clause ) {
+				$meta_query[ 'rel_' . $name ] = $clause;
+			}
+		}
+
 		$meta_query = array_merge( $meta_query, self::sort_clauses( $request['sort'] ) );
 
 		if ( count( $meta_query ) > 1 ) {
@@ -170,6 +206,41 @@ class AO_Query {
 		$args['orderby'] = self::orderby( $request['sort'] );
 
 		return apply_filters( 'ao_query_args', $args, $config, $request );
+	}
+
+	/**
+	 * Selected slugs become the IDs stored against each building. A slug with
+	 * no published post behind it is dropped; if that empties the list the
+	 * clause is skipped rather than returning everything, since an impossible
+	 * filter should return nothing.
+	 */
+	private static function relation_clause( $facet, $selected ) {
+		$ids = array();
+
+		foreach ( $selected as $slug ) {
+			$posts = get_posts( array(
+				'post_type'      => $facet['post_type'],
+				'post_status'    => 'publish',
+				'name'           => $slug,
+				'posts_per_page' => 1,
+				'fields'         => 'ids',
+			) );
+
+			if ( $posts ) {
+				$ids[] = (int) $posts[0];
+			}
+		}
+
+		if ( ! $ids ) {
+			return array( 'key' => $facet['meta_key'], 'value' => 0, 'compare' => '=' );
+		}
+
+		return array(
+			'key'     => $facet['meta_key'],
+			'value'   => $ids,
+			'compare' => 'IN',
+			'type'    => 'NUMERIC',
+		);
 	}
 
 	/**
@@ -310,9 +381,9 @@ class AO_Query {
 		}
 
 		if ( 'nbhd_asc' === $sort ) {
-			$terms = wp_get_object_terms( $post_id, 'ao_neighborhood', array( 'fields' => 'names' ) );
+			$name = AO_Relations::name_for_building( $post_id );
 
-			return ( ! is_wp_error( $terms ) && $terms ) ? $terms[0] : 'Other';
+			return $name ? $name : 'Other';
 		}
 
 		// Grouping follows the sort key, so "The Ritz-Carlton" groups under R.

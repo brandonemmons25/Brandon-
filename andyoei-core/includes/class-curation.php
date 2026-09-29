@@ -13,28 +13,20 @@ class AO_Curation {
 	const FEATURED = 'ao_featured';
 	const RANK     = 'ao_featured_rank';
 
-	// Term meta keys, kept distinct so the two lists never collide.
-	const TERM_FEATURED = 'ao_nbhd_featured';
-	const TERM_RANK     = 'ao_nbhd_rank';
+	// Both post types curate the same way, so both read these keys.
+	const TYPES = array( 'ao_building', 'ao_neighborhood' );
 
 	public static function init() {
 		add_action( 'init', array( __CLASS__, 'register_meta' ) );
 
-		// Buildings.
-		add_action( 'add_meta_boxes_ao_building', array( __CLASS__, 'meta_box' ) );
-		add_action( 'save_post_ao_building', array( __CLASS__, 'save_post' ), 10, 2 );
+		foreach ( self::TYPES as $type ) {
+			add_action( "add_meta_boxes_{$type}", array( __CLASS__, 'meta_box' ) );
+			add_action( "save_post_{$type}", array( __CLASS__, 'save_post' ), 10, 2 );
 
-		// Neighborhood terms.
-		add_action( 'ao_neighborhood_add_form_fields', array( __CLASS__, 'term_add_fields' ) );
-		add_action( 'ao_neighborhood_edit_form_fields', array( __CLASS__, 'term_edit_fields' ) );
-		add_action( 'created_ao_neighborhood', array( __CLASS__, 'save_term' ) );
-		add_action( 'edited_ao_neighborhood', array( __CLASS__, 'save_term' ) );
-
-		// At-a-glance columns, so the curated set is readable from the list.
-		add_filter( 'manage_ao_building_posts_columns', array( __CLASS__, 'column' ) );
-		add_action( 'manage_ao_building_posts_custom_column', array( __CLASS__, 'column_value' ), 10, 2 );
-		add_filter( 'manage_edit-ao_neighborhood_columns', array( __CLASS__, 'column' ) );
-		add_filter( 'manage_ao_neighborhood_custom_column', array( __CLASS__, 'term_column_value' ), 10, 3 );
+			// At-a-glance column, so the curated set reads from the list.
+			add_filter( "manage_{$type}_posts_columns", array( __CLASS__, 'column' ) );
+			add_action( "manage_{$type}_posts_custom_column", array( __CLASS__, 'column_value' ), 10, 2 );
+		}
 	}
 
 	public static function register_meta() {
@@ -42,47 +34,31 @@ class AO_Curation {
 			return current_user_can( 'edit_posts' );
 		};
 
-		register_post_meta( 'ao_building', self::FEATURED, array(
-			'type'              => 'string',
-			'single'            => true,
-			'show_in_rest'      => true,
-			'sanitize_callback' => 'sanitize_text_field',
-			'auth_callback'     => $auth,
-		) );
+		foreach ( self::TYPES as $type ) {
+			register_post_meta( $type, self::FEATURED, array(
+				'type'              => 'string',
+				'single'            => true,
+				'show_in_rest'      => true,
+				'sanitize_callback' => 'sanitize_text_field',
+				'auth_callback'     => $auth,
+			) );
 
-		register_post_meta( 'ao_building', self::RANK, array(
-			'type'              => 'number',
-			'single'            => true,
-			'show_in_rest'      => true,
-			'sanitize_callback' => 'absint',
-			'auth_callback'     => $auth,
-		) );
-
-		register_term_meta( 'ao_neighborhood', self::TERM_FEATURED, array(
-			'type'              => 'string',
-			'single'            => true,
-			'show_in_rest'      => true,
-			'sanitize_callback' => 'sanitize_text_field',
-			'auth_callback'     => $auth,
-		) );
-
-		register_term_meta( 'ao_neighborhood', self::TERM_RANK, array(
-			'type'              => 'number',
-			'single'            => true,
-			'show_in_rest'      => true,
-			'sanitize_callback' => 'absint',
-			'auth_callback'     => $auth,
-		) );
+			register_post_meta( $type, self::RANK, array(
+				'type'              => 'number',
+				'single'            => true,
+				'show_in_rest'      => true,
+				'sanitize_callback' => 'absint',
+				'auth_callback'     => $auth,
+			) );
+		}
 	}
 
-	/* ── Buildings ──────────────────────────────────────────────────── */
-
-	public static function meta_box() {
+	public static function meta_box( $post ) {
 		add_meta_box(
 			'ao-featured',
 			'Featured',
 			array( __CLASS__, 'render_meta_box' ),
-			'ao_building',
+			$post->post_type,
 			'side',
 			'high'
 		);
@@ -105,7 +81,7 @@ class AO_Curation {
 			<input type="number" id="ao_featured_rank" name="ao_featured_rank" min="1" step="1"
 				value="<?php echo esc_attr( $rank ); ?>" style="width:5rem">
 		</p>
-		<p class="description">1 shows first. Approximately 4–6 buildings.</p>
+		<p class="description">1 shows first. Approximately 4–6 records.</p>
 		<?php
 	}
 
@@ -143,79 +119,6 @@ class AO_Curation {
 		}
 	}
 
-	/* ── Neighborhood terms ─────────────────────────────────────────── */
-
-	public static function term_add_fields() {
-		wp_nonce_field( 'ao_term_featured_save', 'ao_term_featured_nonce' );
-		?>
-		<div class="form-field">
-			<label>
-				<input type="checkbox" name="ao_nbhd_featured" value="1">
-				Featured neighborhood
-			</label>
-			<p>Show in the featured strip on the neighborhood directory.</p>
-		</div>
-		<div class="form-field">
-			<label for="ao_nbhd_rank">Featured Rank</label>
-			<input type="number" id="ao_nbhd_rank" name="ao_nbhd_rank" min="1" step="1">
-			<p>1 shows first. Approximately 4–6 neighborhoods.</p>
-		</div>
-		<?php
-	}
-
-	public static function term_edit_fields( $term ) {
-		$featured = get_term_meta( $term->term_id, self::TERM_FEATURED, true );
-		$rank     = get_term_meta( $term->term_id, self::TERM_RANK, true );
-
-		?>
-		<tr class="form-field">
-			<th scope="row">Featured</th>
-			<td>
-				<?php wp_nonce_field( 'ao_term_featured_save', 'ao_term_featured_nonce' ); ?>
-				<label>
-					<input type="checkbox" name="ao_nbhd_featured" value="1" <?php checked( $featured, '1' ); ?>>
-					Show in the featured strip on the neighborhood directory
-				</label>
-			</td>
-		</tr>
-		<tr class="form-field">
-			<th scope="row"><label for="ao_nbhd_rank">Featured Rank</label></th>
-			<td>
-				<input type="number" id="ao_nbhd_rank" name="ao_nbhd_rank" min="1" step="1" value="<?php echo esc_attr( $rank ); ?>">
-				<p class="description">1 shows first. Approximately 4–6 neighborhoods.</p>
-			</td>
-		</tr>
-		<?php
-	}
-
-	public static function save_term( $term_id ) {
-		if ( ! isset( $_POST['ao_term_featured_nonce'] ) ) {
-			return;
-		}
-
-		if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ao_term_featured_nonce'] ) ), 'ao_term_featured_save' ) ) {
-			return;
-		}
-
-		if ( ! current_user_can( 'manage_categories' ) ) {
-			return;
-		}
-
-		if ( empty( $_POST['ao_nbhd_featured'] ) ) {
-			delete_term_meta( $term_id, self::TERM_FEATURED );
-		} else {
-			update_term_meta( $term_id, self::TERM_FEATURED, '1' );
-		}
-
-		$rank = isset( $_POST['ao_nbhd_rank'] ) ? absint( $_POST['ao_nbhd_rank'] ) : 0;
-
-		if ( $rank ) {
-			update_term_meta( $term_id, self::TERM_RANK, $rank );
-		} else {
-			delete_term_meta( $term_id, self::TERM_RANK );
-		}
-	}
-
 	/* ── Admin columns ──────────────────────────────────────────────── */
 
 	public static function column( $columns ) {
@@ -232,17 +135,6 @@ class AO_Curation {
 		echo esc_html( self::badge(
 			get_post_meta( $post_id, self::FEATURED, true ),
 			get_post_meta( $post_id, self::RANK, true )
-		) );
-	}
-
-	public static function term_column_value( $content, $column, $term_id ) {
-		if ( 'ao_featured' !== $column ) {
-			return $content;
-		}
-
-		return esc_html( self::badge(
-			get_term_meta( $term_id, self::TERM_FEATURED, true ),
-			get_term_meta( $term_id, self::TERM_RANK, true )
 		) );
 	}
 

@@ -167,8 +167,8 @@ class AO_Shortcodes {
 	/**
 	 * [ao_neighborhoods]
 	 *
-	 * 03A — sixteen terms at launch, so the whole set renders at once and
-	 * search and sort run in the browser.
+	 * 03A — sixteen at launch, so the whole set renders at once and search
+	 * and sort run in the browser.
 	 */
 	public static function neighborhoods( $atts ) {
 		$atts = shortcode_atts( array(
@@ -183,13 +183,22 @@ class AO_Shortcodes {
 
 		self::assets( true );
 
-		$terms = get_terms( array(
-			'taxonomy'   => 'ao_neighborhood',
-			'hide_empty' => (bool) (int) $atts['hide_empty'],
-			'orderby'    => 'name',
+		$posts = get_posts( array(
+			'post_type'      => 'ao_neighborhood',
+			'post_status'    => 'publish',
+			'posts_per_page' => -1,
+			'orderby'        => 'title',
+			'order'          => 'ASC',
 		) );
 
-		if ( is_wp_error( $terms ) || ! $terms ) {
+		// hide_empty drops neighborhoods with no buildings filed under them.
+		if ( (int) $atts['hide_empty'] ) {
+			$posts = array_values( array_filter( $posts, function ( $post ) {
+				return AO_Relations::building_count( $post->ID ) > 0;
+			} ) );
+		}
+
+		if ( ! $posts ) {
 			return '';
 		}
 
@@ -203,7 +212,7 @@ class AO_Shortcodes {
 		}
 
 		return ao_template( 'neighborhoods.php', array(
-			'terms'       => $terms,
+			'posts'       => $posts,
 			'featured'    => $featured,
 			'count_label' => $atts['count_label'],
 			'width'       => $atts['width'],
@@ -223,39 +232,37 @@ class AO_Shortcodes {
 
 		// Ordered in PHP for the same reason as buildings: a featured but
 		// unranked neighborhood must still appear.
-		$terms = get_terms( array(
-			'taxonomy'   => 'ao_neighborhood',
-			'hide_empty' => false,
-			'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery
-				array( 'key' => AO_Curation::TERM_FEATURED, 'value' => '1' ),
+		$posts = get_posts( array(
+			'post_type'      => 'ao_neighborhood',
+			'posts_per_page' => -1,
+			'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery
+				array( 'key' => AO_Curation::FEATURED, 'value' => '1' ),
 			),
 		) );
 
-		if ( ! is_wp_error( $terms ) && $terms ) {
-			usort( $terms, function ( $a, $b ) {
-				$rank_a = (int) get_term_meta( $a->term_id, AO_Curation::TERM_RANK, true );
-				$rank_b = (int) get_term_meta( $b->term_id, AO_Curation::TERM_RANK, true );
+		usort( $posts, function ( $a, $b ) {
+			$rank_a = (int) get_post_meta( $a->ID, AO_Curation::RANK, true );
+			$rank_b = (int) get_post_meta( $b->ID, AO_Curation::RANK, true );
 
-				$rank_a = $rank_a ? $rank_a : PHP_INT_MAX;
-				$rank_b = $rank_b ? $rank_b : PHP_INT_MAX;
+			$rank_a = $rank_a ? $rank_a : PHP_INT_MAX;
+			$rank_b = $rank_b ? $rank_b : PHP_INT_MAX;
 
-				return $rank_a === $rank_b
-					? strcasecmp( $a->name, $b->name )
-					: $rank_a - $rank_b;
-			} );
+			return $rank_a === $rank_b
+				? strcasecmp( $a->post_title, $b->post_title )
+				: $rank_a - $rank_b;
+		} );
 
-			$terms = array_slice( $terms, 0, (int) $atts['limit'] );
-		}
+		$posts = array_slice( $posts, 0, (int) $atts['limit'] );
 
-		if ( is_wp_error( $terms ) || ! $terms ) {
+		if ( ! $posts ) {
 			return '';
 		}
 
 		self::assets( true );
 
 		$cards = '';
-		foreach ( $terms as $term ) {
-			$cards .= ao_template( 'card-neighborhood.php', array( 'term' => $term, 'featured' => true ) );
+		foreach ( $posts as $post ) {
+			$cards .= ao_template( 'card-neighborhood.php', array( 'post_id' => $post->ID, 'featured' => true ) );
 		}
 
 		return ao_template( 'featured-strip.php', array(

@@ -8,8 +8,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$nbhds = wp_get_object_terms( $post_id, 'ao_neighborhood', array( 'fields' => 'names' ) );
-$nbhd  = ( ! is_wp_error( $nbhds ) && $nbhds ) ? $nbhds[0] : '';
+$nbhd = AO_Relations::name_for_building( $post_id );
 
 $price      = get_post_meta( $post_id, 'ao_starting_price', true );
 $completion = get_post_meta( $post_id, 'ao_completion', true );

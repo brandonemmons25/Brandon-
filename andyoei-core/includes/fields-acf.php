@@ -53,7 +53,7 @@ function ao_register_fields() {
 	}
 
 	// ── 02B Individual condominium building page ──────────────────────────
-	ao_group( 'neighborhood', 'Neighborhood Page', ao_location( 'taxonomy', 'ao_neighborhood' ), array(
+	ao_group( 'neighborhood', 'Neighborhood Page', ao_location( 'post_type', 'ao_neighborhood' ), array(
 
 		ao_field( 'ao_tab_nbhd_hero', 'Hero', 'tab' ),
 		ao_field( 'ao_hero_image_nbhd', 'Hero Image', 'image', array( 'return_format' => 'array' ) ),
