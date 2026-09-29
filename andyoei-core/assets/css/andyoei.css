@@ -171,19 +171,6 @@
 	background: transparent !important;
 }
 
-/* Focus still has to show somewhere, or the bar is unusable by keyboard.
-   The pill itself carries it, as a slight darkening rather than a ring. */
-.ao-pill:focus-within {
-	background: #e9e5e0;
-	background-clip: padding-box;
-}
-
-/* Which needs the pill to own a background even inside the single capsule,
-   where the bar normally carries it. */
-.ao-bar .ao-pill {
-	border-radius: 999px;
-}
-
 .ao-clear {
 	position: relative;
 	display: flex;
