@@ -502,21 +502,32 @@
 	border-bottom-color: currentColor;
 }
 
+/* One row of stat columns: value above, label beneath, a rule under each.
+   Two shared rows, so a value that wraps to a second line pushes every
+   label down together instead of only its own. */
 .ao-card-specs {
-	margin: 0;
+	display: grid;
+	grid-template-columns: repeat(var(--ao-spec-columns, 3), minmax(0, 1fr));
+	grid-template-rows: auto auto;
+	gap: 0.3rem 1.5rem;
+	margin: 1.1rem 0 0;
 }
 
 .ao-spec {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 1rem;
-	padding: 0.85rem 0;
+	display: grid;
+	grid-row: span 2;
+	grid-template-rows: subgrid;
+	align-content: start;
+	padding-bottom: 0.9rem;
 	border-bottom: 1px solid var(--ao-line);
 }
 
+/* The markup keeps the label first, as a definition list means it; order
+   puts the value on top. */
+.ao-spec dd { order: -1; }
+
 .ao-spec dt {
-	font-size: 0.7rem;
+	font-size: 0.65rem;
 	font-weight: 500;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
@@ -525,9 +536,8 @@
 
 .ao-spec dd {
 	margin: 0;
-	font-size: 0.85rem;
-	text-align: right;
-	white-space: nowrap;
+	font-size: 1.05rem;
+	line-height: 1.2;
 }
 
 .ao-empty {

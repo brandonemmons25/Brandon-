@@ -15,19 +15,23 @@ $src      = $image_id ? wp_get_attachment_image_url( $image_id, 'large' ) : '';
 // "The Ritz" would sort under R; neighborhoods follow the same rule.
 $sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );
 
-// ACF term fields, absent until it is installed.
-$section = function_exists( 'get_field' ) ? get_field( 'ao_section', $term ) : '';
-$zips    = function_exists( 'get_field' ) ? get_field( 'ao_zip_codes', $term ) : '';
+// Three stat columns, labelled per neighborhood. A pair with no value
+// falls back to the building count, so a card is never blank.
+$rows = array();
 
-$count = (int) $term->count;
+foreach ( range( 1, 3 ) as $n ) {
+	$label = get_term_meta( $term->term_id, "ao_stat{$n}_label", true );
+	$value = get_term_meta( $term->term_id, "ao_stat{$n}_value", true );
 
-// Always three rows, matching the building card, so the two directories
-// line up and no card is shorter than its neighbours.
-$rows = array(
-	'Buildings' => $count ? number_format( $count ) : '—',
-	'Section'   => $section ? $section : '—',
-	'ZIP Codes' => $zips ? $zips : '—',
-);
+	if ( $label && $value ) {
+		$rows[ $label ] = $value;
+	}
+}
+
+if ( ! $rows ) {
+	$count           = (int) $term->count;
+	$rows['Buildings'] = $count ? number_format( $count ) : '—';
+}
 
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );
 ?>
@@ -44,7 +48,7 @@ $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featu
 		<?php endif; ?>
 	</div>
 
-	<dl class="ao-card-specs">
+	<dl class="ao-card-specs" style="--ao-spec-columns:<?php echo (int) count( $rows ); ?>">
 		<?php foreach ( $rows as $label => $value ) : ?>
 			<div class="ao-spec">
 				<dt><?php echo esc_html( $label ); ?></dt>

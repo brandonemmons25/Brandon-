@@ -66,6 +66,18 @@ class AO_Fields {
 			'auth_callback'     => $auth,
 		) );
 
+		foreach ( range( 1, 3 ) as $n ) {
+			foreach ( array( 'label', 'value' ) as $part ) {
+				register_term_meta( 'ao_neighborhood', "ao_stat{$n}_{$part}", array(
+					'type'              => 'string',
+					'single'            => true,
+					'show_in_rest'      => true,
+					'sanitize_callback' => 'sanitize_text_field',
+					'auth_callback'     => $auth,
+				) );
+			}
+		}
+
 		register_term_meta( 'ao_neighborhood', 'ao_card_image', array(
 			'type'              => 'number',
 			'single'            => true,
@@ -197,6 +209,11 @@ class AO_Fields {
 			<p>Shown on the neighborhood directory card.</p>
 		</div>
 		<div class="form-field">
+			<label>Card Stats</label>
+			<?php self::stat_fields(); ?>
+			<p>Label and value for each of the three columns under the card.</p>
+		</div>
+		<div class="form-field">
 			<label for="ao_destination">Destination URL</label>
 			<input type="url" id="ao_destination" name="ao_destination" value="" placeholder="https://andyoei.com/rittenhouse-square/">
 			<p>Where the card sends visitors. Leave empty to use this neighborhood's own page.</p>
@@ -214,6 +231,13 @@ class AO_Fields {
 			</td>
 		</tr>
 		<tr class="form-field">
+			<th scope="row"><label>Card Stats</label></th>
+			<td>
+				<?php self::stat_fields( $term->term_id ); ?>
+				<p class="description">Label and value for each of the three columns under the card.</p>
+			</td>
+		</tr>
+		<tr class="form-field">
 			<th scope="row"><label for="ao_destination">Destination URL</label></th>
 			<td>
 				<input type="url" id="ao_destination" name="ao_destination" class="regular-text"
@@ -225,6 +249,30 @@ class AO_Fields {
 			</td>
 		</tr>
 		<?php
+	}
+
+	/**
+	 * The card's three stat columns. Labels are editable per neighborhood,
+	 * so the set can differ where one has nothing to say under a heading.
+	 */
+	private static function stat_fields( $term_id = 0 ) {
+		$suggested = array( 1 => 'Walk Score', 2 => 'Dining', 3 => 'Parks' );
+
+		foreach ( $suggested as $n => $hint ) {
+			$label = $term_id ? get_term_meta( $term_id, "ao_stat{$n}_label", true ) : '';
+			$value = $term_id ? get_term_meta( $term_id, "ao_stat{$n}_value", true ) : '';
+			?>
+			<p style="margin:0 0 .5rem">
+				<input type="text" name="ao_stat<?php echo (int) $n; ?>_label"
+					value="<?php echo esc_attr( $label ); ?>"
+					placeholder="<?php echo esc_attr( $hint ); ?>" style="width:12rem">
+				<input type="text" name="ao_stat<?php echo (int) $n; ?>_value"
+					value="<?php echo esc_attr( $value ); ?>"
+					placeholder="<?php echo esc_attr( array( 1 => '97', 2 => '40+ restaurants', 3 => 'Rittenhouse Square' )[ $n ] ); ?>"
+					style="width:14rem">
+			</p>
+			<?php
+		}
 	}
 
 	private static function picker( $attachment_id ) {
@@ -265,6 +313,19 @@ class AO_Fields {
 			delete_term_meta( $term_id, 'ao_destination' );
 		} else {
 			update_term_meta( $term_id, 'ao_destination', $destination );
+		}
+
+		foreach ( range( 1, 3 ) as $n ) {
+			foreach ( array( 'label', 'value' ) as $part ) {
+				$key   = "ao_stat{$n}_{$part}";
+				$entry = isset( $_POST[ $key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) : '';
+
+				if ( '' === $entry ) {
+					delete_term_meta( $term_id, $key );
+				} else {
+					update_term_meta( $term_id, $key, $entry );
+				}
+			}
 		}
 	}
 }
