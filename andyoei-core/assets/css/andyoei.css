@@ -500,40 +500,23 @@
 	border-bottom-color: currentColor;
 }
 
-/* One row of stat columns: value above, label beneath, and a single rule
-   running under all of them — on the list, not each column, or the gaps
-   between columns break it into dashes.
-   Two shared rows, so a value that wraps to a second line pushes every
-   label down together instead of only its own. */
+/* Building cards: one stacked row per spec, label left and value right,
+   each closed by its own hairline. */
 .ao-card-specs {
-	display: grid;
-	grid-template-columns: repeat(var(--ao-spec-columns, 3), minmax(0, 1fr));
-	grid-template-rows: auto auto;
-	gap: 0.3rem 2.5rem;
-	margin: 1.1rem 0 0;
-	padding-bottom: 0.9rem;
-	border-bottom: 1px solid var(--ao-line);
+	margin: 0;
 }
 
 .ao-spec {
-	display: grid;
-	grid-row: span 2;
-	grid-template-rows: subgrid;
-	align-content: start;
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.85rem 0;
+	border-bottom: 1px solid var(--ao-line);
 }
-
-/* Median Price closes the neighborhood card against its right edge, so the
-   two figures sit at the card's outer edges rather than bunching left. */
-.ao-card--neighborhood .ao-spec:last-child {
-	text-align: right;
-}
-
-/* The markup keeps the label first, as a definition list means it; order
-   puts the value on top. */
-.ao-spec dd { order: -1; }
 
 .ao-spec dt {
-	font-size: 0.65rem;
+	font-size: 0.7rem;
 	font-weight: 500;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
@@ -542,8 +525,54 @@
 
 .ao-spec dd {
 	margin: 0;
+	font-size: 0.85rem;
+	text-align: right;
+	white-space: nowrap;
+}
+
+/* Neighborhood cards instead run their stats as columns across one row:
+   value above, label beneath, and a single rule under all of them — drawn
+   on the list, not each column, or the gaps would break it into dashes.
+   Two shared rows, so a value that wraps to a second line pushes every
+   label down together instead of only its own. */
+.ao-card--neighborhood .ao-card-specs {
+	display: grid;
+	grid-template-columns: repeat(var(--ao-spec-columns, 2), minmax(0, 1fr));
+	grid-template-rows: auto auto;
+	gap: 0.3rem 2.5rem;
+	margin: 1.1rem 0 0;
+	padding-bottom: 0.9rem;
+	border-bottom: 1px solid var(--ao-line);
+}
+
+.ao-card--neighborhood .ao-spec {
+	display: grid;
+	grid-row: span 2;
+	grid-template-rows: subgrid;
+	align-content: start;
+	padding: 0;
+	border-bottom: 0;
+}
+
+/* The markup keeps the label first, as a definition list means it; order
+   puts the value on top. */
+.ao-card--neighborhood .ao-spec dd {
+	order: -1;
 	font-size: 1.05rem;
 	line-height: 1.2;
+	text-align: left;
+	white-space: normal;
+}
+
+.ao-card--neighborhood .ao-spec dt {
+	font-size: 0.65rem;
+}
+
+/* Median Price closes the card against its right edge, so the two figures
+   sit at the card's outer edges rather than bunching left. */
+.ao-card--neighborhood .ao-spec:last-child,
+.ao-card--neighborhood .ao-spec:last-child dd {
+	text-align: right;
 }
 
 .ao-empty {
