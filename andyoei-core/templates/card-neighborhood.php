@@ -15,9 +15,11 @@ $src      = $image_id ? wp_get_attachment_image_url( $image_id, 'large' ) : '';
 // "The Ritz" would sort under R; neighborhoods follow the same rule.
 $sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );
 
-// Three stat columns, labelled per neighborhood. A pair with no value
-// falls back to the building count, so a card is never blank.
-$rows = array();
+// The building count leads and keeps itself current — it is the published
+// count on this term, not a number anyone types. The rest are stat pairs
+// labelled per neighborhood; a pair missing either half is skipped.
+$count = (int) $term->count;
+$rows  = array( 'Buildings' => $count ? number_format( $count ) : '—' );
 
 foreach ( range( 1, 3 ) as $n ) {
 	$label = get_term_meta( $term->term_id, "ao_stat{$n}_label", true );
@@ -26,11 +28,6 @@ foreach ( range( 1, 3 ) as $n ) {
 	if ( $label && $value ) {
 		$rows[ $label ] = $value;
 	}
-}
-
-if ( ! $rows ) {
-	$count           = (int) $term->count;
-	$rows['Buildings'] = $count ? number_format( $count ) : '—';
 }
 
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );

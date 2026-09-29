@@ -252,11 +252,12 @@ class AO_Fields {
 	}
 
 	/**
-	 * The card's three stat columns. Labels are editable per neighborhood,
-	 * so the set can differ where one has nothing to say under a heading.
+	 * The stat columns that follow the automatic building count. Labels are
+	 * editable per neighborhood, so the set can differ where one has nothing
+	 * to say under a heading.
 	 */
 	private static function stat_fields( $term_id = 0 ) {
-		$suggested = array( 1 => 'Walk Score', 2 => 'Dining', 3 => 'Parks' );
+		$suggested = array( 1 => 'Median Price', 2 => 'Walk Score', 3 => 'Transit' );
 
 		foreach ( $suggested as $n => $hint ) {
 			$label = $term_id ? get_term_meta( $term_id, "ao_stat{$n}_label", true ) : '';
@@ -268,7 +269,7 @@ class AO_Fields {
 					placeholder="<?php echo esc_attr( $hint ); ?>" style="width:12rem">
 				<input type="text" name="ao_stat<?php echo (int) $n; ?>_value"
 					value="<?php echo esc_attr( $value ); ?>"
-					placeholder="<?php echo esc_attr( array( 1 => '97', 2 => '40+ restaurants', 3 => 'Rittenhouse Square' )[ $n ] ); ?>"
+					placeholder="<?php echo esc_attr( array( 1 => '$685,000', 2 => '97', 3 => 'Market-Frankford Line' )[ $n ] ); ?>"
 					style="width:14rem">
 			</p>
 			<?php

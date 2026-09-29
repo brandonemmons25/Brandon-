@@ -520,7 +520,7 @@
 	display: grid;
 	grid-template-columns: repeat(var(--ao-spec-columns, 3), minmax(0, 1fr));
 	grid-template-rows: auto auto;
-	gap: 0.3rem 1.5rem;
+	gap: 0.3rem 2.5rem;
 	margin: 1.1rem 0 0;
 }
 
