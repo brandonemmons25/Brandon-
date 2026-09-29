@@ -15,20 +15,15 @@ $src      = $image_id ? wp_get_attachment_image_url( $image_id, 'large' ) : '';
 // "The Ritz" would sort under R; neighborhoods follow the same rule.
 $sort_name = trim( preg_replace( '/^the\s+/i', '', $term->name ) );
 
-// The building count leads and keeps itself current — it is the published
-// count on this term, not a number anyone types. The rest are stat pairs
-// labelled per neighborhood; a pair missing either half is skipped.
+// Two columns. The building count keeps itself current — it is the
+// published count on this term, not a number anyone types.
 $count = (int) $term->count;
-$rows  = array( 'Buildings' => $count ? number_format( $count ) : '—' );
+$price = get_term_meta( $term->term_id, 'ao_median_price', true );
 
-foreach ( range( 1, 3 ) as $n ) {
-	$label = get_term_meta( $term->term_id, "ao_stat{$n}_label", true );
-	$value = get_term_meta( $term->term_id, "ao_stat{$n}_value", true );
-
-	if ( $label && $value ) {
-		$rows[ $label ] = $value;
-	}
-}
+$rows = array(
+	'Buildings'    => $count ? number_format( $count ) : '—',
+	'Median Price' => $price ? $price : '—',
+);
 
 $classes = 'ao-card ao-card--neighborhood' . ( ! empty( $featured ) ? ' is-featured' : '' );
 ?>
