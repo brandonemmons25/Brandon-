@@ -53,6 +53,75 @@ function ao_register_fields() {
 	}
 
 	// ── 02B Individual condominium building page ──────────────────────────
+	ao_group( 'neighborhood', 'Neighborhood Page', ao_location( 'taxonomy', 'ao_neighborhood' ), array(
+
+		ao_field( 'ao_tab_nbhd_hero', 'Hero', 'tab' ),
+		ao_field( 'ao_hero_image_nbhd', 'Hero Image', 'image', array( 'return_format' => 'array' ) ),
+		ao_field( 'ao_descriptor', 'Hero Descriptor', 'textarea', array(
+			'instructions' => '15–25 words.',
+			'rows'         => 2,
+		) ),
+
+		ao_field( 'ao_tab_nbhd_body', 'Content', 'tab' ),
+		ao_field( 'ao_overview', 'Neighborhood Overview', 'textarea', array(
+			'instructions' => '100–125 words. One concise overview, not multiple lifestyle sections.',
+			'rows'         => 5,
+		) ),
+		ao_field( 'ao_real_estate', 'Neighborhood Real Estate', 'textarea', array(
+			'instructions' => '110–140 words. Buyer-first and condominium-led; avoid tourism copy.',
+			'rows'         => 5,
+		) ),
+		ao_field( 'ao_real_estate_image', 'Real Estate Image', 'image', array( 'return_format' => 'array' ) ),
+		ao_field( 'ao_perspective_heading', "Andy's Perspective — Heading", 'text' ),
+		ao_field( 'ao_perspective', "Andy's Perspective", 'textarea', array(
+			'instructions' => 'Judgment-led professional insight, specific to this neighborhood.',
+			'rows'         => 4,
+		) ),
+
+		ao_field( 'ao_tab_nbhd_related', 'Related', 'tab' ),
+		ao_field( 'ao_featured_buildings', 'Featured Condominium Buildings', 'relationship', array(
+			'post_type'     => array( 'ao_building' ),
+			'return_format' => 'id',
+			'instructions'  => 'Manually selected. Leave empty where condominium inventory is not meaningful.',
+		) ),
+		ao_field( 'ao_idx_neighborhood', 'IDX Listings Embed', 'textarea', array(
+			'instructions' => 'Neighborhood-filtered IDX inventory. No introductory copy.',
+			'rows'         => 2,
+		) ),
+
+		ao_field( 'ao_tab_nbhd_faqs', 'FAQs', 'tab' ),
+		ao_field( 'ao_nbhd_faqs', 'FAQs', 'repeater', array(
+			'layout'       => 'block',
+			'button_label' => 'Add FAQ',
+			'sub_fields'   => array(
+				ao_field( 'ao_nbhd_faq_q', 'Question', 'text' ),
+				ao_field( 'ao_nbhd_faq_a', 'Answer', 'textarea', array( 'rows' => 3 ) ),
+			),
+		) ),
+		ao_field( 'ao_cta_statement', 'Closing Statement', 'textarea', array( 'rows' => 2 ) ),
+
+		ao_field( 'ao_tab_nbhd_internal', 'Internal', 'tab' ),
+		ao_field( 'ao_zip_codes', 'ZIP Codes', 'text' ),
+		ao_field( 'ao_section', 'Philadelphia Section', 'text' ),
+		ao_field( 'ao_research', 'Internal Research Record', 'wysiwyg', array(
+			'instructions' => 'Sources, methodology and maintenance notes. Never published.',
+		) ),
+	) );
+
+	/**
+	 * The Building Page panel feeds a single-building template. Off, because
+	 * the building pages are built as their own WordPress pages and pointed
+	 * at from each record's Destination URL — filling both would mean
+	 * maintaining the same copy twice, with only one copy ever shown.
+	 *
+	 * To bring it back:
+	 *   add_filter( 'ao_building_page_fields', '__return_true' );
+	 */
+
+	if ( ! apply_filters( 'ao_building_page_fields', false ) ) {
+		return;
+	}
+
 	ao_group( 'building', 'Building Page', ao_location( 'post_type', 'ao_building' ), array(
 
 		ao_field( 'ao_tab_facts', 'Facts', 'tab' ),
@@ -156,59 +225,4 @@ function ao_register_fields() {
 	) );
 
 	// ── 03B Individual neighborhood page, stored on the term ──────────────
-	ao_group( 'neighborhood', 'Neighborhood Page', ao_location( 'taxonomy', 'ao_neighborhood' ), array(
-
-		ao_field( 'ao_tab_nbhd_hero', 'Hero', 'tab' ),
-		ao_field( 'ao_hero_image_nbhd', 'Hero Image', 'image', array( 'return_format' => 'array' ) ),
-		ao_field( 'ao_descriptor', 'Hero Descriptor', 'textarea', array(
-			'instructions' => '15–25 words.',
-			'rows'         => 2,
-		) ),
-
-		ao_field( 'ao_tab_nbhd_body', 'Content', 'tab' ),
-		ao_field( 'ao_overview', 'Neighborhood Overview', 'textarea', array(
-			'instructions' => '100–125 words. One concise overview, not multiple lifestyle sections.',
-			'rows'         => 5,
-		) ),
-		ao_field( 'ao_real_estate', 'Neighborhood Real Estate', 'textarea', array(
-			'instructions' => '110–140 words. Buyer-first and condominium-led; avoid tourism copy.',
-			'rows'         => 5,
-		) ),
-		ao_field( 'ao_real_estate_image', 'Real Estate Image', 'image', array( 'return_format' => 'array' ) ),
-		ao_field( 'ao_perspective_heading', "Andy's Perspective — Heading", 'text' ),
-		ao_field( 'ao_perspective', "Andy's Perspective", 'textarea', array(
-			'instructions' => 'Judgment-led professional insight, specific to this neighborhood.',
-			'rows'         => 4,
-		) ),
-
-		ao_field( 'ao_tab_nbhd_related', 'Related', 'tab' ),
-		ao_field( 'ao_featured_buildings', 'Featured Condominium Buildings', 'relationship', array(
-			'post_type'     => array( 'ao_building' ),
-			'return_format' => 'id',
-			'instructions'  => 'Manually selected. Leave empty where condominium inventory is not meaningful.',
-		) ),
-		ao_field( 'ao_idx_neighborhood', 'IDX Listings Embed', 'textarea', array(
-			'instructions' => 'Neighborhood-filtered IDX inventory. No introductory copy.',
-			'rows'         => 2,
-		) ),
-
-		ao_field( 'ao_tab_nbhd_faqs', 'FAQs', 'tab' ),
-		ao_field( 'ao_nbhd_faqs', 'FAQs', 'repeater', array(
-			'layout'       => 'block',
-			'button_label' => 'Add FAQ',
-			'sub_fields'   => array(
-				ao_field( 'ao_nbhd_faq_q', 'Question', 'text' ),
-				ao_field( 'ao_nbhd_faq_a', 'Answer', 'textarea', array( 'rows' => 3 ) ),
-			),
-		) ),
-		ao_field( 'ao_cta_statement', 'Closing Statement', 'textarea', array( 'rows' => 2 ) ),
-
-		ao_field( 'ao_tab_nbhd_internal', 'Internal', 'tab' ),
-		ao_field( 'ao_zip_codes', 'ZIP Codes', 'text' ),
-		ao_field( 'ao_section', 'Philadelphia Section', 'text' ),
-		ao_field( 'ao_research', 'Internal Research Record', 'wysiwyg', array(
-			'instructions' => 'Sources, methodology and maintenance notes. Never published.',
-		) ),
-	) );
-
 }
