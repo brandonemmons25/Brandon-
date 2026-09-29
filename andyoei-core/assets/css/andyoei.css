@@ -74,10 +74,19 @@
 	min-height: 3.25rem;
 }
 
-/* Hairlines between segments, so the bar reads as one control. */
-.ao-pill + .ao-pill,
-.ao-pill + .ao-clear {
-	box-shadow: inset 1px 0 0 rgb(0 0 0 / 0.07);
+/* Straight vertical rules between segments, so the bar reads as one
+   control. Drawn as their own element, not a border or an inset shadow:
+   the pill is rounded to 999px, and an edge painted on a rounded box
+   follows that curve into a crescent instead of a straight line. */
+.ao-pill + .ao-pill::before,
+.ao-pill + .ao-clear::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 1px;
+	background: rgb(0 0 0 / 0.07);
 }
 
 .ao-pill-label,
@@ -166,6 +175,7 @@
    The pill itself carries it, as a slight darkening rather than a ring. */
 .ao-pill:focus-within {
 	background: #e9e5e0;
+	background-clip: padding-box;
 }
 
 /* Which needs the pill to own a background even inside the single capsule,
@@ -175,6 +185,7 @@
 }
 
 .ao-clear {
+	position: relative;
 	display: flex;
 	align-items: center;
 	padding: 0 1.4rem;
@@ -607,9 +618,9 @@
 		background: var(--ao-bar);
 	}
 
-	.ao-pill + .ao-pill,
-	.ao-pill + .ao-clear {
-		box-shadow: none;
+	.ao-pill + .ao-pill::before,
+	.ao-pill + .ao-clear::before {
+		display: none;
 	}
 }
 
