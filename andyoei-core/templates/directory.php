@@ -148,9 +148,7 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 	echo $featured; // phpcs:ignore WordPress.Security.EscapeOutput
 	?>
 
-	<div class="ao-meta">
-		<span class="ao-count"><?php echo esc_html( $result['total'] . ' ' . ( 1 === $result['total'] ? $config['count_label'][0] : $config['count_label'][1] ) ); ?></span>
-	</div>
+	<div class="ao-meta"></div>
 
 	<div class="ao-results" aria-live="polite" data-last-group="<?php echo esc_attr( $result['last_group'] ); ?>">
 		<?php

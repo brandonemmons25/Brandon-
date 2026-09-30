@@ -378,7 +378,9 @@
 				} );
 
 			if ( count ) {
-				count.textContent = count.textContent.replace( /^\d+/, visible );
+				if ( count ) {
+					count.textContent = count.textContent.replace( /^\d+/, visible );
+				}
 			}
 
 			if ( empty ) {
