@@ -25,7 +25,7 @@
 	   Named so .ao-meta can subtract one from the other and land the rule
 	   exactly midway. */
 	--ao-bar-gap: 2rem;
-	--ao-rule-gap: 2.5rem;
+	--ao-rule-gap: 2.3rem;
 	--ao-columns: 3;
 	--ao-featured-visible: 3;
 	--ao-media-ratio: 4 / 3;
@@ -313,14 +313,17 @@
 
 /* ── Count ───────────────────────────────────────────────────────────── */
 
-/* The rule under the bar, with the same space above it as below: the bar
-   already contributes its own margin above, so only the remainder is added
-   here. */
+/* The rule under the bar, with the same space above it as below.
+   Below it carries no margin at all: the first card reserves a fixed block
+   above its title for an optional logo, and that empty block is the gap a
+   visitor sees. A margin here would stack on top of it and read as double.
+   Above, the bar's own margin already covers most of the distance, so only
+   the remainder is added. */
 .ao-meta {
 	display: flex;
 	justify-content: flex-end;
 	padding-bottom: calc(var(--ao-rule-gap) - var(--ao-bar-gap));
-	margin-bottom: var(--ao-rule-gap);
+	margin-bottom: 0;
 	border-bottom: 1px solid var(--ao-line);
 }
 
