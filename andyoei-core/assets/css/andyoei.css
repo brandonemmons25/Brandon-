@@ -580,8 +580,11 @@
 }
 
 /* Median Price closes the card against its right edge, so the two figures
-   sit at the card's outer edges rather than bunching left. */
+   sit at the card's outer edges rather than bunching left. The label is
+   named explicitly rather than left to inherit: themes routinely set their
+   own alignment on dt, and a more specific rule beats an inherited one. */
 .ao-card--neighborhood .ao-spec:last-child,
+.ao-card--neighborhood .ao-spec:last-child dt,
 .ao-card--neighborhood .ao-spec:last-child dd {
 	text-align: right;
 }
