@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Andy Oei Core
  * Description: Condominium Building and Neighborhood post types, fields and directory filters for andyoei.com. Content and IDX are handled outside this plugin.
- * Version:           2.1.0
+ * Version:           2.1.1
  * Author:      imFORZA
  * Text Domain: andyoei
  */
@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 // Also the cache-busting string on the CSS and JS — bump it on every
 // release or browsers and caching plugins keep serving the old assets.
-define( 'AO_VERSION', '2.1.0' );
+define( 'AO_VERSION', '2.1.1' );
 define( 'AO_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AO_URL', plugin_dir_url( __FILE__ ) );
 

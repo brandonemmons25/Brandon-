@@ -580,13 +580,19 @@
 }
 
 /* Median Price closes the card against its right edge, so the two figures
-   sit at the card's outer edges rather than bunching left. The label is
-   named explicitly rather than left to inherit: themes routinely set their
-   own alignment on dt, and a more specific rule beats an inherited one. */
+   sit at the card's outer edges rather than bunching left.
+   justify-items does the work rather than text-align: the column is a grid,
+   so this moves the label and value boxes themselves to the right edge and
+   no theme rule about text alignment can undo it. text-align follows for
+   the case where a value wraps to two lines. */
+.ao-card--neighborhood .ao-spec:last-child {
+	justify-items: end;
+}
+
 .ao-card--neighborhood .ao-spec:last-child,
 .ao-card--neighborhood .ao-spec:last-child dt,
 .ao-card--neighborhood .ao-spec:last-child dd {
-	text-align: right;
+	text-align: right !important;
 }
 
 .ao-empty {
