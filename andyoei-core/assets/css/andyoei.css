@@ -586,6 +586,10 @@
    no theme rule about text alignment can undo it. text-align follows for
    the case where a value wraps to two lines. */
 .ao-card--neighborhood .ao-spec:last-child {
+	/* justify-content, not justify-items: the stat's own track sizes to its
+	   text and sits at the left of the column, so aligning within that track
+	   leaves it short of the card edge. This moves the track itself. */
+	justify-content: end;
 	justify-items: end;
 }
 
