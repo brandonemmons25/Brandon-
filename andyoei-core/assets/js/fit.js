@@ -2,11 +2,14 @@
  * Width and centring.
  *
  * The stylesheet widens the directory with negative margins, which assumes
- * the theme wraps it in something centred, unclipped, and willing to let a
- * child be wider than itself. Themes break all three, so this measures the
- * page and places the directory directly — and insists, because a plain
- * inline width still loses to an !important rule or a flex parent that
- * shrinks its items.
+ * the theme wraps it in something centred and willing to let a child be
+ * wider than itself. Themes break both, so this measures the page and places
+ * the directory directly — and insists, because a plain inline width still
+ * loses to an !important rule or a flex parent that shrinks its items.
+ *
+ * It writes to the .ao-directory element and nothing else. Anything it
+ * cannot achieve from there it gives up on: a plugin that reaches up the
+ * tree to restyle its host breaks that host in ways nobody can trace back.
  */
 ( function () {
 	'use strict';
@@ -29,43 +32,6 @@
 		FORCED.forEach( function ( prop ) {
 			el.style.removeProperty( prop );
 		} );
-	}
-
-	/**
-	 * An ancestor hiding horizontal overflow crops the directory no matter
-	 * what width it is given, and theme wrappers reach for `overflow: hidden`
-	 * routinely — to contain floats or clip rounded corners, not because the
-	 * content must be cut off.
-	 *
-	 * Both axes are released together: freeing only overflow-x while
-	 * overflow-y stays hidden makes the browser treat the vertical axis as
-	 * auto, which adds a scrollbar.
-	 */
-	function unclip( root ) {
-		for ( var node = root.parentElement; node && node !== document.body; node = node.parentElement ) {
-			var overflowX = window.getComputedStyle( node ).overflowX;
-
-			if ( overflowX === 'hidden' || overflowX === 'clip' ) {
-				node.style.setProperty( 'overflow', 'visible', 'important' );
-			}
-		}
-	}
-
-	/**
-	 * Last resort: a parent narrower than the directory, or one that shrinks
-	 * its children, keeps winning however the directory is styled. Widen the
-	 * ancestors that are standing in the way.
-	 */
-	function widenAncestors( root, want ) {
-		for ( var node = root.parentElement; node && node !== document.body; node = node.parentElement ) {
-			if ( node.getBoundingClientRect().width >= want - 1 ) {
-				continue;
-			}
-
-			force( node, 'max-width', 'none' );
-			force( node, 'width', 'auto' );
-			force( node, 'flex', '0 0 auto' );
-		}
 	}
 
 	function measure( root ) {
@@ -119,18 +85,18 @@
 
 		place( root, want, natural );
 
-		// Verify, because a parent can still be holding it narrow.
+		// A parent can still hold it narrower than asked. Earlier versions
+		// forced the ancestors wider and lifted their overflow, which reached
+		// outside this plugin's own markup and broke theme behaviour that
+		// depends on those ancestors — scroll animations among it. Settle for
+		// the width the page allows instead.
 		if ( Math.abs( root.getBoundingClientRect().width - want ) > 1 ) {
-			widenAncestors( root, want );
-			place( root, want, measure( root ) );
+			release( root );
 		}
 	}
 
 	function apply() {
-		document.querySelectorAll( '.ao-directory' ).forEach( function ( root ) {
-			unclip( root );
-			fit( root );
-		} );
+		document.querySelectorAll( '.ao-directory' ).forEach( fit );
 	}
 
 	ready( function () {
