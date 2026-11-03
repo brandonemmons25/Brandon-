@@ -29,6 +29,22 @@ class AO_Shortcodes {
 	}
 
 	/**
+	 * Close the gaps between tags before the markup is handed back.
+	 *
+	 * A shortcode placed in page or template content has its return value
+	 * run through wpautop, which reads the newlines between our tags as
+	 * paragraph breaks and inserts <p> and <br> among the cards. In a grid
+	 * each stray <p> takes a column of its own, so the cards end up in every
+	 * other column with gaps between them, and an empty <p></p> lands inside
+	 * each card. Removing the whitespace between tags leaves wpautop nothing
+	 * to act on. Only whitespace that sits wholly between two tags goes;
+	 * text content is untouched.
+	 */
+	private static function compact( $html ) {
+		return preg_replace( '/>\s+</', '><', trim( (string) $html ) );
+	}
+
+	/**
 	 * Inline token overrides for a directory wrapper.
 	 */
 	public static function style( $width, $columns ) {
@@ -94,7 +110,7 @@ class AO_Shortcodes {
 			) );
 		}
 
-		return ao_template( 'directory.php', array(
+		return self::compact( ao_template( 'directory.php', array(
 			'config'   => $config,
 			'request'  => $request,
 			'result'   => $result,
@@ -102,7 +118,7 @@ class AO_Shortcodes {
 			'featured' => $featured,
 			'width'    => $atts['width'],
 			'columns'  => $atts['columns'],
-		) );
+		) ) );
 	}
 
 	/**
@@ -155,13 +171,13 @@ class AO_Shortcodes {
 			$cards .= ao_template( 'card-building.php', array( 'post_id' => $post->ID ) );
 		}
 
-		return ao_template( 'featured-strip.php', array(
+		return self::compact( ao_template( 'featured-strip.php', array(
 			'title'  => $atts['title'],
 			'note'   => $atts['note'],
 			'cards'  => $cards,
 			'key'    => 'buildings',
 			'hidden' => '1' === (string) $atts['hidden'],
-		) );
+		) ) );
 	}
 
 	/**
@@ -211,13 +227,13 @@ class AO_Shortcodes {
 			) );
 		}
 
-		return ao_template( 'neighborhoods.php', array(
+		return self::compact( ao_template( 'neighborhoods.php', array(
 			'posts'       => $posts,
 			'featured'    => $featured,
 			'count_label' => $atts['count_label'],
 			'width'       => $atts['width'],
 			'columns'     => $atts['columns'],
-		) );
+		) ) );
 	}
 
 	/**
@@ -265,12 +281,12 @@ class AO_Shortcodes {
 			$cards .= ao_template( 'card-neighborhood.php', array( 'post_id' => $post->ID, 'featured' => true ) );
 		}
 
-		return ao_template( 'featured-strip.php', array(
+		return self::compact( ao_template( 'featured-strip.php', array(
 			'title'  => $atts['title'],
 			'note'   => $atts['note'],
 			'cards'  => $cards,
 			'key'    => 'neighborhoods',
 			'hidden' => false,
-		) );
+		) ) );
 	}
 }

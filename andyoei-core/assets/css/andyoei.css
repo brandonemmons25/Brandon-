@@ -337,7 +337,13 @@
 
 /* ── Featured strip ──────────────────────────────────────────────────── */
 
+/* The strip sets its own width. Dropped into a page or template on its own
+   it has no .ao-directory around it to inherit one from, and a constrained
+   layout group boxes it to the group's content width instead of the row. */
 .ao-featured {
+	width: 100%;
+	max-width: var(--ao-width, 1280px);
+	margin-inline: auto;
 	margin-bottom: 3.5rem;
 }
 
@@ -467,7 +473,15 @@
 	object-fit: contain;
 }
 
+/* Two lines are always reserved, measured in the title's own font size so
+   it holds whatever size a theme gives it. Without this a two-line title
+   makes its card taller than the rest, and that card's image and specs sit
+   lower than its neighbours'. Bottom-aligned, so a one-line title keeps the
+   same baseline as the second line of a two-line one. */
 .ao-card-name {
+	display: flex;
+	align-items: flex-end;
+	min-height: calc(2 * 1.2em);
 	font-family: var(--ao-font-display);
 	font-size: 1.05rem;
 	letter-spacing: 0.1em;
