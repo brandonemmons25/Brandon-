@@ -58,6 +58,16 @@ class AO_Query {
 	 * working after a record is rebuilt.
 	 */
 	public static function facet_options( $facet ) {
+		if ( isset( $facet['type'] ) && 'age' === $facet['type'] ) {
+			$options = array();
+
+			foreach ( $facet['options'] as $value => $bucket ) {
+				$options[ $value ] = $bucket['label'];
+			}
+
+			return $options;
+		}
+
 		if ( ! empty( $facet['post_type'] ) ) {
 			$posts = get_posts( array(
 				'post_type'      => $facet['post_type'],
@@ -139,6 +149,7 @@ class AO_Query {
 
 		$ranges    = array();
 		$relations = array();
+		$ages      = array();
 
 		foreach ( $config['facets'] as $name => $facet ) {
 			if ( empty( $request['facets'][ $name ] ) ) {
@@ -148,6 +159,21 @@ class AO_Query {
 			// Numeric buckets filter on a meta field, not a taxonomy.
 			if ( isset( $facet['type'] ) && 'range' === $facet['type'] ) {
 				$ranges[ $name ] = $facet;
+				continue;
+			}
+
+			// Narrowing to one of these records: not a meta clause at all.
+			if ( ! empty( $facet['self'] ) ) {
+				$ids = self::ids_for_slugs( $facet['post_type'], $request['facets'][ $name ] );
+
+				// An unknown slug must match nothing, not everything.
+				$args['post__in'] = $ids ? $ids : array( 0 );
+				continue;
+			}
+
+			// Measured against today rather than stored.
+			if ( isset( $facet['type'] ) && 'age' === $facet['type'] ) {
+				$ages[ $name ] = $facet;
 				continue;
 			}
 
@@ -197,6 +223,14 @@ class AO_Query {
 			}
 		}
 
+		foreach ( $ages as $name => $facet ) {
+			$clause = self::age_clause( $facet, $request['facets'][ $name ] );
+
+			if ( $clause ) {
+				$meta_query[ 'age_' . $name ] = $clause;
+			}
+		}
+
 		$meta_query = array_merge( $meta_query, self::sort_clauses( $request['sort'] ) );
 
 		if ( count( $meta_query ) > 1 ) {
@@ -209,17 +243,14 @@ class AO_Query {
 	}
 
 	/**
-	 * Selected slugs become the IDs stored against each building. A slug with
-	 * no published post behind it is dropped; if that empties the list the
-	 * clause is skipped rather than returning everything, since an impossible
-	 * filter should return nothing.
+	 * Post IDs for a set of slugs, in the order given.
 	 */
-	private static function relation_clause( $facet, $selected ) {
+	private static function ids_for_slugs( $post_type, $slugs ) {
 		$ids = array();
 
-		foreach ( $selected as $slug ) {
+		foreach ( $slugs as $slug ) {
 			$posts = get_posts( array(
-				'post_type'      => $facet['post_type'],
+				'post_type'      => $post_type,
 				'post_status'    => 'publish',
 				'name'           => $slug,
 				'posts_per_page' => 1,
@@ -230,6 +261,55 @@ class AO_Query {
 				$ids[] = (int) $posts[0];
 			}
 		}
+
+		return $ids;
+	}
+
+	/**
+	 * An age bucket, turned into the span of delivery dates that falls in it
+	 * as of this request. A building crosses from New to Newer on its own
+	 * once enough time has passed, with nobody re-tagging it.
+	 *
+	 * min_years is the younger edge and max_years the older one, both
+	 * measured back from today: "2 to < 15 years" is everything delivered
+	 * between fifteen years ago and two years ago.
+	 */
+	private static function age_clause( $facet, $selected ) {
+		$now     = (int) current_time( 'timestamp', true );
+		$clauses = array( 'relation' => 'OR' );
+
+		foreach ( $selected as $value ) {
+			if ( ! isset( $facet['options'][ $value ] ) ) {
+				continue;
+			}
+
+			$bucket = $facet['options'][ $value ];
+			$young  = isset( $bucket['min_years'] ) ? self::years_ago( $now, $bucket['min_years'] ) : $now;
+			$old    = isset( $bucket['max_years'] ) ? self::years_ago( $now, $bucket['max_years'] ) : 0;
+
+			$clauses[] = array(
+				'key'     => $facet['meta_key'],
+				'value'   => array( $old, $young ),
+				'type'    => 'NUMERIC',
+				'compare' => 'BETWEEN',
+			);
+		}
+
+		return count( $clauses ) > 1 ? $clauses : array();
+	}
+
+	private static function years_ago( $now, $years ) {
+		return (int) strtotime( '-' . (int) $years . ' years', $now );
+	}
+
+	/**
+	 * Selected slugs become the IDs stored against each building. A slug with
+	 * no published post behind it is dropped; if that empties the list the
+	 * clause is skipped rather than returning everything, since an impossible
+	 * filter should return nothing.
+	 */
+	private static function relation_clause( $facet, $selected ) {
+		$ids = self::ids_for_slugs( $facet['post_type'], $selected );
 
 		if ( ! $ids ) {
 			return array( 'key' => $facet['meta_key'], 'value' => 0, 'compare' => '=' );
@@ -353,7 +433,14 @@ class AO_Query {
 				$group = self::group_for( $post_id, $request['sort'], $config['group_by'] );
 
 				if ( $group && $group !== $last_group ) {
-					$html      .= '<div class="ao-group" role="heading" aria-level="3">' . esc_html( $group ) . '</div>';
+					// Each heading carries a way back to the controls, which
+					// are a long scroll away once every building is on the
+					// page.
+					$html .= '<div class="ao-group">'
+						. '<h3 class="ao-group-name">' . esc_html( $group ) . '</h3>'
+						. '<a class="ao-group-back" href="#ao-controls-' . esc_attr( $config['key'] ) . '">&uarr; Back to search</a>'
+						. '</div>';
+
 					$last_group = $group;
 				}
 			}
@@ -376,6 +463,12 @@ class AO_Query {
 	 * The header a record sits under for the active sort.
 	 */
 	private static function group_for( $post_id, $sort, $group_by ) {
+		if ( 'neighborhood' === $group_by ) {
+			$name = AO_Relations::name_for_building( $post_id );
+
+			return $name ? $name : 'Other';
+		}
+
 		if ( 'letter' !== $group_by ) {
 			return '';
 		}

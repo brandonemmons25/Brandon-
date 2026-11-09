@@ -31,6 +31,7 @@ foreach ( $BUILDINGS as $id => $b ) {
 	}
 }
 $META[101]['ao_median_price'] = '$685,000';
+$META[201]['ao_address'] = '1911 Walnut St';
 
 // ── Stubs ─────────────────────────────────────────────────────────────
 function add_action() {} function add_filter() {} function add_shortcode() {}
@@ -50,6 +51,7 @@ function get_permalink( $id ) { return 'http://example.test/?p=' . $id; }
 function get_the_post_thumbnail() { return '<img>'; }
 function is_wp_error( $v ) { return false; }
 function get_terms() { return array(); }
+function current_time( $type, $gmt = 0 ) { return time(); }
 function wp_parse_args( $args, $defaults = array() ) { return array_merge( $defaults, $args ); }
 
 function get_post_meta( $id, $key, $single = false ) {
@@ -90,6 +92,7 @@ function get_posts( $args ) {
 	} else {
 		$out = array();
 		foreach ( $BUILDINGS as $id => $b ) {
+			if ( isset( $args['name'] ) && $args['name'] !== sanitize_title( $b['title'] ) ) { continue; }
 			if ( isset( $args['meta_key'] ) && isset( $args['meta_value'] ) ) {
 				$have = isset( $META[ $id ][ $args['meta_key'] ] ) ? $META[ $id ][ $args['meta_key'] ] : 0;
 				if ( (int) $have !== (int) $args['meta_value'] ) { continue; }
@@ -170,10 +173,51 @@ check(
 	array( 'key' => 'ao_neighborhood', 'value' => 0, 'compare' => '=' )
 );
 
-// Other facets must still go through the taxonomy path.
-$views = AO_Query::parse_request( $config, array( 'f' => array( 'views' => 'skyline' ) ) );
-$args3 = AO_Query::args( $config, $views );
-check( 'Views still filters by taxonomy', isset( $args3['tax_query'][0]['taxonomy'] ) ? $args3['tax_query'][0]['taxonomy'] : '', 'ao_view' );
+// Height, status, built date and views were removed from the directory.
+foreach ( array( 'views', 'status', 'height', 'completion' ) as $gone ) {
+	check( "the {$gone} filter is gone", isset( $config['facets'][ $gone ] ), false );
+}
+
+// Features is the one taxonomy facet left, and it still needs every
+// selected amenity rather than any of them.
+$feat  = AO_Query::parse_request( $config, array( 'f' => array( 'features' => 'parking,elevator' ) ) );
+$args3 = AO_Query::args( $config, $feat );
+check( 'Features still filters by taxonomy', isset( $args3['tax_query'][0]['taxonomy'] ) ? $args3['tax_query'][0]['taxonomy'] : '', 'ao_feature' );
+check( 'Features requires every amenity picked', isset( $args3['tax_query'][0]['operator'] ) ? $args3['tax_query'][0]['operator'] : '', 'AND' );
+
+// The condominium dropdown narrows to one record rather than filtering meta.
+$one   = AO_Query::parse_request( $config, array( 'f' => array( 'building' => 'the-laurel' ) ) );
+$args4 = AO_Query::args( $config, $one );
+check( 'picking a condominium narrows to that post', $args4['post__in'], array( 201 ) );
+check( 'an unknown condominium matches nothing', AO_Query::args( $config, AO_Query::parse_request( $config, array( 'f' => array( 'building' => 'nope' ) ) ) )['post__in'], array( 0 ) );
+
+// Construction is a span of delivery dates worked out from today.
+$build = AO_Query::parse_request( $config, array( 'f' => array( 'construction' => 'new' ) ) );
+$args5 = AO_Query::args( $config, $build );
+$clause = $args5['meta_query']['age_construction'][0];
+check( 'Construction reads the indexed delivery date', $clause['key'], AO_Index::OCCUPANCY );
+check( 'Construction asks for a range', $clause['compare'], 'BETWEEN' );
+
+$two_years = (int) strtotime( '-2 years' );
+$newest    = $clause['value'][1];
+$oldest    = $clause['value'][0];
+check( 'New Construction starts two years back', abs( $oldest - $two_years ) < 90000, true );
+check( 'New Construction runs up to today', abs( $newest - time() ) < 90000, true );
+
+$newer  = AO_Query::args( $config, AO_Query::parse_request( $config, array( 'f' => array( 'construction' => 'newer' ) ) ) );
+$span   = $newer['meta_query']['age_construction'][0]['value'];
+check( 'Newer Construction ends where New begins', abs( $span[1] - $two_years ) < 90000, true );
+check( 'Newer Construction reaches fifteen years back', abs( $span[0] - (int) strtotime( '-15 years' ) ) < 90000, true );
+
+// A delivery date is read at whatever precision was entered.
+check( 'a year alone resolves to its first instant', AO_Index::occupancy_stamp( '2026' ), gmmktime( 0, 0, 0, 1, 1, 2026 ) );
+check( 'a year and month resolve to the first of it', AO_Index::occupancy_stamp( '2026-04' ), gmmktime( 0, 0, 0, 4, 1, 2026 ) );
+check( 'a full date resolves to itself', AO_Index::occupancy_stamp( '2026-04-15' ), gmmktime( 0, 0, 0, 4, 15, 2026 ) );
+check( 'nonsense resolves to nothing', AO_Index::occupancy_stamp( 'spring' ), 0 );
+
+// Results group under a neighborhood heading.
+check( 'the directory groups by neighborhood', $config['group_by'], 'neighborhood' );
+check( 'every building renders', $config['per_page'], -1 );
 
 // Cards render.
 $card = ao_template( 'card-neighborhood.php', array( 'post_id' => 101, 'featured' => false ) );
@@ -183,8 +227,16 @@ check( 'neighborhood card shows the median price', (bool) strpos( $card, '$685,0
 $card2 = ao_template( 'card-neighborhood.php', array( 'post_id' => 103, 'featured' => false ) );
 check( 'an empty neighborhood card shows a dash, not a blank', (bool) strpos( $card2, '<dd>—</dd>' ), true );
 
+// The card is the photo, the name and the street address — nothing else.
 $bcard = ao_template( 'card-building.php', array( 'post_id' => 201 ) );
-check( 'building card shows its Area', (bool) strpos( $bcard, 'Rittenhouse Square' ), true );
+check( 'building card shows its name', (bool) strpos( $bcard, 'The Laurel' ), true );
+check( 'building card shows its street address', (bool) strpos( $bcard, '1911 Walnut St' ), true );
+check( 'building card carries no neighborhood in the grid', strpos( $bcard, 'Rittenhouse Square' ), false );
+
+// In the featured strip there is no neighborhood heading above it, so the
+// card names its own.
+$fcard = ao_template( 'card-building.php', array( 'post_id' => 201, 'featured' => true ) );
+check( 'featured card names its neighborhood', (bool) strpos( $fcard, 'Rittenhouse Square' ), true );
 
 echo $fails ? "\n{$fails} failed\n" : "\nall passed\n";
 exit( $fails ? 1 : 0 );

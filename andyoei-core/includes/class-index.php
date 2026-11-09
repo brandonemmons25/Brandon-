@@ -14,6 +14,10 @@ class AO_Index {
 	const SORT_NBHD = '_ao_sort_nbhd';
 	const SEARCH    = '_ao_search';
 
+	// First residential occupancy, as a timestamp, so Construction can be
+	// measured against today in a query rather than stored as a tag.
+	const OCCUPANCY = '_ao_occupancy';
+
 	public static function init() {
 		add_action( 'save_post_ao_building', array( __CLASS__, 'on_save' ), 20, 2 );
 		add_action( 'set_object_terms', array( __CLASS__, 'on_terms' ), 20, 1 );
@@ -56,11 +60,51 @@ class AO_Index {
 
 		$address = (string) get_post_meta( $post_id, 'ao_address', true );
 
+		// Delivery date, at whatever precision the team had.
+		$stamp = self::occupancy_stamp( (string) get_post_meta( $post_id, 'ao_delivery', true ) );
+
+		if ( $stamp ) {
+			update_post_meta( $post_id, self::OCCUPANCY, $stamp );
+		} else {
+			delete_post_meta( $post_id, self::OCCUPANCY );
+		}
+
 		update_post_meta( $post_id, self::SORT_NAME, self::key( $sort_name ) );
 		update_post_meta( $post_id, self::SORT_NBHD, self::key( $sort_nbhd ) );
 
 		// Spec: search covers building name and address.
 		update_post_meta( $post_id, self::SEARCH, self::key( $post->post_title . ' ' . $address ) );
+	}
+
+	/**
+	 * A delivery date as a timestamp, from whatever precision was entered:
+	 * 2026, 2026-04 or 2026-04-15.
+	 *
+	 * A year or a month resolves to the first instant of that period. That
+	 * is a comparison point, not a date anyone sees — the spec's rule about
+	 * never inventing a day is about display, and nothing here is displayed.
+	 * Taking the start of the period makes a building the oldest it could
+	 * be, so a boundary case falls into the older bucket rather than
+	 * claiming a newness it may not have.
+	 *
+	 * @return int Unix timestamp, or 0 when nothing usable was entered.
+	 */
+	public static function occupancy_stamp( $value ) {
+		$value = trim( $value );
+
+		if ( ! preg_match( '/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?$/', $value, $m ) ) {
+			return 0;
+		}
+
+		$year  = (int) $m[1];
+		$month = isset( $m[2] ) ? max( 1, min( 12, (int) $m[2] ) ) : 1;
+		$day   = isset( $m[3] ) ? max( 1, min( 31, (int) $m[3] ) ) : 1;
+
+		if ( $year < 1800 || $year > 2200 ) {
+			return 0;
+		}
+
+		return (int) gmmktime( 0, 0, 0, $month, $day, $year );
 	}
 
 	/**

@@ -21,7 +21,9 @@
 		this.root = root;
 		this.key = root.getAttribute( 'data-ao-directory' );
 		this.results = root.querySelector( '.ao-results' );
-		this.count = root.querySelector( '.ao-count' );
+		this.count = root.querySelector( '.ao-count-total' );
+		this.countNote = root.querySelector( '.ao-count-note' );
+		this.chips = root.querySelector( '.ao-chips' );
 		this.clear = root.querySelector( '.ao-clear' );
 		this.more = root.querySelector( '.ao-more' );
 		this.empty = root.querySelector( '.ao-empty' );
@@ -35,6 +37,7 @@
 
 		this.bind();
 		this.syncPills();
+		this.syncChips();
 	}
 
 	Directory.prototype.bind = function () {
@@ -255,6 +258,10 @@
 			this.count.textContent = data.count_text;
 		}
 
+		if ( this.countNote ) {
+			this.countNote.toggleAttribute( 'hidden', !! data.filtered );
+		}
+
 		if ( this.more ) {
 			this.more.toggleAttribute( 'hidden', ! data.has_more );
 		}
@@ -276,11 +283,59 @@
 		} );
 
 		this.syncPills();
+		this.syncChips();
 
 		if ( isReset ) {
 			var query = params.toString();
 			window.history.replaceState( {}, '', query ? '?' + query : window.location.pathname );
 		}
+	};
+
+	/**
+	 * Every active choice, as a chip that removes it. Rebuilt from the
+	 * inputs themselves, so it cannot drift from what is actually checked.
+	 */
+	Directory.prototype.syncChips = function () {
+		if ( ! this.chips ) {
+			return;
+		}
+
+		var self = this;
+
+		this.chips.textContent = '';
+
+		this.groups.forEach( function ( group ) {
+			group.querySelectorAll( 'input:checked' ).forEach( function ( input ) {
+				if ( ! input.value ) {
+					return;
+				}
+
+				var chip = document.createElement( 'button' );
+
+				chip.type = 'button';
+				chip.className = 'ao-chip';
+				chip.innerHTML = '<span class="ao-chip-text"></span><span class="ao-chip-x" aria-hidden="true">&times;</span>';
+				chip.querySelector( '.ao-chip-text' ).textContent = input.getAttribute( 'data-label' ) || input.value;
+				chip.setAttribute( 'aria-label', 'Remove ' + chip.textContent.replace( '\u00d7', '' ).trim() );
+
+				chip.addEventListener( 'click', function () {
+					input.checked = false;
+
+					// A single-choice group falls back to its All option.
+					if ( 'radio' === input.type ) {
+						var all = group.querySelector( 'input[value=""]' );
+
+						if ( all ) {
+							all.checked = true;
+						}
+					}
+
+					self.load( true );
+				} );
+
+				self.chips.appendChild( chip );
+			} );
+		} );
 	};
 
 	/**

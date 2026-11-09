@@ -17,81 +17,73 @@ class AO_Directories {
 			// 02A — Condominium Building Directory.
 			'buildings' => array(
 				'post_type'    => 'ao_building',
-				'per_page'     => 24, // ~24, then Load More.
+				// Every building renders: the grouped scroll is the page,
+				// and a group cut in half by pagination is not.
+				'per_page'     => -1,
 				'card'         => 'card-building.php',
-				// No search box and no sort control in the bar; the directory
-				// still orders A–Z underneath, ignoring a leading "The".
-				'search'       => false,
-				'search_label' => 'Search Buildings',
+				'search'       => true,
+				'search_label' => 'Search building or address…',
 				'count_label'  => array( 'Building', 'Buildings' ),
-				// Alphabetical headers are off: the grid runs continuously.
-				// Set this to 'letter' via the ao_directories filter to
-				// bring them back.
-				'group_by'     => '',
+				// Results are grouped under a neighborhood heading, A–Z, and
+				// the buildings inside each run A–Z ignoring a leading "The".
+				'group_by'     => 'neighborhood',
 				'facets'       => array(
 
-					// In the bar, in this order.
-					'completion'   => array(
-						'type'      => 'range', // Buckets over a numeric field.
-						'meta_key'  => 'ao_completion',
-						'label'     => 'Built Date',
-						'all_label' => 'Any Year',
+					// ── In the bar, in this order after the search box ──
+					// Each is a single choice, so the control reads as a
+					// dropdown and its own wording sits inside it.
+					'building'     => array(
+						'self'      => true, // Narrows to one building.
+						'post_type' => 'ao_building',
+						'label'     => 'Select condominium',
+						'all_label' => 'Select condominium',
 						'single'    => true,
 						'in_bar'    => true,
-						'options'   => array(
-							'2026-plus' => array( 'label' => '2026 & Beyond', 'min' => 2026, 'max' => 0 ),
-							'2020-2025' => array( 'label' => '2020 – 2025', 'min' => 2020, 'max' => 2025 ),
-							'2010-2019' => array( 'label' => '2010 – 2019', 'min' => 2010, 'max' => 2019 ),
-							'2000-2009' => array( 'label' => '2000 – 2009', 'min' => 2000, 'max' => 2009 ),
-							'pre-2000'  => array( 'label' => 'Before 2000', 'min' => 0, 'max' => 1999 ),
-						),
 					),
 					'area'         => array(
-						// Backed by the neighborhood post type, not a
-						// taxonomy: the meta key holds the neighborhood's ID.
 						'post_type' => 'ao_neighborhood',
 						'meta_key'  => 'ao_neighborhood',
-						'label'     => 'Areas',
-						'operator'  => 'IN',   // OR within the group.
-						'all_label' => 'All Areas',
-						'in_bar'    => true,
-					),
-					'views'        => array(
-						'taxonomy'  => 'ao_view',
-						'label'     => 'Views',
-						'operator'  => 'IN',
-						'all_label' => 'All',
+						'label'     => 'All neighborhoods',
+						'all_label' => 'All neighborhoods',
+						'single'    => true,
 						'in_bar'    => true,
 					),
 
-					// Behind the Filters button.
-					'status'       => array(
-						'taxonomy'  => 'ao_status',
-						'label'     => 'Status',
-						'operator'  => 'IN',
-						'all_label' => 'All',
-					),
-					'height'       => array(
-						'taxonomy'  => 'ao_height',
-						'label'     => 'Height',
-						'operator'  => 'IN',
-						'all_label' => 'All',
-					),
+					// ── Behind the Filters button ──
+					// Only these two. Neighborhood is in the bar, and height
+					// is gone entirely.
 					'construction' => array(
-						'taxonomy'  => 'ao_construction',
+						// Measured against today rather than stored as a
+						// term: a building moves from New to Newer on its own
+						// as time passes, with nobody re-tagging it.
+						'type'      => 'age',
+						'meta_key'  => AO_Index::OCCUPANCY,
 						'label'     => 'Construction',
-						'operator'  => 'IN',
 						'all_label' => 'All',
+						'single'    => true, // Mutually exclusive.
+						'options'   => array(
+							'new'   => array(
+								'label'     => 'New Construction',
+								'note'      => '< 2 years',
+								'max_years' => 2,
+							),
+							'newer' => array(
+								'label'     => 'Newer Construction',
+								'note'      => '2 to < 15 years',
+								'min_years' => 2,
+								'max_years' => 15,
+							),
+						),
 					),
 					'features'     => array(
 						'taxonomy'  => 'ao_feature',
-						'label'     => 'Features',
-						'operator'  => 'AND', // Must have every selected feature.
+						'label'     => 'Features & Amenities',
+						'operator'  => 'AND', // Must have every one selected.
 						'all_label' => 'All',
 					),
 				),
 				'sorts'        => array(),
-				'default_sort' => 'name_asc',
+				'default_sort' => 'nbhd_asc',
 			),
 		);
 

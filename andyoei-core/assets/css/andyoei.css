@@ -19,7 +19,8 @@
 
 	--ao-width: 1280px;
 	--ao-mark-height: 3.75rem;
-	--ao-image-radius: 5px;
+	/* Sharp edges throughout, to match the rest of the site. */
+	--ao-image-radius: 0;
 	--ao-gap: 2.5rem;
 	/* The filter bar's own gap, and the space the rule beneath it sits in.
 	   Named so .ao-meta can subtract one from the other and land the rule
@@ -28,7 +29,7 @@
 	--ao-rule-gap: 2.3rem;
 	--ao-columns: 3;
 	--ao-featured-visible: 3;
-	--ao-media-ratio: 4 / 3;
+	--ao-media-ratio: 5 / 4;
 
 	color: var(--ao-ink);
 	font-family: var(--ao-font-ui);
@@ -63,7 +64,6 @@
 	flex-wrap: wrap;
 	align-items: stretch;
 	margin-bottom: var(--ao-bar-gap);
-	border-radius: 999px;
 	background: var(--ao-bar);
 	/* Hugs its controls, as in the reference — it does not stretch. */
 	width: fit-content;
@@ -216,7 +216,6 @@
 	min-width: 1.2rem;
 	height: 1.2rem;
 	padding: 0 0.3rem;
-	border-radius: 999px;
 	background: var(--ao-ink);
 	color: #fff;
 	font-size: 0.65rem;
@@ -236,9 +235,7 @@
 	min-width: 13rem;
 	padding: 0.6rem;
 	border: 1px solid var(--ao-line);
-	border-radius: 8px;
 	background: var(--ao-menu);
-	box-shadow: 0 20px 40px -20px rgb(0 0 0 / 0.3);
 }
 
 .ao-menu[hidden] {
@@ -280,7 +277,6 @@
 	align-items: center;
 	gap: 0.6rem;
 	padding: 0.4rem 0.55rem;
-	border-radius: 4px;
 	font-size: 0.85rem;
 	line-height: 1.3;
 	cursor: pointer;
@@ -321,7 +317,10 @@
    the remainder is added. */
 .ao-meta {
 	display: flex;
-	justify-content: flex-end;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
 	padding-bottom: calc(var(--ao-rule-gap) - var(--ao-bar-gap));
 	margin-bottom: 0;
 	border-bottom: 1px solid var(--ao-line);
@@ -332,6 +331,87 @@
 	font-weight: 500;
 	letter-spacing: 0.14em;
 	text-transform: uppercase;
+	color: var(--ao-muted);
+}
+
+/* Name and address beneath the photo, per the card spec. */
+.ao-card-body {
+	margin-top: 0.9rem;
+}
+
+.ao-card-eyebrow {
+	margin: 0 0 0.3rem;
+	font-size: 0.65rem;
+	font-weight: 500;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--ao-muted);
+}
+
+.ao-card-address {
+	margin: 0.2rem 0 0;
+	font-size: 0.85rem;
+	color: var(--ao-muted);
+}
+
+/* Active choices, each removing itself. */
+.ao-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+}
+
+.ao-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.3rem 0.6rem;
+	border: 0;
+	background: var(--ao-bar);
+	font: inherit;
+	font-size: 0.7rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--ao-ink);
+	cursor: pointer;
+}
+
+.ao-chip-x {
+	font-size: 0.9rem;
+	line-height: 1;
+	color: var(--ao-muted);
+}
+
+/* A neighborhood heading, with the way back to the controls beside it. */
+.ao-results .ao-group {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 1rem;
+	grid-column: 1 / -1;
+	margin: 1.5rem 0 0;
+	padding-bottom: 0.6rem;
+	border-bottom: 1px solid var(--ao-line);
+}
+
+.ao-group-name {
+	margin: 0;
+	font-family: var(--ao-font-display);
+	font-size: 0.8rem;
+	font-weight: 600;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+}
+
+.ao-group-back {
+	font-size: 0.7rem;
+	color: var(--ao-accent);
+}
+
+.ao-search-icon {
+	display: flex;
+	width: 0.9rem;
 	color: var(--ao-muted);
 }
 
@@ -408,9 +488,7 @@
 	height: 2.5rem;
 	padding: 0;
 	border: 0;
-	border-radius: 50%;
 	background: rgb(255 255 255 / 0.92);
-	box-shadow: 0 4px 14px -6px rgb(0 0 0 / 0.4);
 	color: var(--ao-ink);
 	cursor: pointer;
 }
@@ -474,14 +552,14 @@
 }
 
 /* Two lines are always reserved, measured in the title's own font size so
-   it holds whatever size a theme gives it. Without this a two-line title
-   makes its card taller than the rest, and that card's image and specs sit
-   lower than its neighbours'. Bottom-aligned, so a one-line title keeps the
-   same baseline as the second line of a two-line one. */
+   it holds whatever size a theme gives it. Without this a two-line name
+   makes its card taller than the rest, and the address below it falls out
+   of line with its neighbours'. */
 .ao-card-name {
-	display: flex;
-	align-items: flex-end;
+	display: block;
 	min-height: calc(2 * 1.2em);
+	margin: 0;
+	font-weight: 600;
 	font-family: var(--ao-font-display);
 	font-size: 1.05rem;
 	letter-spacing: 0.1em;
@@ -627,7 +705,6 @@
 .ao-more {
 	padding: 0.95rem 2.5rem;
 	border: 1px solid var(--ao-ink);
-	border-radius: 999px;
 	background: transparent;
 	font: inherit;
 	font-size: 0.7rem;
@@ -676,7 +753,6 @@
 	}
 
 	.ao-pill {
-		border-radius: 999px;
 		background: var(--ao-bar);
 	}
 

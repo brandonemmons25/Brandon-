@@ -26,7 +26,7 @@ class AO_Fields {
 			return current_user_can( 'edit_posts' );
 		};
 
-		foreach ( array( 'ao_address', 'ao_starting_price' ) as $text_key ) {
+		foreach ( array( 'ao_address', 'ao_starting_price', 'ao_delivery' ) as $text_key ) {
 			register_post_meta( 'ao_building', $text_key, array(
 				'type'              => 'string',
 				'single'            => true,
@@ -89,6 +89,7 @@ class AO_Fields {
 		$address     = get_post_meta( $post->ID, 'ao_address', true );
 		$price       = get_post_meta( $post->ID, 'ao_starting_price', true );
 		$completion  = get_post_meta( $post->ID, 'ao_completion', true );
+		$delivery    = get_post_meta( $post->ID, 'ao_delivery', true );
 		$destination = get_post_meta( $post->ID, 'ao_destination', true );
 
 		wp_nonce_field( 'ao_details_save', 'ao_details_nonce' );
@@ -110,6 +111,17 @@ class AO_Fields {
 			<input type="number" id="ao_completion" name="ao_completion" min="1800" max="2200" step="1"
 				value="<?php echo esc_attr( $completion ); ?>" placeholder="2026" style="width:6rem">
 			<span class="description">Year. Drives the Completion filter.</span>
+		</p>
+		<p>
+			<label for="ao_delivery"><strong>First Occupancy / Delivery</strong></label><br>
+			<input type="text" id="ao_delivery" name="ao_delivery" class="widefat"
+				value="<?php echo esc_attr( $delivery ); ?>" placeholder="2026-04">
+			<span class="description">
+				Year, year-month or full date — 2026, 2026-04 or 2026-04-15.
+				Enter only the precision you have. Construction is worked out
+				from this against today's date: under 2 years is New, 2 to
+				under 15 is Newer.
+			</span>
 		</p>
 		<p>
 			<label for="ao_destination"><strong>Destination URL</strong></label><br>
@@ -140,7 +152,7 @@ class AO_Fields {
 			return;
 		}
 
-		foreach ( array( 'ao_address', 'ao_starting_price' ) as $text_key ) {
+		foreach ( array( 'ao_address', 'ao_starting_price', 'ao_delivery' ) as $text_key ) {
 			$value = isset( $_POST[ $text_key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $text_key ] ) ) : '';
 
 			if ( '' === $value ) {

@@ -168,7 +168,7 @@ class AO_Shortcodes {
 
 		$cards = '';
 		foreach ( $posts as $post ) {
-			$cards .= ao_template( 'card-building.php', array( 'post_id' => $post->ID ) );
+			$cards .= ao_template( 'card-building.php', array( 'post_id' => $post->ID, 'featured' => true ) );
 		}
 
 		return self::compact( ao_template( 'featured-strip.php', array(

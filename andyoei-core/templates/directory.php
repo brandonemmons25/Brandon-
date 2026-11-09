@@ -68,31 +68,13 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 ?>
 <div class="ao-directory" data-ao-directory="<?php echo esc_attr( $key ); ?>" data-filtered="<?php echo $filtered ? '1' : '0'; ?>"<?php echo AO_Shortcodes::style( $width, $columns ); ?>>
 
-	<div class="ao-bar">
-		<?php if ( $panel ) : ?>
-			<div class="ao-pill ao-pill--panel">
-				<button type="button" class="ao-pill-button" aria-expanded="false" aria-haspopup="true">
-					<span class="ao-pill-label">Filters</span>
-					<span class="ao-pill-count" hidden></span>
-					<span class="ao-pill-icon" aria-hidden="true">
-						<svg viewBox="0 0 16 12" focusable="false"><path d="M1 2h14M3 6h10M6 10h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-					</span>
-				</button>
-
-				<div class="ao-menu ao-menu--panel" hidden>
-					<?php foreach ( $panel as $name => $facet ) : ?>
-						<?php
-						$facet['show_legend'] = true;
-						$render_group( $name, $facet );
-						?>
-					<?php endforeach; ?>
-				</div>
-			</div>
-		<?php endif; ?>
-
+	<div class="ao-bar" id="ao-controls-<?php echo esc_attr( $key ); ?>">
 		<?php if ( $config['search'] ) : ?>
 			<div class="ao-pill ao-pill--search">
 				<label class="screen-reader-text" for="ao-s-<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $config['search_label'] ); ?></label>
+				<span class="ao-search-icon" aria-hidden="true">
+					<svg viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m11 11 4 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+				</span>
 				<input
 					type="search"
 					id="ao-s-<?php echo esc_attr( $key ); ?>"
@@ -115,7 +97,8 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 			?>
 			<div class="ao-pill ao-pill--facet">
 				<button type="button" class="ao-pill-button" aria-expanded="false" aria-haspopup="true">
-					<span class="ao-pill-label"><?php echo esc_html( $facet['label'] ); ?></span>
+					<?php // The control's own wording sits inside it; no uppercase label outside. ?>
+					<span class="screen-reader-text"><?php echo esc_html( $facet['label'] ); ?></span>
 					<span class="ao-pill-value"><?php echo esc_html( AO_Query::facet_summary( $facet, $options, $active ) ); ?></span>
 					<span class="ao-pill-caret" aria-hidden="true"></span>
 				</button>
@@ -126,21 +109,24 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 			</div>
 		<?php endforeach; ?>
 
-		<?php if ( $config['sorts'] ) : ?>
-			<div class="ao-pill ao-pill--sort">
-				<span class="ao-pill-label">Sort</span>
-				<label class="screen-reader-text" for="ao-sort-<?php echo esc_attr( $key ); ?>">Sort by</label>
-				<select id="ao-sort-<?php echo esc_attr( $key ); ?>" class="ao-sort-select">
-					<?php foreach ( $config['sorts'] as $value => $label ) : ?>
-						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $request['sort'], $value ); ?>>
-							<?php echo esc_html( $label ); ?>
-						</option>
+		<?php if ( $panel ) : ?>
+			<div class="ao-pill ao-pill--panel">
+				<button type="button" class="ao-pill-button" aria-expanded="false" aria-haspopup="true">
+					<span class="ao-pill-value">Filters</span>
+					<span class="ao-pill-count" hidden></span>
+					<span class="ao-pill-caret" aria-hidden="true"></span>
+				</button>
+
+				<div class="ao-menu ao-menu--panel" hidden>
+					<?php foreach ( $panel as $name => $facet ) : ?>
+						<?php
+						$facet['show_legend'] = true;
+						$render_group( $name, $facet );
+						?>
 					<?php endforeach; ?>
-				</select>
+				</div>
 			</div>
 		<?php endif; ?>
-
-		<button type="button" class="ao-clear" <?php echo $filtered ? '' : 'hidden'; ?>>Clear All</button>
 	</div>
 
 	<?php
@@ -148,7 +134,19 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 	echo $featured; // phpcs:ignore WordPress.Security.EscapeOutput
 	?>
 
-	<div class="ao-meta"></div>
+	<div class="ao-meta">
+		<p class="ao-count">
+			<span class="ao-count-total"><?php echo esc_html( $result['total'] . ' ' . ( 1 === $result['total'] ? $config['count_label'][0] : $config['count_label'][1] ) ); ?></span>
+			<?php if ( 'neighborhood' === $config['group_by'] ) : ?>
+				<span class="ao-count-note"<?php echo $filtered ? ' hidden' : ''; ?>> &middot; Grouped by Neighborhood</span>
+			<?php endif; ?>
+		</p>
+
+		<?php // Rebuilt by the script whenever a choice changes. ?>
+		<div class="ao-chips" aria-live="polite"></div>
+
+		<button type="button" class="ao-clear" <?php echo $filtered ? '' : 'hidden'; ?>>Clear All</button>
+	</div>
 
 	<div class="ao-results" aria-live="polite" data-last-group="<?php echo esc_attr( $result['last_group'] ); ?>">
 		<?php
