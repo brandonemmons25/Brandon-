@@ -147,10 +147,9 @@
 }
 
 .ao-search-input {
-	/* Just wide enough for the longest placeholder, uppercase and tracked —
-	   "Search building or address" — so the magnifier that follows the field
-	   sits beside the words rather than adrift of them. */
-	width: 15.75rem;
+	/* Wide enough for the longest placeholder, which is
+	   "Search Neighborhoods". */
+	width: 15rem;
 	cursor: text;
 	text-overflow: ellipsis;
 }

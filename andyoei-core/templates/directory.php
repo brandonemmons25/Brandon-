@@ -72,15 +72,15 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 		<?php if ( $config['search'] ) : ?>
 			<div class="ao-pill ao-pill--search">
 				<label class="screen-reader-text" for="ao-s-<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $config['search_label'] ); ?></label>
+				<span class="ao-search-icon" aria-hidden="true">
+					<svg viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m11 11 4 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+				</span>
 				<input
 					type="search"
 					id="ao-s-<?php echo esc_attr( $key ); ?>"
 					class="ao-search-input"
 					placeholder="<?php echo esc_attr( $config['search_label'] ); ?>"
 					value="<?php echo esc_attr( $request['search'] ); ?>">
-				<span class="ao-search-icon" aria-hidden="true">
-					<svg viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="m11 11 4 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-				</span>
 			</div>
 		<?php endif; ?>
 
