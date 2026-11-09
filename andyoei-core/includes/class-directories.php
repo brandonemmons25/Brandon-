@@ -22,7 +22,7 @@ class AO_Directories {
 				'per_page'     => -1,
 				'card'         => 'card-building.php',
 				'search'       => true,
-				'search_label' => 'Search building or address…',
+				'search_label' => 'Search building or address',
 				'count_label'  => array( 'Building', 'Buildings' ),
 				// Results are grouped under a neighborhood heading, A–Z, and
 				// the buildings inside each run A–Z ignoring a leading "The".
