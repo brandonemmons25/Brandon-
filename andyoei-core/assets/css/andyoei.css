@@ -556,7 +556,14 @@
    makes its card taller than the rest, and the address below it falls out
    of line with its neighbours'. */
 .ao-card-name {
-	display: block;
+	/* Hugs its own text, so a rule drawn on this element — the site's hover
+	   underline, for one — sits under the name rather than running the
+	   card's full width. Bottom-aligned inside the two reserved lines, so a
+	   one-line name keeps the same baseline as a two-line one. */
+	display: flex;
+	align-items: flex-end;
+	width: fit-content;
+	max-width: 100%;
 	min-height: calc(2 * 1.2em);
 	margin: 0;
 	font-weight: 600;
