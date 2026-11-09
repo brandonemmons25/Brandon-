@@ -446,12 +446,6 @@
 	color: var(--ao-accent);
 }
 
-.ao-search-icon {
-	display: flex;
-	width: 0.9rem;
-	color: var(--ao-muted);
-}
-
 /* ── Featured strip ──────────────────────────────────────────────────── */
 
 /* The strip sets its own width. Dropped into a page or template on its own
