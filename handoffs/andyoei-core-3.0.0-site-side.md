@@ -166,6 +166,6 @@ filter — a migration seeding the new field from it is a small job if wanted.
 ## Checking the work
 
 `andyoei-core/tests/relations-test.php` runs under plain PHP with WordPress
-stubbed — `php tests/relations-test.php`. 32 checks, covering the removed
+stubbed — `php tests/relations-test.php`. 37 checks, covering the removed
 filters, the condominium narrowing, the Construction date spans, date-precision
 parsing, and the card contents. It catches wrong data shapes, not wrong hooks.
