@@ -41,7 +41,7 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 	$type    = $single ? 'radio' : 'checkbox';
 	$all     = isset( $facet['all_label'] ) ? $facet['all_label'] : 'All';
 	?>
-	<div class="ao-group" data-facet="<?php echo esc_attr( $name ); ?>" data-all="<?php echo esc_attr( $all ); ?>">
+	<div class="ao-group<?php echo $single ? ' ao-group--single' : ''; ?>" data-facet="<?php echo esc_attr( $name ); ?>" data-all="<?php echo esc_attr( $all ); ?>">
 		<?php if ( ! empty( $facet['show_legend'] ) ) : ?>
 			<p class="ao-group-label"><?php echo esc_html( $facet['label'] ); ?></p>
 		<?php endif; ?>
@@ -112,7 +112,10 @@ $render_group = function ( $name, $facet ) use ( $request ) {
 		<?php if ( $panel ) : ?>
 			<div class="ao-pill ao-pill--panel">
 				<button type="button" class="ao-pill-button" aria-expanded="false" aria-haspopup="true">
-					<span class="ao-pill-value">Filters</span>
+					<?php // ao-pill-label, not ao-pill-value: the script rewrites every
+					      // pill's value with its current choice, and this button is
+					      // named for what it opens, not for what is chosen inside. ?>
+					<span class="ao-pill-label">Filters</span>
 					<span class="ao-pill-count" hidden></span>
 					<span class="ao-pill-caret" aria-hidden="true"></span>
 				</button>

@@ -165,10 +165,14 @@
 }
 
 /* Themes ring focused inputs with a border, a box-shadow and an outline at
-   once; the pill already frames these, so all three are refused. */
-.ao-bar input,
+   once; the pill already frames these, so all three are refused. Text and
+   select only — a checkbox in the drawer is drawn from its own border, and
+   this rule used to erase it. */
+.ao-bar input[type="search"],
+.ao-bar input[type="text"],
 .ao-bar select,
-.ao-bar input:focus,
+.ao-bar input[type="search"]:focus,
+.ao-bar input[type="text"]:focus,
 .ao-bar select:focus {
 	border: 0 !important;
 	box-shadow: none !important;
@@ -290,6 +294,40 @@
 .ao-option input {
 	flex: none;
 	margin: 0;
+}
+
+/* A control in the bar is a dropdown: a list of options and nothing beside
+   them. The radio stays in the markup — it is what makes only one
+   selectable, and what a keyboard and a screen reader navigate — but it is
+   taken out of sight, and the chosen row carries the weight instead. The
+   drawer keeps its boxes. */
+.ao-pill--facet .ao-option input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.ao-pill--facet .ao-option:has( input:checked ) {
+	font-weight: 600;
+	color: var(--ao-ink);
+}
+
+/* Square boxes in the drawer, radio and checkbox alike, so the two filters
+   read as one set rather than two kinds of control. */
+.ao-pill--panel .ao-option input {
+	appearance: none;
+	width: 0.85rem;
+	height: 0.85rem;
+	border: 1px solid var(--ao-muted);
+	background: #fff;
+}
+
+.ao-pill--panel .ao-option input:checked {
+	border-color: var(--ao-ink);
+	background: var(--ao-ink);
+	box-shadow: inset 0 0 0 2px #fff;
 }
 
 /* The reset row reads as the default rather than as another choice. */
